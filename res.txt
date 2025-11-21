@@ -1,0 +1,7 @@
+python3 -m venv crawl4ai-env
+source crawl4ai-env/bin/activate
+pip install crawl4ai
+
+
+pip install crawl4ai --break-system-packages
+pip install crawl4ai
