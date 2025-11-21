@@ -35,3 +35,24 @@ class CrawlResponse(BaseModel):
     job_id: str
     message: str
     status: str
+
+
+class QuickScrapeRequest(BaseModel):
+    """Request for temporary scraping without storage"""
+    url: HttpUrl = Field(..., description="The URL to scrape")
+    skip_images: bool = Field(default=False, description="Skip extracting images")
+    extract_date: bool = Field(default=False, description="Attempt to extract publication date")
+    date_selector: Optional[str] = Field(default=None, description="CSS selector for date elements")
+
+
+class QuickScrapeResponse(BaseModel):
+    """Response for temporary scrape with data directly in response"""
+    url: str
+    success: bool
+    title: Optional[str] = None
+    content: Optional[str] = None
+    images: list = []
+    meta_image: Optional[str] = None
+    date: Optional[str] = None
+    error: Optional[str] = None
+    extraction_time_seconds: float
