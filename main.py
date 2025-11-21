@@ -1,11 +1,14 @@
 import uuid
+import os
 from datetime import datetime
 from typing import Dict
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from models import CrawlConfig, CrawlResponse, CrawlStatus
 from crawler_service import CrawlerService
+from services import EventEmitter, JobStateManager, StorageManager
 
 app = FastAPI(
     title="Crawl4AI API",
@@ -27,12 +30,42 @@ jobs: Dict[str, CrawlStatus] = {}
 
 
 async def run_crawl_job(job_id: str, config: CrawlConfig):
-    """Background task to run crawl job"""
+    """
+    Background task to run crawl job.
+
+    This function integrates the service layer components:
+    - EventEmitter: For real-time progress updates via WebSocket
+    - JobStateManager: For persistent state tracking
+    - StorageManager: For consistent file I/O operations
+    """
+    # Initialize service layer components
+    websocket_url = os.getenv("WEBSOCKET_URL", None)  # e.g., "ws://laravel-app:6001"
+    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+
+    event_emitter = EventEmitter(job_id, websocket_url=websocket_url)
+    job_state_manager = JobStateManager(job_id, base_path=base_path)
+    storage_manager = StorageManager(job_id, base_path=base_path)
+
     try:
+        # Initialize state manager (creates job directory and initial state file)
+        await job_state_manager.initialize()
+
+        # Connect event emitter (if WebSocket URL is configured)
+        if websocket_url:
+            await event_emitter.connect()
+
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
 
-        crawler = CrawlerService(config)
+        # Create crawler with service layer integration
+        crawler = CrawlerService(
+            config,
+            job_id=job_id,
+            event_emitter=event_emitter,
+            job_state_manager=job_state_manager,
+            storage_manager=storage_manager
+        )
+
         result = await crawler.crawl()
 
         jobs[job_id].status = "completed"
@@ -47,6 +80,11 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].message = f"Crawl failed: {str(e)}"
         jobs[job_id].completed_at = datetime.now()
 
+    finally:
+        # Close event emitter connection
+        if event_emitter:
+            await event_emitter.close()
+
 
 @app.get("/")
 async def root():
@@ -58,6 +96,8 @@ async def root():
             "/crawl": "POST - Submit a crawl job",
             "/status/{job_id}": "GET - Check crawl job status",
             "/jobs": "GET - List all jobs",
+            "/jobs/{job_id}/files": "GET - List files for a job",
+            "/jobs/{job_id}/files/{file_path}": "GET - Download a specific file",
             "/docs": "GET - API documentation"
         }
     }
@@ -154,6 +194,80 @@ async def delete_job(job_id: str):
 
     del jobs[job_id]
     return {"message": f"Job {job_id} deleted successfully"}
+
+
+@app.get("/jobs/{job_id}/files")
+async def list_job_files(job_id: str):
+    """
+    List all files for a specific job.
+
+    This endpoint returns a JSON list of all files stored in the job's directory,
+    allowing Laravel or other clients to discover what was scraped.
+
+    Parameters:
+    - job_id: The unique identifier of the crawl job
+
+    Returns:
+    - List of file paths with metadata (name, path, size, type)
+    """
+    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    storage_manager = StorageManager(job_id, base_path=base_path)
+
+    # Check if job directory exists
+    if not storage_manager.get_job_directory().exists():
+        raise HTTPException(status_code=404, detail="Job not found or no data available")
+
+    # Get list of all files
+    files = storage_manager.list_files(relative=True)
+
+    # Get detailed info for each file
+    files_info = []
+    for file_path in files:
+        info = storage_manager.get_file_info(file_path)
+        if info:
+            files_info.append(info)
+
+    return {
+        "job_id": job_id,
+        "total_files": len(files_info),
+        "files": files_info
+    }
+
+
+@app.get("/jobs/{job_id}/files/{file_path:path}")
+async def download_job_file(job_id: str, file_path: str):
+    """
+    Download a specific file from a job's directory.
+
+    This endpoint streams the requested file back to the client.
+    Used by Laravel to retrieve scraped content, images, or metadata.
+
+    Parameters:
+    - job_id: The unique identifier of the crawl job
+    - file_path: Relative path to the file within the job directory
+
+    Returns:
+    - File content as a streaming response
+    """
+    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    storage_manager = StorageManager(job_id, base_path=base_path)
+
+    # Get the file path (includes security check)
+    absolute_path = storage_manager.get_file_path(file_path)
+
+    if not absolute_path:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Get file info for content type
+    file_info = storage_manager.get_file_info(file_path)
+    media_type = file_info['type'] if file_info else 'application/octet-stream'
+
+    # Stream the file
+    return FileResponse(
+        path=str(absolute_path),
+        media_type=media_type,
+        filename=absolute_path.name
+    )
 
 
 @app.get("/health")

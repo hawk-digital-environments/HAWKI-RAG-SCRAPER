@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set, Dict, Optional
+from typing import List, Set, Dict, Optional, Any
 from urllib.parse import urljoin, urlparse, urlunparse
 from bs4 import BeautifulSoup
 import aiohttp
@@ -47,7 +47,20 @@ class RateLimiter:
 class CrawlerService:
     """Main crawler service handling all crawling operations"""
 
-    def __init__(self, config: CrawlConfig):
+    def __init__(self, config: CrawlConfig, job_id: Optional[str] = None,
+                 event_emitter: Optional[Any] = None,
+                 job_state_manager: Optional[Any] = None,
+                 storage_manager: Optional[Any] = None):
+        """
+        Initialize crawler service.
+
+        Args:
+            config: Crawl configuration
+            job_id: Unique job identifier (generated if not provided)
+            event_emitter: Optional EventEmitter for real-time updates
+            job_state_manager: Optional JobStateManager for state tracking
+            storage_manager: Optional StorageManager for file operations
+        """
         self.config = config
         self.visited_urls: Set[str] = set()
         self.to_visit: List[str] = []
@@ -56,6 +69,12 @@ class CrawlerService:
         self.semaphore = asyncio.Semaphore(config.max_concurrency)
         self.page_counter = 0
         self.counter_lock = asyncio.Lock()  # Lock for thread-safe counter operations
+
+        # Service layer components (optional - for event tracking and state management)
+        self.event_emitter = event_emitter
+        self.job_state_manager = job_state_manager
+        self.storage_manager = storage_manager
+        self.job_id = job_id
 
         # HTTP headers to avoid being blocked
         self.headers = {
@@ -66,29 +85,44 @@ class CrawlerService:
             'Connection': 'keep-alive',
         }
 
-        # Generate label if not provided
+        # Generate label if not provided (for backwards compatibility)
         if not config.label:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             domain = urlparse(str(config.url)).netloc.replace(".", "_")
             self.config.label = f"{domain}_{timestamp}"
 
         # Setup output directory
-        self.output_dir = Path(config.output_dir) / self.config.label
+        # If storage_manager is provided, use its job directory
+        # Otherwise, use traditional output_dir structure (backwards compatible)
+        if self.storage_manager:
+            self.output_dir = self.storage_manager.get_job_directory()
+        else:
+            self.output_dir = Path(config.output_dir) / self.config.label
 
     async def setup_directories(self):
         """Create necessary directories"""
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        if self.storage_manager:
+            self.storage_manager.ensure_job_directory()
+        else:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
 
     async def create_page_directory(self, page_number: int) -> Path:
         """Create directory for a specific page"""
-        page_dir = self.output_dir / f"page_{page_number:05d}"
-        page_dir.mkdir(exist_ok=True)
+        if self.storage_manager:
+            return self.storage_manager.create_page_directory(
+                page_number,
+                create_images_dir=not self.config.skip_images
+            )
+        else:
+            # Original logic for backwards compatibility
+            page_dir = self.output_dir / f"page_{page_number:05d}"
+            page_dir.mkdir(exist_ok=True)
 
-        if not self.config.skip_images:
-            images_dir = page_dir / "images"
-            images_dir.mkdir(exist_ok=True)
+            if not self.config.skip_images:
+                images_dir = page_dir / "images"
+                images_dir.mkdir(exist_ok=True)
 
-        return page_dir
+            return page_dir
 
     def normalize_url(self, url: str) -> str:
         """Normalize URL by removing fragments and trailing slashes"""
@@ -363,15 +397,21 @@ class CrawlerService:
         # Create page directory
         page_dir = await self.create_page_directory(page_number)
 
-        # Save JSON data
-        json_filename = page_dir / "data.json"
-        async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False))
+        if self.storage_manager:
+            # Use storage_manager for consistent file operations
+            await self.storage_manager.save_page_json(page_number, page_data['data'])
+            await self.storage_manager.save_page_content(page_number, page_data['markdown'] if page_data['markdown'] else "")
+        else:
+            # Original logic for backwards compatibility
+            # Save JSON data
+            json_filename = page_dir / "data.json"
+            async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False))
 
-        # Save markdown content
-        md_filename = page_dir / "content.md"
-        async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
-            await f.write(page_data['markdown'] if page_data['markdown'] else "")
+            # Save markdown content
+            md_filename = page_dir / "content.md"
+            async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
+                await f.write(page_data['markdown'] if page_data['markdown'] else "")
 
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler):
         """Crawl a single page"""
@@ -386,16 +426,37 @@ class CrawlerService:
                 current_page_number = self.page_counter
 
             # Display progress
+            total_pages = self.config.max_pages if self.config.max_pages > 0 else "unlimited"
             if self.config.max_pages > 0:
                 print(f"Crawling [{current_page_number}/{self.config.max_pages}]: {url}")
             else:
                 print(f"Crawling [{current_page_number}/unlimited]: {url}")
 
+            # Event: Starting to fetch URL
+            if self.event_emitter:
+                await self.event_emitter.url_fetching(url, current_page_number, self.config.max_pages)
+            if self.job_state_manager:
+                await self.job_state_manager.set_current_url(url)
+
             # Extract page data
             page_data = await self.extract_page_data(url, crawler, current_page_number)
 
             if page_data:
+                # Event: URL scraped successfully
+                if self.event_emitter:
+                    await self.event_emitter.url_scraped(url, current_page_number, success=True)
+
                 await self.save_page_data(page_data, current_page_number)
+
+                # Event: URL processing completed
+                files_created = [
+                    f"page_{current_page_number:05d}/data.json",
+                    f"page_{current_page_number:05d}/content.md"
+                ]
+                if self.event_emitter:
+                    await self.event_emitter.url_completed(url, current_page_number, files_created)
+                if self.job_state_manager:
+                    await self.job_state_manager.increment_completed()
 
                 # Discover new URLs if in discovery mode
                 if self.config.discovery_mode:
@@ -404,43 +465,100 @@ class CrawlerService:
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
                             self.to_visit.append(new_url)
             else:
+                # Event: URL scraping failed
+                if self.event_emitter:
+                    await self.event_emitter.url_scraped(url, current_page_number, success=False, error="Extraction failed")
+                if self.job_state_manager:
+                    await self.job_state_manager.increment_failed()
+
                 # Decrement if extraction failed
                 async with self.counter_lock:
                     self.page_counter -= 1
 
     async def crawl(self) -> Dict:
         """Main crawl method"""
-        await self.setup_directories()
+        try:
+            await self.setup_directories()
 
-        start_url = str(self.config.url)
+            # Update state: Job is now running
+            if self.job_state_manager:
+                await self.job_state_manager.set_status("running")
 
-        # Check if URL is a sitemap
-        if await self.is_sitemap(start_url):
-            print(f"Detected sitemap: {start_url}")
-            urls = await self.parse_sitemap(start_url)
-            self.to_visit = urls[:self.config.max_pages]
-            print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
-        else:
-            self.to_visit = [start_url]
+            start_url = str(self.config.url)
 
-        browser_config = BrowserConfig(
-            headless=True,
-            verbose=False
-        )
+            # Check if URL is a sitemap
+            if await self.is_sitemap(start_url):
+                print(f"Detected sitemap: {start_url}")
+                urls = await self.parse_sitemap(start_url)
 
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            # Continue while there are URLs to visit and we haven't reached max_pages (or max_pages is 0)
-            while self.to_visit and (self.config.max_pages == 0 or self.page_counter < self.config.max_pages):
-                # Process batch of URLs
-                batch_size = min(self.config.max_concurrency, len(self.to_visit))
-                batch = self.to_visit[:batch_size]
-                self.to_visit = self.to_visit[batch_size:]
+                # Event: Sitemap detected
+                if self.event_emitter:
+                    await self.event_emitter.sitemap_detected(start_url, len(urls))
 
-                tasks = [self.crawl_page(url, crawler) for url in batch]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
+                self.to_visit = urls_to_crawl
+                print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
 
-        return {
-            'pages_crawled': self.page_counter,
-            'output_directory': str(self.output_dir),
-            'label': self.config.label
-        }
+                # Event: URLs discovered
+                if self.event_emitter:
+                    await self.event_emitter.urls_discovered(len(urls), len(self.to_visit))
+                if self.job_state_manager:
+                    await self.job_state_manager.set_total_urls(len(self.to_visit))
+            else:
+                self.to_visit = [start_url]
+                if self.job_state_manager:
+                    await self.job_state_manager.set_total_urls(1)
+
+            # Event: Crawling started
+            total_to_crawl = len(self.to_visit) if not self.config.discovery_mode else self.config.max_pages
+            if self.event_emitter:
+                await self.event_emitter.crawling_started(total_to_crawl if total_to_crawl > 0 else 0)
+
+            browser_config = BrowserConfig(
+                headless=True,
+                verbose=False
+            )
+
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                # Continue while there are URLs to visit and we haven't reached max_pages (or max_pages is 0)
+                while self.to_visit and (self.config.max_pages == 0 or self.page_counter < self.config.max_pages):
+                    # Process batch of URLs
+                    batch_size = min(self.config.max_concurrency, len(self.to_visit))
+                    batch = self.to_visit[:batch_size]
+                    self.to_visit = self.to_visit[batch_size:]
+
+                    tasks = [self.crawl_page(url, crawler) for url in batch]
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Event: Job completed successfully
+            if self.event_emitter:
+                await self.event_emitter.job_completed(
+                    self.page_counter,
+                    str(self.output_dir),
+                    success=True
+                )
+            if self.job_state_manager:
+                await self.job_state_manager.set_status("completed")
+
+            return {
+                'pages_crawled': self.page_counter,
+                'output_directory': str(self.output_dir),
+                'label': self.config.label
+            }
+
+        except Exception as e:
+            # Event: Job failed
+            error_msg = str(e)
+            print(f"Crawl job failed: {error_msg}")
+
+            if self.event_emitter:
+                await self.event_emitter.job_completed(
+                    self.page_counter,
+                    str(self.output_dir),
+                    success=False,
+                    error=error_msg
+                )
+            if self.job_state_manager:
+                await self.job_state_manager.set_error(error_msg)
+
+            raise

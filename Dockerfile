@@ -60,9 +60,11 @@ COPY main.py .
 COPY models.py .
 COPY crawler_service.py .
 COPY example_client.py .
+COPY services/ ./services/
 
-# Create output directory
-RUN mkdir -p /app/output && chmod 755 /app/output
+# Create output and data directories
+RUN mkdir -p /app/output && chmod 755 /app/output && \
+    mkdir -p /app/data && chmod 755 /app/data
 
 # Expose port
 EXPOSE 8000
