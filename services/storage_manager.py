@@ -14,10 +14,12 @@ Directory Structure:
 /app/data/jobs/{job_id}/
     ├── job_state.json          # Job metadata (managed by JobStateManager)
     ├── page_00001/
-    │   ├── data.json           # Page metadata
-    │   ├── content.md          # Extracted content
-    │   └── images/             # Downloaded images
-    │       └── image1.jpg
+    │   ├── data_00001.json     # Page metadata
+    │   ├── content_00001.md    # Extracted content
+    │   ├── images/             # Downloaded images
+    │   │   └── image1.jpg
+    │   └── files/              # Downloaded PDFs
+    │       └── file1.pdf
     ├── page_00002/
     │   └── ...
     └── ...
@@ -77,13 +79,19 @@ class StorageManager:
         """
         return self.job_dir / f"page_{page_number:05d}"
 
-    def create_page_directory(self, page_number: int, create_images_dir: bool = True) -> Path:
+    def create_page_directory(
+        self,
+        page_number: int,
+        create_images_dir: bool = True,
+        create_files_dir: bool = False
+    ) -> Path:
         """
         Create directory structure for a specific page.
 
         Args:
             page_number: Page number (1-indexed)
             create_images_dir: Whether to create images subdirectory
+            create_files_dir: Whether to create files subdirectory
 
         Returns:
             Path to created page directory
@@ -95,11 +103,19 @@ class StorageManager:
             images_dir = page_dir / "images"
             images_dir.mkdir(exist_ok=True)
 
+        if create_files_dir:
+            files_dir = page_dir / "files"
+            files_dir.mkdir(exist_ok=True)
+
         return page_dir
 
     def get_images_directory(self, page_number: int) -> Path:
         """Get the images directory for a specific page."""
         return self.get_page_directory(page_number) / "images"
+
+    def get_files_directory(self, page_number: int) -> Path:
+        """Get the files directory for a specific page."""
+        return self.get_page_directory(page_number) / "files"
 
     async def save_page_json(self, page_number: int, data: Dict[str, Any]):
         """
@@ -110,7 +126,7 @@ class StorageManager:
             data: Dictionary to save as JSON
         """
         page_dir = self.get_page_directory(page_number)
-        json_file = page_dir / "data.json"
+        json_file = page_dir / f"data_{page_number:05d}.json"
 
         async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
             await f.write(json.dumps(data, indent=2, ensure_ascii=False))
@@ -124,7 +140,7 @@ class StorageManager:
             content: Content to save
         """
         page_dir = self.get_page_directory(page_number)
-        content_file = page_dir / "content.md"
+        content_file = page_dir / f"content_{page_number:05d}.md"
 
         async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
             await f.write(content if content else "")
@@ -146,6 +162,27 @@ class StorageManager:
 
         async with aiofiles.open(filepath, 'wb') as f:
             await f.write(image_data)
+
+        return filename
+
+    async def save_pdf(self, page_number: int, filename: str, pdf_data: bytes) -> str:
+        """
+        Save PDF file.
+
+        Args:
+            page_number: Page number (1-indexed)
+            filename: PDF filename
+            pdf_data: Raw PDF bytes
+
+        Returns:
+            Saved filename
+        """
+        files_dir = self.get_files_directory(page_number)
+        files_dir.mkdir(parents=True, exist_ok=True)
+        filepath = files_dir / filename
+
+        async with aiofiles.open(filepath, 'wb') as f:
+            await f.write(pdf_data)
 
         return filename
 
@@ -240,7 +277,8 @@ class StorageManager:
             ".gif": "image/gif",
             ".webp": "image/webp",
             ".txt": "text/plain",
-            ".html": "text/html"
+            ".html": "text/html",
+            ".pdf": "application/pdf"
         }
 
         return type_map.get(suffix, "application/octet-stream")

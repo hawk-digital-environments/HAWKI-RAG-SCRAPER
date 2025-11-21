@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import hashlib
 import time
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from bs4 import BeautifulSoup
 import aiohttp
 import aiofiles
 import html2text
+from email.utils import parsedate_to_datetime
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
@@ -64,6 +66,9 @@ class CrawlerService:
         self.config = config
         self.visited_urls: Set[str] = set()
         self.to_visit: List[str] = []
+        self.url_depth: Dict[str, int] = {}
+        self.url_source: Dict[str, str] = {}
+        self.sitemap_lastmod: Dict[str, str] = {}
         self.pages_data: List[Dict] = []
         self.rate_limiter = RateLimiter(config.max_rpm, config.request_delay)
         self.semaphore = asyncio.Semaphore(config.max_concurrency)
@@ -106,12 +111,13 @@ class CrawlerService:
         else:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    async def create_page_directory(self, page_number: int) -> Path:
+    async def create_page_directory(self, page_number: int, create_files_dir: bool = False) -> Path:
         """Create directory for a specific page"""
         if self.storage_manager:
             return self.storage_manager.create_page_directory(
                 page_number,
-                create_images_dir=not self.config.skip_images
+                create_images_dir=not self.config.skip_images,
+                create_files_dir=create_files_dir
             )
         else:
             # Original logic for backwards compatibility
@@ -121,6 +127,10 @@ class CrawlerService:
             if not self.config.skip_images:
                 images_dir = page_dir / "images"
                 images_dir.mkdir(exist_ok=True)
+
+            if create_files_dir:
+                files_dir = page_dir / "files"
+                files_dir.mkdir(exist_ok=True)
 
             return page_dir
 
@@ -182,6 +192,9 @@ class CrawlerService:
                         loc = url_tag.find('loc')
                         if loc:
                             urls.append(loc.text)
+                            lastmod_tag = url_tag.find('lastmod')
+                            if lastmod_tag and lastmod_tag.text:
+                                self.sitemap_lastmod[loc.text] = lastmod_tag.text.strip()
         except Exception as e:
             print(f"Error parsing sitemap {sitemap_url}: {e}")
 
@@ -231,7 +244,242 @@ class CrawlerService:
 
         return None
 
-    async def extract_page_data(self, url: str, crawler: AsyncWebCrawler, page_number: int) -> Optional[Dict]:
+    def extract_pdf_links(self, html_content: str, base_url: str) -> List[str]:
+        """Extract PDF links from HTML content"""
+        if not html_content:
+            return []
+
+        soup = BeautifulSoup(html_content, 'html.parser')
+        pdf_urls = set()
+
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if href.lower().split('?')[0].endswith('.pdf'):
+                absolute_url = urljoin(base_url, href)
+                pdf_urls.add(self.normalize_url(absolute_url))
+
+        return list(pdf_urls)
+
+    async def fetch_head(self, url: str) -> (Optional[int], Dict[str, str]):
+        """Fetch HEAD headers for a URL to detect content-type, etag, last-modified."""
+        await self.rate_limiter.acquire()
+        headers: Dict[str, str] = {}
+        status_code: Optional[int] = None
+        try:
+            async with aiohttp.ClientSession(headers=self.headers) as session:
+                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
+                    status_code = response.status
+                    headers = {k.lower(): v for k, v in response.headers.items()}
+        except Exception:
+            pass
+        return status_code, headers
+
+    async def is_pdf_resource(self, url: str, head_status: Optional[int] = None, head_headers: Optional[Dict[str, str]] = None) -> bool:
+        """Check if a URL points directly to a PDF"""
+        if url.lower().split('?')[0].endswith('.pdf'):
+            return True
+
+        headers = head_headers or await self.fetch_head(url)
+        if isinstance(headers, tuple):
+            # backward compatibility; should not happen after refactor
+            headers = headers[1]
+        content_type = headers.get('content-type', '') if isinstance(headers, dict) else ''
+        return 'pdf' in content_type.lower()
+
+    async def fetch_and_save_pdf(self, pdf_url: str, page_number: int, session: Optional[aiohttp.ClientSession] = None) -> Optional[Dict[str, str]]:
+        """Download a PDF and save it to the files directory"""
+        await self.rate_limiter.acquire()
+
+        cleanup_session = False
+        if session is None:
+            session = aiohttp.ClientSession(headers=self.headers)
+            cleanup_session = True
+
+        try:
+            async with session.get(pdf_url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                content_type = response.headers.get('Content-Type', '').lower()
+                if response.status != 200 or ('pdf' not in content_type and not pdf_url.lower().split('?')[0].endswith('.pdf')):
+                    return None
+
+                pdf_bytes = await response.read()
+
+                parsed = urlparse(pdf_url)
+                filename = os.path.basename(parsed.path)
+                if not filename or not filename.lower().endswith('.pdf'):
+                    filename = f"file_{abs(hash(pdf_url))}.pdf"
+
+                # Normalize German characters and sanitize
+                umlaut_map = str.maketrans({
+                    'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
+                    'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
+                    'ß': 'ss'
+                })
+                filename = filename.translate(umlaut_map)
+                filename = re.sub(r'[^\w\-_\.]', '_', filename)
+
+                # Ensure page directory and files subdir exist
+                page_dir = await self.create_page_directory(page_number, create_files_dir=True)
+                files_dir = page_dir / "files"
+
+                if self.storage_manager:
+                    await self.storage_manager.save_pdf(page_number, filename, pdf_bytes)
+                    files_dir = self.storage_manager.get_files_directory(page_number)
+                    filepath = files_dir / filename
+                else:
+                    files_dir.mkdir(exist_ok=True)
+                    filepath = files_dir / filename
+                    async with aiofiles.open(filepath, 'wb') as f:
+                        await f.write(pdf_bytes)
+
+                return {
+                    "url": pdf_url,
+                    "local_path": str(filepath.resolve())
+                }
+        except Exception as e:
+            print(f"Error downloading PDF {pdf_url}: {e}")
+            return None
+        finally:
+            if cleanup_session:
+                await session.close()
+
+    def parse_date_string(self, date_str: str) -> Optional[str]:
+        """Parse a date string into ISO format if plausible."""
+        if not date_str:
+            return None
+        cleaned = date_str.strip()
+        if not cleaned:
+            return None
+
+        # Try ISO-like
+        try:
+            dt = datetime.fromisoformat(cleaned.replace('Z', '+00:00'))
+            if 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        # Try RFC822/HTTP style
+        try:
+            dt = parsedate_to_datetime(cleaned)
+            if dt and 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        return None
+
+    def detect_language(self, html_content: Optional[str], head_headers: Optional[Dict[str, str]]) -> Optional[str]:
+        """
+        Infer page language from HTML lang attributes or Content-Language header.
+        Returns a lowercased language code when found, otherwise None.
+        """
+        # From headers
+        if head_headers:
+            content_lang = head_headers.get('content-language')
+            if content_lang:
+                lang_val = content_lang.split(',')[0].split(';')[0].strip().lower()
+                if lang_val:
+                    return lang_val
+
+        # From HTML
+        if html_content:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            html_tag = soup.find('html')
+            if html_tag and html_tag.get('lang'):
+                lang_val = html_tag.get('lang').split('-')[0].strip().lower()
+                if lang_val:
+                    return lang_val
+
+            meta_lang = soup.find('meta', attrs={'http-equiv': 'Content-Language'})
+            if meta_lang and meta_lang.get('content'):
+                lang_val = meta_lang.get('content').split(',')[0].split(';')[0].strip().lower()
+                if lang_val:
+                    return lang_val
+
+        return None
+
+    def extract_dates(self, html_content: str, soup: BeautifulSoup) -> Dict[str, Optional[str]]:
+        """
+        Collects dates in a deterministic order: JSON-LD (datePublished/dateModified), meta tags (og/article/date/lastmod variants), <time> tags, then elements with date-ish class names. Each candidate is normalized to ISO when plausible. Returns best-effort published/updated timestamps for downstream freshness logic.
+        """
+        published = None
+        updated = None
+
+        def pick(first: Optional[str], second: Optional[str]) -> Optional[str]:
+            return first or second
+
+        # JSON-LD
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string or '')
+            except Exception:
+                continue
+
+            candidates = []
+            if isinstance(data, list):
+                candidates.extend(data)
+            elif isinstance(data, dict):
+                candidates.append(data)
+
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                pub = self.parse_date_string(str(item.get('datePublished', '')).strip()) if item.get('datePublished') else None
+                mod = self.parse_date_string(str(item.get('dateModified', '')).strip()) if item.get('dateModified') else None
+                published = pick(published, pub)
+                updated = pick(updated, mod)
+                if published and updated:
+                    break
+
+        # Meta tags
+        meta_map = {
+            'article:published_time': 'published',
+            'article:modified_time': 'updated',
+            'og:updated_time': 'updated',
+            'og:published_time': 'published',
+            'date': 'published',
+            'lastmod': 'updated'
+        }
+        for prop, target in meta_map.items():
+            meta_tag = soup.find('meta', attrs={'property': prop}) or soup.find('meta', attrs={'name': prop})
+            if meta_tag and meta_tag.get('content'):
+                parsed = self.parse_date_string(meta_tag['content'])
+                if target == 'published':
+                    published = pick(published, parsed)
+                else:
+                    updated = pick(updated, parsed)
+
+        # <time> tags
+        for time_tag in soup.find_all('time'):
+            dt_attr = time_tag.get('datetime') or time_tag.get('content')
+            parsed = self.parse_date_string(dt_attr or time_tag.text)
+            if parsed:
+                published = pick(published, parsed)
+                break
+
+        # Class/id heuristics
+        class_keywords = ('date', 'time', 'publish', 'posted', 'update', 'modified')
+        for elem in soup.find_all(True, class_=True):
+            class_str = ' '.join(elem.get('class', [])).lower()
+            if any(k in class_str for k in class_keywords):
+                parsed = self.parse_date_string(elem.get('content') or elem.get('datetime') or elem.text)
+                if parsed:
+                    if not published:
+                        published = parsed
+                    elif not updated and parsed != published:
+                        updated = parsed
+                    break
+
+        return {
+            'published_at': published,
+            'updated_at': updated
+        }
+
+    async def extract_page_data(self, url: str, crawler: AsyncWebCrawler, page_number: int,
+                                head_headers: Optional[Dict[str, str]] = None,
+                                head_status: Optional[int] = None,
+                                depth: int = 0,
+                                source_type: str = "seed") -> Optional[Dict]:
         """Extract data from a single page"""
         await self.rate_limiter.acquire()
 
@@ -302,20 +550,41 @@ class CrawlerService:
             if title_tag:
                 title.append(title_tag.text.strip())
 
+            # Canonical URL
+            canonical_url = None
+            canonical_tag = soup.find('link', rel='canonical')
+            if canonical_tag and canonical_tag.get('href'):
+                canonical_url = urljoin(url, canonical_tag['href'])
+
+            # Final URL from result object if available
+            final_url = getattr(result, 'final_url', None) or getattr(result, 'page_url', None) or url
+
             # Extract meta image
             meta_img_url = []
             og_image = soup.find('meta', property='og:image')
             if og_image and og_image.get('content'):
                 meta_img_url.append(og_image['content'])
 
-            # Extract date if selector provided
+            # Extract date if selector provided plus smart extraction
             dates = []
             if self.config.date_selector:
                 date_elements = soup.select(self.config.date_selector)
                 for elem in date_elements:
                     date_text = elem.get('content') or elem.get('datetime') or elem.text
                     if date_text:
-                        dates.append(date_text.strip())
+                        normalized = self.parse_date_string(date_text)
+                        if normalized:
+                            dates.append(normalized)
+                        else:
+                            dates.append(date_text.strip())
+
+            date_info = self.extract_dates(result.html, soup)
+            if date_info.get('published_at'):
+                dates.insert(0, date_info['published_at'])
+            if date_info.get('updated_at') and date_info['updated_at'] not in dates:
+                dates.append(date_info['updated_at'])
+
+            lang = self.detect_language(result.html, head_headers)
 
             # Extract images - use both crawl4ai and BeautifulSoup
             images = []
@@ -374,12 +643,39 @@ class CrawlerService:
                         if filename:
                             downloaded_images.append(filename)
 
+            # Content hash for freshness detection
+            content_for_hash = markdown_content if markdown_content else result.html
+            content_hash = hashlib.sha256(content_for_hash.encode('utf-8', errors='ignore')).hexdigest()
+
+            fetch_time = datetime.now().isoformat()
+            content_length = (head_headers or {}).get('content-length') if head_headers else None
+            sitemap_lastmod = self.sitemap_lastmod.get(url)
+            domain = urlparse(final_url).netloc if final_url else urlparse(url).netloc
+            canonicalized_path = urlparse(final_url).path if final_url else urlparse(url).path
+
             page_data = {
                 'title': title,
                 'page_url': [url],
+                'final_url': final_url,
+                'canonical_url': canonical_url,
+                'domain': domain,
+                'canonicalized_path': canonicalized_path,
                 'meta_img_url': meta_img_url,
                 'images': downloaded_images if not self.config.skip_images else images,
-                'date': dates
+                'date': dates,
+                'lang': lang,
+                'source_type': source_type,
+                'crawl_depth': depth,
+                'published_at': date_info.get('published_at'),
+                'updated_at': date_info.get('updated_at'),
+                'last_modified_header': (head_headers or {}).get('last-modified') if head_headers else None,
+                'etag': (head_headers or {}).get('etag') if head_headers else None,
+                'http_status': head_status,
+                'content_length': content_length,
+                'fetch_time': fetch_time,
+                'sitemap_lastmod': sitemap_lastmod,
+                'redirect_chain': [url, final_url] if final_url and final_url != url else [url],
+                'content_hash': content_hash
             }
 
             return {
@@ -404,12 +700,12 @@ class CrawlerService:
         else:
             # Original logic for backwards compatibility
             # Save JSON data
-            json_filename = page_dir / "data.json"
+            json_filename = page_dir / f"data_{page_number:05d}.json"
             async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False))
 
             # Save markdown content
-            md_filename = page_dir / "content.md"
+            md_filename = page_dir / f"content_{page_number:05d}.md"
             async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
                 await f.write(page_data['markdown'] if page_data['markdown'] else "")
 
@@ -438,10 +734,56 @@ class CrawlerService:
             if self.job_state_manager:
                 await self.job_state_manager.set_current_url(url)
 
-            # Extract page data
-            page_data = await self.extract_page_data(url, crawler, current_page_number)
+            head_status, head_headers = await self.fetch_head(url)
+
+            # Handle direct PDF URLs
+            page_data = None
+            if await self.is_pdf_resource(url, head_status, head_headers):
+                pdf_entry = await self.fetch_and_save_pdf(url, current_page_number)
+                if pdf_entry:
+                    pdf_lang = self.detect_language(None, head_headers)
+                    page_data = {
+                        'data': {
+                            'title': [],
+                            'page_url': [url],
+                            'meta_img_url': [],
+                            'images': [],
+                            'date': [],
+                            'lang': pdf_lang,
+                            'source_type': self.url_source.get(url, 'seed'),
+                            'crawl_depth': self.url_depth.get(url, 0),
+                            'pdfs': [pdf_entry]
+                        },
+                        'markdown': '',
+                        'html_content': ''
+                    }
+            else:
+                # Extract page data
+                page_data = await self.extract_page_data(
+                    url,
+                    crawler,
+                    current_page_number,
+                    head_headers=head_headers,
+                    head_status=head_status,
+                    depth=self.url_depth.get(url, 0),
+                    source_type=self.url_source.get(url, 'seed')
+                )
 
             if page_data:
+                pdf_entries = page_data['data'].get('pdfs', [])
+
+                # Detect and download PDF links in HTML content
+                if page_data.get('html_content'):
+                    pdf_links = self.extract_pdf_links(page_data['html_content'], url)
+                    if pdf_links:
+                        async with aiohttp.ClientSession(headers=self.headers) as pdf_session:
+                            for pdf_url in pdf_links:
+                                pdf_entry = await self.fetch_and_save_pdf(pdf_url, current_page_number, session=pdf_session)
+                                if pdf_entry:
+                                    pdf_entries.append(pdf_entry)
+
+                page_data['data']['pdfs'] = pdf_entries
+
                 # Event: URL scraped successfully
                 if self.event_emitter:
                     await self.event_emitter.url_scraped(url, current_page_number, success=True)
@@ -450,8 +792,8 @@ class CrawlerService:
 
                 # Event: URL processing completed
                 files_created = [
-                    f"page_{current_page_number:05d}/data.json",
-                    f"page_{current_page_number:05d}/content.md"
+                    f"page_{current_page_number:05d}/data_{current_page_number:05d}.json",
+                    f"page_{current_page_number:05d}/content_{current_page_number:05d}.md"
                 ]
                 if self.event_emitter:
                     await self.event_emitter.url_completed(url, current_page_number, files_created)
@@ -464,6 +806,8 @@ class CrawlerService:
                     for new_url in new_urls:
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
                             self.to_visit.append(new_url)
+                            self.url_depth[new_url] = self.url_depth.get(url, 0) + 1
+                            self.url_source[new_url] = "discovery"
             else:
                 # Event: URL scraping failed
                 if self.event_emitter:
@@ -497,6 +841,9 @@ class CrawlerService:
 
                 urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
                 self.to_visit = urls_to_crawl
+                for u in self.to_visit:
+                    self.url_depth[u] = 0
+                    self.url_source[u] = "sitemap"
                 print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
 
                 # Event: URLs discovered
@@ -506,6 +853,8 @@ class CrawlerService:
                     await self.job_state_manager.set_total_urls(len(self.to_visit))
             else:
                 self.to_visit = [start_url]
+                self.url_depth[start_url] = 0
+                self.url_source[start_url] = "seed"
                 if self.job_state_manager:
                     await self.job_state_manager.set_total_urls(1)
 
