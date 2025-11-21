@@ -13,7 +13,7 @@ import aiofiles
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
-from models import CrawlConfig, PageData
+from models import CrawlConfig
 
 
 class RateLimiter:

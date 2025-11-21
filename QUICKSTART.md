@@ -2,7 +2,26 @@
 
 Get the Crawl4AI FastAPI service running in 5 minutes!
 
-## 1. Quick Setup
+## Choose Your Setup Method
+
+### Option 1: Docker (Recommended) ⭐
+
+**Fastest way to get started!**
+
+```bash
+# Start the service with Docker
+docker compose up -d
+
+# The service is now running at http://localhost:8000
+```
+
+That's it! Docker will automatically:
+- Build the container with all dependencies
+- Install Playwright browsers
+- Start the server
+- Mount the output directory for your crawled data
+
+### Option 2: Local Development
 
 ```bash
 # Make the start script executable (if not already)
@@ -149,24 +168,57 @@ See [README.md](README.md) for complete documentation.
 
 ## Troubleshooting
 
-### Port Already in Use
-If port 8000 is already in use, edit `start_server.sh` and change the port:
+### Docker Issues
+
+#### Container won't start
+```bash
+# Check container logs
+docker compose logs crawler
+
+# Rebuild the container
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+#### Port Already in Use
+If port 8000 is already in use, edit `docker-compose.yml`:
+```yaml
+ports:
+  - "8080:8000"  # Change 8000 to 8080 or any available port
+```
+
+Or for local development, edit `start_server.sh`:
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-### Playwright Issues
+### Local Development Issues
+
+#### Playwright Issues
 Manually install Playwright browsers:
 ```bash
 source env/bin/activate
 playwright install chromium
 ```
 
-### Permission Errors
+#### Permission Errors
 Ensure the output directory is writable:
 ```bash
 mkdir -p output
 chmod 755 output
+```
+
+#### Memory Issues
+If you encounter memory issues with Docker:
+
+1. Increase Docker memory limit (Docker Desktop → Settings → Resources)
+2. Or adjust limits in `docker-compose.yml`:
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 4G  # Increase as needed
 ```
 
 ## Next Steps

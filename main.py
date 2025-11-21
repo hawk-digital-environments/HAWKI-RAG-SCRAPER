@@ -1,9 +1,7 @@
-import asyncio
 import uuid
 from datetime import datetime
 from typing import Dict
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from models import CrawlConfig, CrawlResponse, CrawlStatus

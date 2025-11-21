@@ -1,17 +1,45 @@
 services:
-  crawl4ai:
-    image: unclecode/crawl4ai:all
-    build: 
+  crawler:
+    build:
       context: .
+      dockerfile: Dockerfile
+    image: crawl4ai-fastapi:latest
+    container_name: crawl4ai-service
     ports:
-      - "11235:11235"
+      - "8004:8000"
     environment:
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}  # Optional API security
-      - MAX_CONCURRENT_TASKS=5
-      # LLM Provider Keys
-      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Optional API security token
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
+      # Maximum concurrent crawl tasks
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
+      # Server configuration
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      # Optional LLM Provider Keys (for advanced crawl4ai features)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
+      # Mount output directory for crawled data
+      - ./output:/app/output
+      # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
-      - ./test.py:/app/test.py
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
+networks:
+  default:
+    name: crawl4ai-network

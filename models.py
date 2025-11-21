@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, HttpUrl
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 
@@ -16,15 +16,6 @@ class CrawlConfig(BaseModel):
     max_rpm: int = Field(default=60, ge=1, description="Maximum requests per minute")
     request_delay: Optional[int] = Field(default=None, ge=0, description="Delay between requests in milliseconds")
     discovery_mode: bool = Field(default=False, description="Discover URLs inside the given page")
-
-
-class PageData(BaseModel):
-    """Data structure for a single crawled page"""
-    title: List[str]
-    page_url: List[str]
-    meta_img_url: List[str]
-    images: List[str]
-    date: List[str]
 
 
 class CrawlStatus(BaseModel):
