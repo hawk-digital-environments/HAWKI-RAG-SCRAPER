@@ -6,7 +6,7 @@ from datetime import datetime
 class CrawlConfig(BaseModel):
     """Configuration for crawl job"""
     url: HttpUrl = Field(..., description="The starting URL to crawl")
-    max_pages: int = Field(default=100, ge=1, description="Maximum number of pages to crawl")
+    max_pages: int = Field(default=100, ge=0, description="Maximum number of pages to crawl (0 = unlimited)")
     output_dir: str = Field(default="output", description="Directory to store crawled data")
     label: Optional[str] = Field(default=None, description="Label for this crawl job (auto-generated if not provided)")
     skip_images: bool = Field(default=False, description="Skip downloading images")
