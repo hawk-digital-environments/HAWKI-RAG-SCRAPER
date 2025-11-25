@@ -31,10 +31,18 @@ class CrawlStatus(BaseModel):
 
 
 class CrawlResponse(BaseModel):
-    """Response for crawl job submission"""
+    """
+    Response for crawl job submission.
+
+    Structure matches event_emitter format for consistency:
+    - event: The type of event (e.g., "job_submitted")
+    - data: Object containing status, message, and other metadata
+    - timestamp: ISO-8601 timestamp
+    """
     job_id: str
-    message: str
-    status: str
+    event: str
+    data: dict
+    timestamp: str
 
 
 class QuickScrapeRequest(BaseModel):

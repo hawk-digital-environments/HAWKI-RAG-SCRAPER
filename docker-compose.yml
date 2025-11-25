@@ -14,15 +14,21 @@ services:
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
       # Server configuration
       - HOST=${HOST:-0.0.0.0}
-      - PORT=${PORT:-8000}
+      - PORT=${PORT:-8004}
       # Optional LLM Provider Keys (for advanced crawl4ai features)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # WebSocket URL for real-time events (optional)
+      # Redis Pub/Sub Configuration (recommended)
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
+      # WebSocket URL for real-time events (legacy, deprecated)
       # Example: ws://laravel-app:6001 for Laravel WebSocket
       - WEBSOCKET_URL=${WEBSOCKET_URL:-}
       # Data storage path for job files
-      - DATA_PATH=${DATA_PATH:-/app/data/jobs}
+      - DATA_PATH=${DATA_PATH:-../RAWKI/storage/app}
     volumes:
       # Mount data directory for job-specific storage (new structure)
       - ./data:/app/data
@@ -49,4 +55,5 @@ services:
 
 networks:
   default:
-    name: crawl4ai-network
+    name: hawki-network
+    external: true

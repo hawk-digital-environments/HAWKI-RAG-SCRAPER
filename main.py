@@ -15,7 +15,7 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
 from crawler_service import CrawlerService
-from services import EventEmitter, JobStateManager, StorageManager
+from services import RedisEventEmitter, JobStateManager, StorageManager
 
 app = FastAPI(
     title="Crawl4AI API",
@@ -162,15 +162,26 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     Background task to run crawl job.
 
     This function integrates the service layer components:
-    - EventEmitter: For real-time progress updates via WebSocket
+    - RedisEventEmitter: For real-time progress updates via Redis Pub/Sub
     - JobStateManager: For persistent state tracking
     - StorageManager: For consistent file I/O operations
     """
     # Initialize service layer components
-    websocket_url = os.getenv("WEBSOCKET_URL", None)  # e.g., "ws://laravel-app:6001"
+    redis_host = os.getenv("REDIS_HOST", "redis")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    redis_db = int(os.getenv("REDIS_DB", "0"))
+    redis_password = os.getenv("REDIS_PASSWORD", None)
+    redis_channel = os.getenv("REDIS_CHANNEL", "scrape-events")
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
 
-    event_emitter = EventEmitter(job_id, websocket_url=websocket_url)
+    event_emitter = RedisEventEmitter(
+        job_id,
+        redis_host=redis_host,
+        redis_port=redis_port,
+        redis_db=redis_db,
+        redis_password=redis_password,
+        channel=redis_channel
+    )
     job_state_manager = JobStateManager(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
@@ -178,9 +189,8 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         # Initialize state manager (creates job directory and initial state file)
         await job_state_manager.initialize()
 
-        # Connect event emitter (if WebSocket URL is configured)
-        if websocket_url:
-            await event_emitter.connect()
+        # Connect to Redis
+        await event_emitter.connect()
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -250,10 +260,11 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - request_delay: Delay between requests in milliseconds (overrides RPM)
     - discovery_mode: Discover URLs inside the given page (default: False)
 
-    Returns:
+    Returns (matches event_emitter structure):
     - job_id: Unique identifier for the crawl job
-    - message: Status message
-    - status: Job status
+    - event: Event type (e.g., "job_submitted")
+    - data: Object with status and message
+    - timestamp: ISO-8601 timestamp
     """
     job_id = str(uuid.uuid4())
 
@@ -271,8 +282,12 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
 
     return CrawlResponse(
         job_id=job_id,
-        message="Crawl job submitted successfully",
-        status="pending"
+        event="job_submitted",
+        data={
+            "status": "pending",
+            "message": "Crawl job submitted successfully"
+        },
+        timestamp=datetime.utcnow().isoformat() + "Z"
     )
 
 
