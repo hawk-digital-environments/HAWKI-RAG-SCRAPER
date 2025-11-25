@@ -1,5 +1,6 @@
 import uuid
 import os
+import asyncio
 import time
 from datetime import datetime
 from typing import Dict
@@ -34,6 +35,8 @@ app.add_middleware(
 
 # Store job statuses
 jobs: Dict[str, CrawlStatus] = {}
+# Track running tasks for cancellation
+tasks: Dict[str, asyncio.Task] = {}
 
 
 async def extract_page_content(url: str, skip_images: bool = False, date_selector: str = None) -> Dict:
@@ -213,6 +216,12 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].output_directory = result['output_directory']
         jobs[job_id].completed_at = datetime.now()
 
+    except asyncio.CancelledError:
+        jobs[job_id].status = "cancelled"
+        jobs[job_id].message = "Crawl cancelled"
+        jobs[job_id].completed_at = datetime.now()
+        # Propagate cancellation after cleanup
+        raise
     except Exception as e:
         jobs[job_id].status = "failed"
         jobs[job_id].message = f"Crawl failed: {str(e)}"
@@ -222,6 +231,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         # Close event emitter connection
         if event_emitter:
             await event_emitter.close()
+        tasks.pop(job_id, None)
 
 
 @app.get("/")
@@ -277,8 +287,9 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     )
     jobs[job_id] = job_status
 
-    # Add background task
-    background_tasks.add_task(run_crawl_job, job_id, config)
+    # Launch crawl task and track it
+    task = asyncio.create_task(run_crawl_job(job_id, config))
+    tasks[job_id] = task
 
     return CrawlResponse(
         job_id=job_id,
@@ -407,6 +418,28 @@ async def delete_job(job_id: str):
 
     del jobs[job_id]
     return {"message": f"Job {job_id} deleted successfully"}
+
+
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """
+    Cancel a running crawl job.
+
+    Parameters:
+    - job_id: The unique identifier of the crawl job to cancel
+
+    Returns:
+    - Cancellation status message
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    task = tasks.get(job_id)
+    if not task:
+        raise HTTPException(status_code=400, detail="Job is not running or already finished")
+
+    task.cancel()
+    return {"message": f"Cancel requested for job {job_id}"}
 
 
 @app.get("/jobs/{job_id}/files")
