@@ -14,7 +14,7 @@ services:
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
       # Server configuration
       - HOST=${HOST:-0.0.0.0}
-      - PORT=${PORT:-8004}
+      - PORT=${PORT:-8000}
       # Optional LLM Provider Keys (for advanced crawl4ai features)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -28,7 +28,7 @@ services:
       # Example: ws://laravel-app:6001 for Laravel WebSocket
       - WEBSOCKET_URL=${WEBSOCKET_URL:-}
       # Data storage path for job files
-      - DATA_PATH=${DATA_PATH:-../RAWKI/storage/app}
+      - DATA_PATH=${DATA_PATH:-/app/data/jobs}
     volumes:
       # Mount data directory for job-specific storage (new structure)
       - ./data:/app/data
