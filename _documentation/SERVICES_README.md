@@ -1,14 +1,17 @@
 # Service Layer Architecture
 
-This document explains the new service layer architecture added to the crawler project.
+This document explains the service layer architecture of the crawler project.
 
 ## Overview
 
-The crawler now includes a clean, maintainable service layer with three core components:
+The crawler includes a clean, maintainable service layer with six core components:
 
-1. **EventEmitter** - Real-time event communication via WebSocket
+1. **RedisEventEmitter** - Real-time event communication via Redis Pub/Sub
 2. **JobStateManager** - Persistent job state tracking
 3. **StorageManager** - Centralized file I/O operations
+4. **URLTrackingManager** - URL discovery and tracking with dates
+5. **ProgressTracker** - Rate-limited progress broadcasting
+6. **SummaryManager** - Job summary creation and export
 
 These services are **completely optional** and the crawler maintains full backwards compatibility with the original implementation.
 
@@ -16,35 +19,41 @@ These services are **completely optional** and the crawler maintains full backwa
 
 ```
 /services/
-  ├── __init__.py              # Package exports
-  ├── event_emitter.py         # WebSocket event communication
-  ├── job_state_manager.py     # Persistent state tracking
-  └── storage_manager.py       # File I/O operations
+  ├── __init__.py                  # Package exports
+  ├── redis_event_emitter.py       # Redis Pub/Sub event communication
+  ├── job_state_manager.py         # Persistent state tracking
+  ├── storage_manager.py           # File I/O operations
+  ├── url_tracking_manager.py      # URL tracking with dates
+  ├── progress_tracker.py          # Rate-limited progress updates
+  └── summary_manager.py           # Summary generation
 
-/data/jobs/{job_id}/           # New storage structure
-  ├── job_state.json           # Job metadata and status
+/data/jobs/{job_id}/               # New storage structure
+  ├── job_state.json               # Job metadata and status
+  ├── urls_tracking.json           # URL tracking with dates
+  ├── summary.json                 # Final job summary
   ├── page_00001/
-  │   ├── data.json            # Page metadata
-  │   ├── content.md           # Extracted content
-  │   └── images/              # Downloaded images
+  │   ├── data_00001.json          # Page metadata
+  │   ├── content_00001.md         # Extracted content
+  │   └── images/                  # Downloaded images
   └── page_00002/
       └── ...
 ```
 
 ## Service Components
 
-### 1. EventEmitter
+### 1. RedisEventEmitter
 
-**Purpose**: Sends structured real-time events through WebSocket connections.
+**Purpose**: Sends structured real-time events through Redis Pub/Sub channels.
 
 **Events Emitted**:
+- `stage_changed` - When job stage changes (initialization, scraping, completed, failed)
+- `progress_update` - Rate-limited progress updates (max 1 per second)
 - `sitemap_detected` - When a sitemap is discovered
 - `urls_discovered` - After parsing sitemap URLs
 - `crawling_started` - When crawling begins
-- `url_fetching` - Before fetching each URL
-- `url_scraped` - After scraping (success or failure)
 - `url_completed` - After saving page data
 - `job_completed` - When entire job finishes
+- `job_summary` - Final summary with statistics
 
 **Event Format**:
 ```json
@@ -61,12 +70,16 @@ These services are **completely optional** and the crawler maintains full backwa
 ```
 
 **Configuration**:
-Set the `WEBSOCKET_URL` environment variable to enable WebSocket events:
+Configure Redis connection via environment variables:
 ```bash
-WEBSOCKET_URL=ws://laravel-app:6001
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=your_password  # Optional
+REDIS_CHANNEL=scrape-events
 ```
 
-If not configured, events are only logged locally.
+If Redis is not available, events are only logged locally.
 
 ### 2. JobStateManager
 
@@ -89,7 +102,7 @@ If not configured, events are only logged locally.
 }
 ```
 
-**Use Case**: Laravel or other clients can read this file to monitor job progress without maintaining WebSocket connections.
+**Use Case**: Laravel or other clients can read this file to monitor job progress without subscribing to Redis channels.
 
 ### 3. StorageManager
 
@@ -204,19 +217,30 @@ if self.job_state_manager:
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `WEBSOCKET_URL` | WebSocket server URL for events | None (disabled) | `ws://laravel-app:6001` |
+| `REDIS_HOST` | Redis server hostname | `redis` | `redis` or `host.docker.internal` |
+| `REDIS_PORT` | Redis server port | `6379` | `6379` |
+| `REDIS_DB` | Redis database number | `0` | `0` |
+| `REDIS_PASSWORD` | Redis password (optional) | None | `your_password` |
+| `REDIS_CHANNEL` | Redis Pub/Sub channel name | `scrape-events` | `scrape-events` |
 | `DATA_PATH` | Base path for job storage | `/app/data/jobs` | `/app/data/jobs` |
 
 **Configure in docker-compose.yml**:
 ```yaml
 environment:
-  - WEBSOCKET_URL=${WEBSOCKET_URL:-}
+  - REDIS_HOST=${REDIS_HOST:-redis}
+  - REDIS_PORT=${REDIS_PORT:-6379}
+  - REDIS_DB=${REDIS_DB:-0}
+  - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+  - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
   - DATA_PATH=${DATA_PATH:-/app/data/jobs}
 ```
 
 **Or in .env file**:
 ```bash
-WEBSOCKET_URL=ws://laravel-app:6001
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_CHANNEL=scrape-events
 DATA_PATH=/app/data/jobs
 ```
 
@@ -290,11 +314,15 @@ $content = Http::get("http://crawler:8004/jobs/{$jobId}/files/page_00001/content
 ### Test Event Emissions
 
 ```bash
-# Start container with WebSocket URL
-WEBSOCKET_URL=ws://localhost:6001 docker compose up -d
+# Start container with Redis configuration
+REDIS_HOST=redis docker compose up -d
 
 # Check logs for event emissions
 docker compose logs -f crawler | grep "Event"
+
+# Or subscribe to Redis channel directly
+docker exec -it redis-container redis-cli
+SUBSCRIBE scrape-events
 ```
 
 ### Test State Persistence
@@ -327,9 +355,12 @@ curl http://localhost:8004/jobs/${JOB_ID}/files/page_00001/content.md
 ### 1. Separation of Concerns
 
 Each service has a single, well-defined responsibility:
-- **EventEmitter**: Communication
+- **RedisEventEmitter**: Real-time communication via Redis Pub/Sub
 - **JobStateManager**: State tracking
 - **StorageManager**: File I/O
+- **URLTrackingManager**: URL discovery and date tracking
+- **ProgressTracker**: Rate-limited progress updates
+- **SummaryManager**: Summary generation and export
 
 ### 2. No Business Logic Changes
 
@@ -354,13 +385,14 @@ Services integrate through hooks without modifying the scraping flow:
 
 ### Events Not Appearing
 
-**Symptom**: No events in logs or WebSocket
+**Symptom**: No events in logs or Redis
 
 **Solutions**:
-1. Check `WEBSOCKET_URL` is set correctly
-2. Verify WebSocket server is running
-3. Check firewall/network connectivity
-4. Look for connection errors in logs
+1. Check Redis connection environment variables (`REDIS_HOST`, `REDIS_PORT`)
+2. Verify Redis server is running: `docker compose ps redis`
+3. Check Redis connectivity: `docker exec crawler redis-cli -h redis ping`
+4. Look for "Failed to connect to Redis" errors in logs
+5. Test subscription: `docker exec redis-container redis-cli SUBSCRIBE scrape-events`
 
 ### State File Not Updating
 
@@ -385,12 +417,12 @@ Services integrate through hooks without modifying the scraping flow:
 
 Potential additions that maintain the same architecture:
 
-1. **Progress Streaming**: Server-Sent Events (SSE) for real-time progress
-2. **Job Cancellation**: Ability to cancel running jobs
-3. **File Compression**: Automatic ZIP creation for completed jobs
-4. **Cloud Storage**: Pluggable storage backends (S3, Azure, etc.)
-5. **Retry Logic**: Automatic retry for failed URLs
-6. **Rate Limit Adaptation**: Dynamic rate limiting based on server responses
+1. **Job Resumption**: Resume interrupted crawl jobs from URL tracking state
+2. **File Compression**: Automatic ZIP creation for completed jobs
+3. **Cloud Storage**: Pluggable storage backends (S3, Azure, etc.)
+4. **Retry Logic**: Automatic retry for failed URLs with exponential backoff
+5. **Rate Limit Adaptation**: Dynamic rate limiting based on server responses
+6. **Content Deduplication**: Skip URLs with unchanged content hash
 
 All enhancements would follow the same pattern:
 - Create new service class

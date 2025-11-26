@@ -205,6 +205,38 @@ class RedisEventEmitter:
 
     # Convenience methods for common events
 
+    async def stage_changed(self, stage: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Emit event when job stage changes.
+
+        Args:
+            stage: One of "initialization", "scraping", "completed", "failed"
+            details: Optional additional details about the stage change
+        """
+        data = {"stage": stage}
+        if details:
+            data.update(details)
+
+        await self.emit("stage_changed", data)
+
+    async def progress_update(self, progress: Dict[str, Any]):
+        """
+        Emit rate-limited progress update.
+
+        Args:
+            progress: Dictionary with progress information (from ProgressTracker)
+        """
+        await self.emit("progress_update", progress)
+
+    async def job_summary(self, summary: Dict[str, Any]):
+        """
+        Emit final job summary.
+
+        Args:
+            summary: Complete summary with stats, timing, and results
+        """
+        await self.emit("job_summary", summary)
+
     async def sitemap_detected(self, sitemap_url: str, total_urls: int):
         """Emit event when a sitemap is detected."""
         await self.emit("sitemap_detected", {
@@ -223,23 +255,6 @@ class RedisEventEmitter:
         """Emit event when crawling begins."""
         await self.emit("crawling_started", {
             "total_pages": total_pages
-        })
-
-    async def url_fetching(self, url: str, page_number: int, total_pages: int):
-        """Emit event when starting to fetch a URL."""
-        await self.emit("url_fetching", {
-            "url": url,
-            "page_number": page_number,
-            "total_pages": total_pages
-        })
-
-    async def url_scraped(self, url: str, page_number: int, success: bool, error: Optional[str] = None):
-        """Emit event when a URL has been scraped."""
-        await self.emit("url_scraped", {
-            "url": url,
-            "page_number": page_number,
-            "success": success,
-            "error": error
         })
 
     async def url_completed(self, url: str, page_number: int, files_created: list):
