@@ -17,6 +17,9 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from models import CrawlConfig
+from services.progress_tracker import ProgressTracker
+from services.url_tracking_manager import URLTrackingManager
+from services.summary_manager import SummaryManager
 
 
 class RateLimiter:
@@ -80,6 +83,18 @@ class CrawlerService:
         self.job_state_manager = job_state_manager
         self.storage_manager = storage_manager
         self.job_id = job_id
+
+        # Initialize new tracking systems (only if job_id is provided)
+        self.progress_tracker = None
+        self.url_tracking_manager = None
+        self.summary_manager = None
+
+        if self.job_id and self.storage_manager:
+            # Use storage_manager's base path
+            base_path = str(self.storage_manager.base_path)
+            self.progress_tracker = ProgressTracker(event_emitter=event_emitter)
+            self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
+            self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
 
         # HTTP headers to avoid being blocked
         self.headers = {
@@ -167,6 +182,8 @@ class CrawlerService:
     async def parse_sitemap(self, sitemap_url: str) -> List[str]:
         """Parse sitemap and extract URLs"""
         urls = []
+        urls_with_dates = {}  # Track URLs with their dates for URLTrackingManager
+
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
@@ -191,12 +208,25 @@ class CrawlerService:
                     for url_tag in url_tags:
                         loc = url_tag.find('loc')
                         if loc:
-                            urls.append(loc.text)
+                            url = loc.text
+                            urls.append(url)
+
+                            # Extract lastmod if available
                             lastmod_tag = url_tag.find('lastmod')
+                            lastmod_date = None
                             if lastmod_tag and lastmod_tag.text:
-                                self.sitemap_lastmod[loc.text] = lastmod_tag.text.strip()
+                                lastmod_date = lastmod_tag.text.strip()
+                                self.sitemap_lastmod[url] = lastmod_date
+
+                            # Store for URLTrackingManager
+                            urls_with_dates[url] = lastmod_date
+
         except Exception as e:
             print(f"Error parsing sitemap {sitemap_url}: {e}")
+
+        # Save URLs to URLTrackingManager if available
+        if self.url_tracking_manager and urls_with_dates:
+            await self.url_tracking_manager.add_urls_from_sitemap(urls_with_dates)
 
         return urls
 
@@ -270,8 +300,13 @@ class CrawlerService:
                 async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
                     status_code = response.status
                     headers = {k.lower(): v for k, v in response.headers.items()}
+
+                    # Track request
+                    if self.progress_tracker:
+                        await self.progress_tracker.increment_requests()
         except Exception:
-            pass
+            if self.progress_tracker:
+                await self.progress_tracker.increment_errors()
         return status_code, headers
 
     async def is_pdf_resource(self, url: str, head_status: Optional[int] = None, head_headers: Optional[Dict[str, str]] = None) -> bool:
@@ -498,8 +533,14 @@ class CrawlerService:
 
             result = await crawler.arun(url=url, config=run_config)
 
+            # Track request
+            if self.progress_tracker:
+                await self.progress_tracker.increment_requests()
+
             if not result.success:
                 print(f"Failed to crawl {url}: {result.error_message}")
+                if self.progress_tracker:
+                    await self.progress_tracker.increment_errors()
                 return None
 
 
@@ -728,9 +769,11 @@ class CrawlerService:
             else:
                 print(f"Crawling [{current_page_number}/unlimited]: {url}")
 
-            # Event: Starting to fetch URL
-            if self.event_emitter:
-                await self.event_emitter.url_fetching(url, current_page_number, self.config.max_pages)
+            # Update tracking systems
+            if self.url_tracking_manager:
+                await self.url_tracking_manager.set_processing(url, current_page_number)
+            if self.progress_tracker:
+                await self.progress_tracker.set_current_url(url)
             if self.job_state_manager:
                 await self.job_state_manager.set_current_url(url)
 
@@ -784,19 +827,25 @@ class CrawlerService:
 
                 page_data['data']['pdfs'] = pdf_entries
 
-                # Event: URL scraped successfully
-                if self.event_emitter:
-                    await self.event_emitter.url_scraped(url, current_page_number, success=True)
-
                 await self.save_page_data(page_data, current_page_number)
 
-                # Event: URL processing completed
-                files_created = [
-                    f"page_{current_page_number:05d}/data_{current_page_number:05d}.json",
-                    f"page_{current_page_number:05d}/content_{current_page_number:05d}.md"
-                ]
-                if self.event_emitter:
-                    await self.event_emitter.url_completed(url, current_page_number, files_created)
+                # Extract header dates for URLTrackingManager
+                header_dates = None
+                if head_headers:
+                    header_dates = {
+                        "last_modified": head_headers.get('last-modified'),
+                        "date": head_headers.get('date')
+                    }
+
+                # Update tracking systems with completion
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.set_completed(url, header_dates)
+                if self.progress_tracker:
+                    await self.progress_tracker.increment_completed()
+                    if len(pdf_entries) > 0:
+                        await self.progress_tracker.increment_pdfs(len(pdf_entries))
+                    if not self.config.skip_images and page_data['data'].get('images'):
+                        await self.progress_tracker.increment_images(len(page_data['data']['images']))
                 if self.job_state_manager:
                     await self.job_state_manager.increment_completed()
 
@@ -808,10 +857,20 @@ class CrawlerService:
                             self.to_visit.append(new_url)
                             self.url_depth[new_url] = self.url_depth.get(url, 0) + 1
                             self.url_source[new_url] = "discovery"
+
+                            # Add to URLTrackingManager if available
+                            if self.url_tracking_manager:
+                                await self.url_tracking_manager.add_url(new_url, source="discovery")
             else:
-                # Event: URL scraping failed
-                if self.event_emitter:
-                    await self.event_emitter.url_scraped(url, current_page_number, success=False, error="Extraction failed")
+                # URL extraction failed
+                error_msg = "Extraction failed"
+
+                # Update tracking systems with failure
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.set_failed(url, error_msg)
+                if self.progress_tracker:
+                    await self.progress_tracker.increment_failed()
+                    await self.progress_tracker.increment_errors()
                 if self.job_state_manager:
                     await self.job_state_manager.increment_failed()
 
@@ -824,9 +883,19 @@ class CrawlerService:
         try:
             await self.setup_directories()
 
+            # Initialize tracking systems
+            if self.url_tracking_manager:
+                await self.url_tracking_manager.initialize()
+            if self.progress_tracker:
+                await self.progress_tracker.start()
+
             # Update state: Job is now running
             if self.job_state_manager:
                 await self.job_state_manager.set_status("running")
+
+            # Emit stage: initialization
+            if self.progress_tracker:
+                await self.progress_tracker.set_stage("initialization")
 
             start_url = str(self.config.url)
 
@@ -851,17 +920,29 @@ class CrawlerService:
                     await self.event_emitter.urls_discovered(len(urls), len(self.to_visit))
                 if self.job_state_manager:
                     await self.job_state_manager.set_total_urls(len(self.to_visit))
+                if self.progress_tracker:
+                    await self.progress_tracker.set_total_urls(len(self.to_visit))
             else:
                 self.to_visit = [start_url]
                 self.url_depth[start_url] = 0
                 self.url_source[start_url] = "seed"
+
+                # Add seed URL to tracking
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.add_url(start_url, source="seed")
                 if self.job_state_manager:
                     await self.job_state_manager.set_total_urls(1)
+                if self.progress_tracker:
+                    await self.progress_tracker.set_total_urls(1)
 
             # Event: Crawling started
             total_to_crawl = len(self.to_visit) if not self.config.discovery_mode else self.config.max_pages
             if self.event_emitter:
                 await self.event_emitter.crawling_started(total_to_crawl if total_to_crawl > 0 else 0)
+
+            # Emit stage: scraping
+            if self.progress_tracker:
+                await self.progress_tracker.set_stage("scraping")
 
             browser_config = BrowserConfig(
                 headless=True,
@@ -879,7 +960,31 @@ class CrawlerService:
                     tasks = [self.crawl_page(url, crawler) for url in batch]
                     await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Event: Job completed successfully
+            # Job completed successfully
+            if self.progress_tracker:
+                await self.progress_tracker.set_stage("completed")
+                await self.progress_tracker.stop()
+
+                # Generate and save summary
+                summary_data = await self.progress_tracker.get_summary()
+                if self.summary_manager:
+                    formatted_summary = SummaryManager.format_summary(
+                        job_id=self.job_id,
+                        stage="completed",
+                        progress=summary_data,
+                        output_directory=str(self.output_dir),
+                        error=None
+                    )
+                    await self.summary_manager.save_summary(formatted_summary)
+
+                    # Emit summary event
+                    if self.event_emitter:
+                        await self.event_emitter.job_summary(formatted_summary)
+
+                    # Print text summary
+                    print("\n" + SummaryManager.format_text_summary(formatted_summary))
+
+            # Legacy event for backwards compatibility
             if self.event_emitter:
                 await self.event_emitter.job_completed(
                     self.page_counter,
@@ -896,10 +1001,34 @@ class CrawlerService:
             }
 
         except Exception as e:
-            # Event: Job failed
+            # Job failed
             error_msg = str(e)
             print(f"Crawl job failed: {error_msg}")
 
+            if self.progress_tracker:
+                await self.progress_tracker.set_stage("failed")
+                await self.progress_tracker.stop()
+
+                # Generate and save summary for failed job
+                summary_data = await self.progress_tracker.get_summary()
+                if self.summary_manager:
+                    formatted_summary = SummaryManager.format_summary(
+                        job_id=self.job_id,
+                        stage="failed",
+                        progress=summary_data,
+                        output_directory=str(self.output_dir),
+                        error=error_msg
+                    )
+                    await self.summary_manager.save_summary(formatted_summary)
+
+                    # Emit summary event
+                    if self.event_emitter:
+                        await self.event_emitter.job_summary(formatted_summary)
+
+                    # Print text summary
+                    print("\n" + SummaryManager.format_text_summary(formatted_summary))
+
+            # Legacy event for backwards compatibility
             if self.event_emitter:
                 await self.event_emitter.job_completed(
                     self.page_counter,
