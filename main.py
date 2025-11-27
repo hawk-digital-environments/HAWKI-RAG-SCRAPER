@@ -170,30 +170,46 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     - StorageManager: For consistent file I/O operations
     """
     # Initialize service layer components
-    redis_host = os.getenv("REDIS_HOST", "redis")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_db = int(os.getenv("REDIS_DB", "0"))
+    redis_host = os.getenv("REDIS_HOST", "").strip()
+    redis_enabled_flag = os.getenv("REDIS_ENABLED", "true").strip().lower()
+    redis_enabled = redis_enabled_flag not in ("0", "false", "no", "off", "")
+    redis_port_raw = (os.getenv("REDIS_PORT", "") or "").strip()
+    redis_db_raw = (os.getenv("REDIS_DB", "") or "").strip()
     redis_password = os.getenv("REDIS_PASSWORD", None)
-    redis_channel = os.getenv("REDIS_CHANNEL", "scrape-events")
+    redis_channel = "scrape-events"
+    redis_port = None
+    redis_db = None
+    if redis_enabled and redis_host:
+        redis_port = int(redis_port_raw or "6379")
+        redis_db = int(redis_db_raw or "0")
+        redis_channel = (os.getenv("REDIS_CHANNEL", "scrape-events") or "scrape-events").strip()
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
 
-    event_emitter = RedisEventEmitter(
-        job_id,
-        redis_host=redis_host,
-        redis_port=redis_port,
-        redis_db=redis_db,
-        redis_password=redis_password,
-        channel=redis_channel
-    )
+    event_emitter = None
+    if redis_enabled and redis_host:
+        event_emitter = RedisEventEmitter(
+            job_id,
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
+            redis_password=redis_password,
+            channel=redis_channel
+        )
     job_state_manager = JobStateManager(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     try:
+        print(
+            f"[run_crawl_job] starting job {job_id} "
+            f"(redis_enabled={redis_enabled}, redis_host='{redis_host}', redis_port={redis_port}, redis_db={redis_db})",
+            flush=True
+        )
         # Initialize state manager (creates job directory and initial state file)
         await job_state_manager.initialize()
 
         # Connect to Redis
-        await event_emitter.connect()
+        if event_emitter:
+            await event_emitter.connect()
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -223,6 +239,9 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         # Propagate cancellation after cleanup
         raise
     except Exception as e:
+        import traceback
+        print(f"[run_crawl_job] job {job_id} failed: {e}", flush=True)
+        traceback.print_exc()
         jobs[job_id].status = "failed"
         jobs[job_id].message = f"Crawl failed: {str(e)}"
         jobs[job_id].completed_at = datetime.now()
@@ -287,8 +306,18 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     )
     jobs[job_id] = job_status
 
+    print(f"[crawl endpoint] queued job {job_id} for {config.url}", flush=True)
+
     # Launch crawl task and track it
-    task = asyncio.create_task(run_crawl_job(job_id, config))
+    loop = asyncio.get_running_loop()
+    task = loop.create_task(run_crawl_job(job_id, config))
+    task.add_done_callback(
+        lambda t: print(
+            f"[crawl endpoint] job {job_id} done with result={t.result() if not t.exception() else None} "
+            f"exception={t.exception()}",
+            flush=True
+        )
+    )
     tasks[job_id] = task
 
     return CrawlResponse(

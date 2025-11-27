@@ -19,11 +19,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Redis Pub/Sub Configuration (recommended)
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
+      - REDIS_ENABLED=false
+      # - REDIS_HOST=${REDIS_HOST:-redis}
+      # - REDIS_PORT=${REDIS_PORT:-6379}
+      # - REDIS_DB=${REDIS_DB:-0}
+      # - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      # - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
+      - REDIS_HOST=
+      - REDIS_PORT=
+      - REDIS_DB=
+      - REDIS_PASSWORD=
+      - REDIS_CHANNEL=
       # WebSocket URL for real-time events (legacy, deprecated)
       # Example: ws://laravel-app:6001 for Laravel WebSocket
       - WEBSOCKET_URL=${WEBSOCKET_URL:-}

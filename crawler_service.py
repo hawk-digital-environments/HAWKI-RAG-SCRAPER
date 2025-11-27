@@ -209,6 +209,8 @@ class CrawlerService:
                         loc = url_tag.find('loc')
                         if loc:
                             url = loc.text
+                            if urlparse(url).path.lower().endswith("piwik.php"):
+                                continue
                             urls.append(url)
 
                             # Extract lastmod if available
@@ -244,12 +246,16 @@ class CrawlerService:
             # Only include URLs from the same domain
             if parsed.netloc == base_domain and parsed.scheme in ['http', 'https']:
                 normalized = self.normalize_url(absolute_url)
-                urls.append(normalized)
+                if not urlparse(normalized).path.lower().endswith("piwik.php"):
+                    urls.append(normalized)
 
         return urls
 
     async def download_image(self, image_url: str, session: aiohttp.ClientSession, images_dir: Path) -> Optional[str]:
         """Download image and return local filename"""
+        # Skip downloading tracking pixels like piwik.php
+        if urlparse(image_url).path.lower().endswith("piwik.php"):
+            return None
         try:
             async with session.get(image_url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
@@ -650,7 +656,8 @@ class CrawlerService:
 
                         if not should_exclude:
                             absolute_img_url = urljoin(url, img_src)
-                            images.append(absolute_img_url)
+                            if not urlparse(absolute_img_url).path.lower().endswith("piwik.php"):
+                                images.append(absolute_img_url)
 
                 # If crawl4ai found no images, fallback to BeautifulSoup
                 if len(images) == 0:
@@ -668,7 +675,7 @@ class CrawlerService:
 
                             if not should_exclude and not img_src.startswith('data:'):
                                 absolute_img_url = urljoin(url, img_src)
-                                if absolute_img_url not in images:
+                                if not urlparse(absolute_img_url).path.lower().endswith("piwik.php") and absolute_img_url not in images:
                                     images.append(absolute_img_url)
 
             # Download images to page-specific directory
@@ -853,6 +860,8 @@ class CrawlerService:
                 if self.config.discovery_mode:
                     new_urls = await self.discover_urls(page_data['html_content'], url)
                     for new_url in new_urls:
+                        if urlparse(new_url).path.lower().endswith("piwik.php"):
+                            continue
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
                             self.to_visit.append(new_url)
                             self.url_depth[new_url] = self.url_depth.get(url, 0) + 1
