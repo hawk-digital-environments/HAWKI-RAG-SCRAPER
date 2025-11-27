@@ -70,8 +70,8 @@ class RedisEventEmitter:
         self.logger = logging.getLogger(f"RedisEventEmitter[{job_id}]")
         self._connected = False
         self._reconnect_attempts = 0
-        self._max_reconnect_attempts = 5
-        self._reconnect_delay = 2  # seconds
+        self._max_reconnect_attempts = 2  # Reduced to fail faster
+        self._reconnect_delay = 1  # Reduced delay for faster failure
 
     async def connect(self):
         """
@@ -88,7 +88,7 @@ class RedisEventEmitter:
                 db=self.redis_db,
                 password=self.redis_password,
                 decode_responses=True,  # Automatically decode responses to strings
-                socket_connect_timeout=5,
+                socket_connect_timeout=2,  # Reduced timeout for faster failure
                 socket_keepalive=True,
                 health_check_interval=30
             )
@@ -103,8 +103,9 @@ class RedisEventEmitter:
 
         except RedisConnectionError as e:
             self._reconnect_attempts += 1
-            self.logger.error(
-                f"Failed to connect to Redis (attempt {self._reconnect_attempts}/{self._max_reconnect_attempts}): {e}"
+            self.logger.warning(
+                f"Failed to connect to Redis (attempt {self._reconnect_attempts}/{self._max_reconnect_attempts}): {e}. "
+                f"Scraping will continue without real-time events."
             )
             self._connected = False
 
@@ -113,10 +114,11 @@ class RedisEventEmitter:
                 await asyncio.sleep(self._reconnect_delay)
                 return await self.connect()  # Recursive retry
 
+            self.logger.warning("Redis connection failed. Continuing without real-time event updates.")
             return False
 
         except Exception as e:
-            self.logger.error(f"Unexpected error connecting to Redis: {e}")
+            self.logger.warning(f"Unexpected error connecting to Redis: {e}. Continuing without real-time event updates.")
             self._connected = False
             return False
 

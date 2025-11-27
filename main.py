@@ -2,6 +2,8 @@ import uuid
 import os
 import asyncio
 import time
+import logging
+import sys
 from datetime import datetime
 from typing import Dict
 from urllib.parse import urljoin
@@ -17,6 +19,14 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 from models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
 from crawler_service import CrawlerService
 from services import RedisEventEmitter, JobStateManager, StorageManager
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Crawl4AI API",
@@ -207,14 +217,22 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         # Initialize state manager (creates job directory and initial state file)
         await job_state_manager.initialize()
 
-        # Connect to Redis
-        if event_emitter:
-            await event_emitter.connect()
+        # Connect to Redis (optional - scraping will continue even if this fails)
+        try:
+            logger.info(f"[{job_id}] Attempting to connect to Redis...")
+            redis_connected = await event_emitter.connect()
+            if not redis_connected:
+                logger.warning(f"[{job_id}] Redis connection failed. Continuing without real-time event updates.")
+        except Exception as redis_error:
+            logger.warning(f"[{job_id}] Redis connection error: {redis_error}. Continuing without real-time event updates.")
+
+        logger.info(f"[{job_id}] Redis connection check complete. Starting crawler...")
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
 
         # Create crawler with service layer integration
+        logger.info(f"[{job_id}] Creating CrawlerService...")
         crawler = CrawlerService(
             config,
             job_id=job_id,
@@ -223,7 +241,9 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
             storage_manager=storage_manager
         )
 
+        logger.info(f"[{job_id}] CrawlerService created. Starting crawl...")
         result = await crawler.crawl()
+        logger.info(f"[{job_id}] Crawl completed successfully!")
 
         jobs[job_id].status = "completed"
         jobs[job_id].message = "Crawl completed successfully"
