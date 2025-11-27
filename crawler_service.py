@@ -22,6 +22,86 @@ from services.url_tracking_manager import URLTrackingManager
 from services.summary_manager import SummaryManager
 
 
+def clean_html_for_markdown(html: str) -> str:
+    """
+    Clean raw HTML to retain only meaningful page content before markdown conversion.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    # MAIN CONTENT ONLY REGION
+    main_candidates = []
+    main_candidates.extend(soup.find_all("main"))
+    id_targets = {"main", "main-content", "content", "main-content-anchor"}
+    main_candidates.extend(
+        soup.find_all(lambda tag: tag.get("id") and str(tag.get("id")).lower() in id_targets)
+    )
+    main_candidates.extend(
+        soup.find_all(lambda tag: tag.get("role") and str(tag.get("role")).lower() == "main")
+    )
+    if main_candidates:
+        soup = BeautifulSoup(str(main_candidates[0]), "html.parser")
+    # JUNK Tags removal + substrings like nav, menu, header etc
+    for tag in soup.find_all(["header", "footer", "nav", "aside", "form", "script", "style", "noscript"]):
+        tag.decompose()
+    substrings = [
+        "nav", "menu", "breadcrumb", "sidebar", "cookie", "consent", "cookie-banner",
+        "footer", "header", "topbar", "toolbar", "hero-stage", "stage",
+        "social", "share", "tracking", "banner", "popup"
+    ]
+    def has_bad_attr(tag):
+        for attr in ("id", "class"):
+            val = tag.get(attr)
+            if not val:
+                continue
+            values = val if isinstance(val, list) else [val]
+            for v in values:
+                text_v = str(v).lower()
+                if any(sub in text_v for sub in substrings):
+                    return True
+        return False
+
+    for t in list(soup.find_all(has_bad_attr)):
+        t.decompose()
+    ################################################################################### HAWK WEBSITE REGION ##################################################################
+    # HAWK-specific content removal (sitewide navigation, cookie, social, and footer blocks)
+    hawk_keywords = [
+        "hauptnavigation", "hauptmenü", "schnellzugriff",
+        "diese seite teilen", "cookie-einstellungen", "ihre cookie-einstellungen",
+        "technisch notwendig", "statistik", "externe medien", "sonstiges", "alle akzeptieren", "ablehnen",
+        "impressum", "datenschutzerklärung", "datenschutzhinweis", "barrierefreiheit", "mittelverwendung",
+        "meldestelle hinweisgeberschutzgesetz", "korruptionsprävention", "studienorganisation",
+        "facebook", "linkedin", "pinterest", "xing", "whatsapp"
+    ]
+
+    def is_hawk_global(tag):
+        if tag.name not in ("section", "div"):
+            return False
+        text = (tag.get_text(" ", strip=True) or "").lower()
+        return any(k in text for k in hawk_keywords)
+    for t in list(soup.find_all(is_hawk_global)):
+        t.decompose()
+    return str(soup)
+
+def filter_markdown_lines(markdown: str) -> str:
+    """Remove leftover navigation/cookie/share lines after markdown conversion."""
+    drop_phrases = [
+        "hauptnavigation", "hauptmenü", "schnellzugriff",
+        "cookie-einstellungen", "ihre cookie-einstellungen",
+        "technisch notwendig", "statistik", "externe medien", "sonstiges",
+        "bei facebook teilen", "bei linkedin teilen", "bei pinterest teilen",
+        "bei xing teilen", "bei whatsapp teilen", "diese seite teilen"
+    ]
+    kept = []
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lower = stripped.lower()
+        if any(p in lower for p in drop_phrases):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+               
+
 class RateLimiter:
     """Rate limiter to control request frequency"""
 
@@ -550,54 +630,35 @@ class CrawlerService:
                 return None
 
 
-            # Check if markdown is being extracted, use html2text then BeautifulSoup as fallbacks
-            if not result.markdown or len(result.markdown.strip()) <= 1:
-                # Try html2text first
-                h = html2text.HTML2Text()
-                h.ignore_links = False
-                h.body_width = 0
-                h.ignore_images = False
-                markdown_content = h.handle(result.html)
+            cleaned_html = clean_html_for_markdown(result.html)
 
-                # If html2text also fails, use BeautifulSoup to extract text
-                if not markdown_content or len(markdown_content.strip()) <= 1:
-                    print(f"Warning: html2text failed, using BeautifulSoup text extraction for {url}")
+            # Convert cleaned HTML to markdown
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.body_width = 0
+            h.ignore_images = False
+            markdown_content = h.handle(cleaned_html)
 
-                    # Try fit_html first (contains filtered content), fallback to cleaned_html, then html
-                    html_to_parse = result.fit_html if hasattr(result, 'fit_html') and result.fit_html else \
-                                  result.cleaned_html if hasattr(result, 'cleaned_html') and result.cleaned_html else \
-                                  result.html
-                    soup_temp = BeautifulSoup(html_to_parse, 'html.parser')
+            # Fallback to text extraction if html2text yields nothing
+            if not markdown_content or len(markdown_content.strip()) <= 1:
+                print(f"Warning: html2text produced empty output, using BeautifulSoup text extraction for {url}")
+                soup_temp = BeautifulSoup(cleaned_html, 'html.parser')
+                main_content = soup_temp.find('body') or soup_temp
+                text_content = main_content.get_text(separator='\n', strip=True)
+                lines = [line.strip() for line in text_content.split('\n') if line.strip()]
+                markdown_content = '\n\n'.join(lines)
 
-                    # Try to find main content area first
-                    main_content = soup_temp.find('main') or soup_temp.find('article') or soup_temp.find('body')
-                    if main_content:
-                        # Extract text with proper formatting
-                        # Remove script and style elements
-                        for script in main_content(['script', 'style', 'nav', 'header', 'footer']):
-                            script.decompose()
-
-                        # Get text with newlines preserved
-                        markdown_content = main_content.get_text(separator='\n', strip=True)
-
-                        # Clean up extra newlines
-                        lines = [line.strip() for line in markdown_content.split('\n') if line.strip()]
-                        markdown_content = '\n\n'.join(lines)
-                else:
-                    print(f"Info: Using html2text fallback for {url}")
-            else:
-                markdown_content = result.markdown
+            # Remove leftover navigation/cookie/share lines
+            markdown_content = filter_markdown_lines(markdown_content)
 
             # Parse HTML for additional data
             soup = BeautifulSoup(result.html, 'html.parser')
 
-            # Extract title
+            # Extract title and Canonical URL
             title = []
             title_tag = soup.find('title')
             if title_tag:
                 title.append(title_tag.text.strip())
-
-            # Canonical URL
             canonical_url = None
             canonical_tag = soup.find('link', rel='canonical')
             if canonical_tag and canonical_tag.get('href'):
