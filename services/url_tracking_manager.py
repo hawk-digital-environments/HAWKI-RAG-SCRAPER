@@ -41,14 +41,22 @@ import aiofiles
 
 class URLTrackingManager:
     """
-    Manages URL tracking state stored as a JSON file.
+    Manages URL tracking state stored across multiple JSON chunk files.
 
     Provides methods to:
     - Add URLs from sitemap with lastmod dates
     - Update URL status during processing
     - Add dates from page headers
     - Query URL states
+
+    Storage Strategy:
+    - UNIQUE URLs only are stored in chunks of CHUNK_SIZE urls per file
+    - Chunk files: urls_chunk_0000.json, urls_chunk_0001.json, etc.
+    - Index file: urls_index.json tracks total_entries (including duplicates detected) and unique_urls
+    - Duplicates are automatically deduplicated, only first occurrence is kept
     """
+
+    CHUNK_SIZE = 2000  # Unique URLs per chunk file
 
     def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
         """
@@ -61,34 +69,41 @@ class URLTrackingManager:
         self.job_id = job_id
         self.base_path = Path(base_path)
         self.job_dir = self.base_path / job_id
-        self.tracking_file = self.job_dir / "urls_tracking.json"
+        self.index_file = self.job_dir / "urls_index.json"
+        self.chunks_dir = self.job_dir / "url_chunks"
         self.lock = asyncio.Lock()
 
-        # In-memory state
+        # In-memory state - dictionary for unique URLs only
         self.urls: Dict[str, Dict[str, Any]] = {}
+        self.total_entries_detected: int = 0  # Track total including duplicates
 
     async def initialize(self):
         """
-        Initialize the tracking file.
+        Initialize the tracking system.
         Must be called before using the manager.
         """
-        # Create job directory if needed
+        # Create job directory and chunks directory if needed
         self.job_dir.mkdir(parents=True, exist_ok=True)
+        self.chunks_dir.mkdir(exist_ok=True)
 
-        # Write initial empty state
-        await self._write_state()
+        # Initialize index file
+        await self._write_index()
 
-    async def add_urls_from_sitemap(self, urls_with_dates: Dict[str, Optional[str]]):
+    async def add_urls_from_sitemap(self, urls_with_dates: List[tuple]):
         """
-        Add multiple URLs discovered from sitemap.
+        Add multiple URLs discovered from sitemap (deduplicates automatically).
 
         Args:
-            urls_with_dates: Dictionary mapping URL to lastmod date (or None)
+            urls_with_dates: List of (url, lastmod_date) tuples
         """
         async with self.lock:
             timestamp = datetime.utcnow().isoformat() + "Z"
 
-            for url, sitemap_date in urls_with_dates.items():
+            # Count total entries including duplicates
+            self.total_entries_detected += len(urls_with_dates)
+
+            # Add only unique URLs
+            for url, sitemap_date in urls_with_dates:
                 if url not in self.urls:
                     self.urls[url] = {
                         "status": "pending",
@@ -102,6 +117,8 @@ class URLTrackingManager:
                     }
 
             await self._write_state()
+            num_chunks = (len(self.urls) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
+            print(f"Stored {len(self.urls)} unique URLs across {num_chunks} chunks (detected {self.total_entries_detected} total entries including duplicates)")
 
     async def add_url(self, url: str, source: str = "discovery"):
         """
@@ -114,6 +131,7 @@ class URLTrackingManager:
         async with self.lock:
             if url not in self.urls:
                 timestamp = datetime.utcnow().isoformat() + "Z"
+                self.total_entries_detected += 1
                 self.urls[url] = {
                     "status": "pending",
                     "sitemap_date": None,
@@ -199,7 +217,8 @@ class URLTrackingManager:
         """
         async with self.lock:
             stats = {
-                "total": len(self.urls),
+                "total_entries": self.total_entries_detected,
+                "unique_urls": len(self.urls),
                 "pending": 0,
                 "processing": 0,
                 "completed": 0,
@@ -213,29 +232,103 @@ class URLTrackingManager:
 
             return stats
 
+    def _get_chunk_number(self, url_index: int) -> int:
+        """Get chunk number for a given URL index."""
+        return url_index // self.CHUNK_SIZE
+
+    def _get_chunk_file(self, chunk_num: int) -> Path:
+        """Get file path for a specific chunk."""
+        return self.chunks_dir / f"urls_chunk_{chunk_num:04d}.json"
+
+    async def _write_index(self):
+        """Write index file with metadata about chunks."""
+        try:
+            index_data = {
+                "total_entries": self.total_entries_detected,
+                "unique_urls": len(self.urls),
+                "chunk_size": self.CHUNK_SIZE,
+                "total_chunks": (len(self.urls) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE if self.urls else 0,
+                "last_updated": datetime.utcnow().isoformat() + "Z"
+            }
+            async with aiofiles.open(self.index_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(index_data, indent=2, ensure_ascii=False))
+        except Exception as e:
+            print(f"Warning: Failed to write URL index for {self.job_id}: {e}")
+
+    async def _write_chunk(self, chunk_num: int, chunk_data: Dict[str, Dict[str, Any]]):
+        """Write a specific chunk to disk."""
+        try:
+            chunk_file = self._get_chunk_file(chunk_num)
+            async with aiofiles.open(chunk_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(chunk_data, indent=2, ensure_ascii=False))
+        except Exception as e:
+            print(f"Warning: Failed to write URL chunk {chunk_num} for {self.job_id}: {e}")
+
     async def _write_state(self):
         """
-        Write current state to disk.
+        Write current state to disk in chunks.
         Internal method called automatically by update methods.
+
+        Writes:
+        1. Chunked files (unique URLs only, split into chunks)
+        2. Index file (metadata with total_entries including duplicates)
         """
         try:
-            async with aiofiles.open(self.tracking_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(self.urls, indent=2, ensure_ascii=False))
+            # Organize URLs into chunks
+            url_list = list(self.urls.items())
+            chunks: Dict[int, Dict[str, Dict[str, Any]]] = {}
+
+            for idx, (url, data) in enumerate(url_list):
+                chunk_num = self._get_chunk_number(idx)
+                if chunk_num not in chunks:
+                    chunks[chunk_num] = {}
+                chunks[chunk_num][url] = data
+
+            # Write each chunk
+            for chunk_num, chunk_data in chunks.items():
+                await self._write_chunk(chunk_num, chunk_data)
+
+            # Write index
+            await self._write_index()
+
         except Exception as e:
             # Log error but don't fail the job
             print(f"Warning: Failed to write URL tracking state for {self.job_id}: {e}")
 
+    async def _read_chunk(self, chunk_num: int) -> Dict[str, Dict[str, Any]]:
+        """Read a specific chunk from disk."""
+        try:
+            chunk_file = self._get_chunk_file(chunk_num)
+            if chunk_file.exists():
+                async with aiofiles.open(chunk_file, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    return json.loads(content)
+        except Exception as e:
+            print(f"Warning: Failed to read URL chunk {chunk_num} for {self.job_id}: {e}")
+        return {}
+
     async def read_state(self) -> Dict[str, Dict[str, Any]]:
         """
-        Read state from disk.
+        Read state from disk (all chunks).
         Useful for recovery or external monitoring.
         """
         try:
-            if self.tracking_file.exists():
-                async with aiofiles.open(self.tracking_file, 'r', encoding='utf-8') as f:
-                    content = await f.read()
-                    self.urls = json.loads(content)
-                    return self.urls.copy()
+            # Try reading from chunks
+            if self.chunks_dir.exists() and self.index_file.exists():
+                async with aiofiles.open(self.index_file, 'r', encoding='utf-8') as f:
+                    index_data = json.loads(await f.read())
+                    total_chunks = index_data.get('total_chunks', 0)
+                    self.total_entries_detected = index_data.get('total_entries', 0)
+
+                # Read all chunks and merge
+                all_urls = {}
+                for chunk_num in range(total_chunks):
+                    chunk_data = await self._read_chunk(chunk_num)
+                    all_urls.update(chunk_data)
+
+                self.urls = all_urls
+                return self.urls.copy()
+
         except Exception as e:
             print(f"Warning: Failed to read URL tracking state for {self.job_id}: {e}")
 

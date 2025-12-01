@@ -262,11 +262,14 @@ class CrawlerService:
     async def parse_sitemap(self, sitemap_url: str) -> List[str]:
         """Parse sitemap and extract URLs"""
         urls = []
-        urls_with_dates = {}  # Track URLs with their dates for URLTrackingManager
+        urls_with_dates = []  # List of (url, date) tuples to preserve duplicates for URLTrackingManager
 
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            # Create session with increased max response size for large sitemaps
+            connector = aiohttp.TCPConnector(limit=100)
+            async with aiohttp.ClientSession(headers=self.headers, connector=connector) as session:
+                async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30),
+                                       max_line_size=16*1024, max_field_size=16*1024) as response:
                     if response.status != 200:
                         print(f"Error fetching sitemap {sitemap_url}: HTTP {response.status}")
                         return urls
@@ -300,8 +303,8 @@ class CrawlerService:
                                 lastmod_date = lastmod_tag.text.strip()
                                 self.sitemap_lastmod[url] = lastmod_date
 
-                            # Store for URLTrackingManager
-                            urls_with_dates[url] = lastmod_date
+                            # Store for URLTrackingManager (as tuple to preserve duplicates)
+                            urls_with_dates.append((url, lastmod_date))
 
                     # Fallback: Parse as plain text list if no XML URLs were found
                     if not urls:
@@ -309,7 +312,6 @@ class CrawlerService:
                         # Split content by newlines and extract valid URLs
                         lines = content.strip().split('\n')
                         url_pattern = re.compile(r'^https?://[^\s]+$')
-
                         for line in lines:
                             line = line.strip()
                             # Check if line matches URL pattern
@@ -318,7 +320,7 @@ class CrawlerService:
                                 if urlparse(line).path.lower().endswith("piwik.php"):
                                     continue
                                 urls.append(line)
-                                urls_with_dates[line] = None
+                                urls_with_dates.append((line, None))  # Preserve duplicates
 
                         if urls:
                             print(f"Found {len(urls)} URLs via plain text parsing")
