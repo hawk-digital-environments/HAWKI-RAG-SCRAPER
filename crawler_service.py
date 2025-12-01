@@ -303,6 +303,26 @@ class CrawlerService:
                             # Store for URLTrackingManager
                             urls_with_dates[url] = lastmod_date
 
+                    # Fallback: Parse as plain text list if no XML URLs were found
+                    if not urls:
+                        print(f"No URLs found via XML parsing, trying plain text fallback for {sitemap_url}")
+                        # Split content by newlines and extract valid URLs
+                        lines = content.strip().split('\n')
+                        url_pattern = re.compile(r'^https?://[^\s]+$')
+
+                        for line in lines:
+                            line = line.strip()
+                            # Check if line matches URL pattern
+                            if url_pattern.match(line):
+                                # Skip piwik.php tracking pixels
+                                if urlparse(line).path.lower().endswith("piwik.php"):
+                                    continue
+                                urls.append(line)
+                                urls_with_dates[line] = None
+
+                        if urls:
+                            print(f"Found {len(urls)} URLs via plain text parsing")
+
         except Exception as e:
             print(f"Error parsing sitemap {sitemap_url}: {e}")
 
