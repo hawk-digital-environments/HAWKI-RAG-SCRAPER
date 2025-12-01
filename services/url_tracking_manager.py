@@ -14,6 +14,7 @@ URL State Structure:
 {
     "url": {
         "status": "pending|processing|completed|failed",
+        "url_hash": "SHA256 hash of URL",
         "sitemap_date": "ISO-8601 timestamp or null",
         "header_last_modified": "ISO-8601 timestamp or null",
         "header_date": "ISO-8601 timestamp or null",
@@ -33,10 +34,24 @@ Lifecycle:
 
 import json
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import aiofiles
+
+
+def generate_url_hash(url: str) -> str:
+    """
+    Generate SHA256 hash for a URL.
+
+    Args:
+        url: URL string to hash
+
+    Returns:
+        Hexadecimal SHA256 hash string
+    """
+    return hashlib.sha256(url.encode('utf-8')).hexdigest()
 
 
 class URLTrackingManager:
@@ -107,6 +122,7 @@ class URLTrackingManager:
                 if url not in self.urls:
                     self.urls[url] = {
                         "status": "pending",
+                        "url_hash": generate_url_hash(url),
                         "sitemap_date": sitemap_date,
                         "header_last_modified": None,
                         "header_date": None,
@@ -134,6 +150,7 @@ class URLTrackingManager:
                 self.total_entries_detected += 1
                 self.urls[url] = {
                     "status": "pending",
+                    "url_hash": generate_url_hash(url),
                     "sitemap_date": None,
                     "header_last_modified": None,
                     "header_date": None,

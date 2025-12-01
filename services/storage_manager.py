@@ -13,15 +13,13 @@ Why this exists:
 Directory Structure:
 /app/data/jobs/{job_id}/
     ├── job_state.json          # Job metadata (managed by JobStateManager)
-    ├── page_00001/
-    │   ├── data_00001.json     # Page metadata
-    │   ├── content_00001.md    # Extracted content
+    ├── {hash[0]}/{hash[1]}/{hash[2]}/{hash[3]}/{full_hash}/
+    │   ├── data.json           # Page metadata
+    │   ├── content.md          # Extracted content
     │   ├── images/             # Downloaded images
     │   │   └── image1.jpg
     │   └── files/              # Downloaded PDFs
     │       └── file1.pdf
-    ├── page_00002/
-    │   └── ...
     └── ...
 
 Lifecycle:
@@ -67,6 +65,23 @@ class StorageManager:
         """Create the job directory if it doesn't exist."""
         self.job_dir.mkdir(parents=True, exist_ok=True)
 
+    def get_hash_directory(self, url_hash: str) -> Path:
+        """
+        Get the nested directory path for a URL hash.
+        Structure: /{hash[0]}/{hash[1]}/{hash[2]}/{hash[3]}/{full_hash}/
+
+        Args:
+            url_hash: SHA256 hash of the URL
+
+        Returns:
+            Path to hash-based directory
+        """
+        if len(url_hash) < 4:
+            # Fallback for invalid hashes
+            return self.job_dir / url_hash
+
+        return self.job_dir / url_hash[0] / url_hash[1] / url_hash[2] / url_hash[3] / url_hash
+
     def get_page_directory(self, page_number: int) -> Path:
         """
         Get the directory path for a specific page.
@@ -79,6 +94,36 @@ class StorageManager:
         """
         return self.job_dir / f"page_{page_number:05d}"
 
+    def create_hash_directory(
+        self,
+        url_hash: str,
+        create_images_dir: bool = True,
+        create_files_dir: bool = False
+    ) -> Path:
+        """
+        Create nested directory structure for a URL hash.
+
+        Args:
+            url_hash: SHA256 hash of the URL
+            create_images_dir: Whether to create images subdirectory
+            create_files_dir: Whether to create files subdirectory
+
+        Returns:
+            Path to created hash directory
+        """
+        hash_dir = self.get_hash_directory(url_hash)
+        hash_dir.mkdir(parents=True, exist_ok=True)
+
+        if create_images_dir:
+            images_dir = hash_dir / "images"
+            images_dir.mkdir(exist_ok=True)
+
+        if create_files_dir:
+            files_dir = hash_dir / "files"
+            files_dir.mkdir(exist_ok=True)
+
+        return hash_dir
+
     def create_page_directory(
         self,
         page_number: int,
@@ -86,6 +131,7 @@ class StorageManager:
         create_files_dir: bool = False
     ) -> Path:
         """
+        DEPRECATED: Use create_hash_directory instead.
         Create directory structure for a specific page.
 
         Args:
@@ -109,16 +155,53 @@ class StorageManager:
 
         return page_dir
 
+    def get_hash_images_directory(self, url_hash: str) -> Path:
+        """Get the images directory for a URL hash."""
+        return self.get_hash_directory(url_hash) / "images"
+
+    def get_hash_files_directory(self, url_hash: str) -> Path:
+        """Get the files directory for a URL hash."""
+        return self.get_hash_directory(url_hash) / "files"
+
     def get_images_directory(self, page_number: int) -> Path:
-        """Get the images directory for a specific page."""
+        """DEPRECATED: Get the images directory for a specific page."""
         return self.get_page_directory(page_number) / "images"
 
     def get_files_directory(self, page_number: int) -> Path:
-        """Get the files directory for a specific page."""
+        """DEPRECATED: Get the files directory for a specific page."""
         return self.get_page_directory(page_number) / "files"
+
+    async def save_hash_json(self, url_hash: str, data: Dict[str, Any]):
+        """
+        Save page metadata as JSON using hash-based directory.
+
+        Args:
+            url_hash: SHA256 hash of the URL
+            data: Dictionary to save as JSON
+        """
+        hash_dir = self.get_hash_directory(url_hash)
+        json_file = hash_dir / "data.json"
+
+        async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
+            await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+
+    async def save_hash_content(self, url_hash: str, content: str):
+        """
+        Save page content as markdown using hash-based directory.
+
+        Args:
+            url_hash: SHA256 hash of the URL
+            content: Content to save
+        """
+        hash_dir = self.get_hash_directory(url_hash)
+        content_file = hash_dir / "content.md"
+
+        async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
+            await f.write(content if content else "")
 
     async def save_page_json(self, page_number: int, data: Dict[str, Any]):
         """
+        DEPRECATED: Use save_hash_json instead.
         Save page metadata as JSON.
 
         Args:
@@ -133,6 +216,7 @@ class StorageManager:
 
     async def save_page_content(self, page_number: int, content: str):
         """
+        DEPRECATED: Use save_hash_content instead.
         Save page content as markdown.
 
         Args:
@@ -145,8 +229,50 @@ class StorageManager:
         async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
             await f.write(content if content else "")
 
+    async def save_hash_image(self, url_hash: str, filename: str, image_data: bytes) -> str:
+        """
+        Save image file using hash-based directory.
+
+        Args:
+            url_hash: SHA256 hash of the URL
+            filename: Image filename
+            image_data: Raw image bytes
+
+        Returns:
+            Saved filename
+        """
+        images_dir = self.get_hash_images_directory(url_hash)
+        filepath = images_dir / filename
+
+        async with aiofiles.open(filepath, 'wb') as f:
+            await f.write(image_data)
+
+        return filename
+
+    async def save_hash_pdf(self, url_hash: str, filename: str, pdf_data: bytes) -> str:
+        """
+        Save PDF file using hash-based directory.
+
+        Args:
+            url_hash: SHA256 hash of the URL
+            filename: PDF filename
+            pdf_data: Raw PDF bytes
+
+        Returns:
+            Saved filename
+        """
+        files_dir = self.get_hash_files_directory(url_hash)
+        files_dir.mkdir(parents=True, exist_ok=True)
+        filepath = files_dir / filename
+
+        async with aiofiles.open(filepath, 'wb') as f:
+            await f.write(pdf_data)
+
+        return filename
+
     async def save_image(self, page_number: int, filename: str, image_data: bytes) -> str:
         """
+        DEPRECATED: Use save_hash_image instead.
         Save image file.
 
         Args:
@@ -167,6 +293,7 @@ class StorageManager:
 
     async def save_pdf(self, page_number: int, filename: str, pdf_data: bytes) -> str:
         """
+        DEPRECATED: Use save_hash_pdf instead.
         Save PDF file.
 
         Args:

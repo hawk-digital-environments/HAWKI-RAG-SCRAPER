@@ -18,7 +18,7 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from models import CrawlConfig
 from services.progress_tracker import ProgressTracker
-from services.url_tracking_manager import URLTrackingManager
+from services.url_tracking_manager import URLTrackingManager, generate_url_hash
 from services.summary_manager import SummaryManager
 
 
@@ -429,7 +429,7 @@ class CrawlerService:
         content_type = headers.get('content-type', '') if isinstance(headers, dict) else ''
         return 'pdf' in content_type.lower()
 
-    async def fetch_and_save_pdf(self, pdf_url: str, page_number: int, session: Optional[aiohttp.ClientSession] = None) -> Optional[Dict[str, str]]:
+    async def fetch_and_save_pdf(self, pdf_url: str, page_number: int, session: Optional[aiohttp.ClientSession] = None, url_hash: Optional[str] = None) -> Optional[Dict[str, str]]:
         """Download a PDF and save it to the files directory"""
         await self.rate_limiter.acquire()
 
@@ -460,15 +460,23 @@ class CrawlerService:
                 filename = filename.translate(umlaut_map)
                 filename = re.sub(r'[^\w\-_\.]', '_', filename)
 
-                # Ensure page directory and files subdir exist
-                page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                files_dir = page_dir / "files"
-
-                if self.storage_manager:
+                # Use hash-based or page number-based storage
+                if url_hash and self.storage_manager:
+                    # Hash-based storage
+                    self.storage_manager.create_hash_directory(url_hash, create_files_dir=True)
+                    await self.storage_manager.save_hash_pdf(url_hash, filename, pdf_bytes)
+                    files_dir = self.storage_manager.get_hash_files_directory(url_hash)
+                    filepath = files_dir / filename
+                elif self.storage_manager:
+                    # Page number-based storage (deprecated)
+                    page_dir = await self.create_page_directory(page_number, create_files_dir=True)
                     await self.storage_manager.save_pdf(page_number, filename, pdf_bytes)
                     files_dir = self.storage_manager.get_files_directory(page_number)
                     filepath = files_dir / filename
                 else:
+                    # Fallback for no storage_manager
+                    page_dir = await self.create_page_directory(page_number, create_files_dir=True)
+                    files_dir = page_dir / "files"
                     files_dir.mkdir(exist_ok=True)
                     filepath = files_dir / filename
                     async with aiofiles.open(filepath, 'wb') as f:
@@ -622,7 +630,8 @@ class CrawlerService:
                                 head_headers: Optional[Dict[str, str]] = None,
                                 head_status: Optional[int] = None,
                                 depth: int = 0,
-                                source_type: str = "seed") -> Optional[Dict]:
+                                source_type: str = "seed",
+                                url_hash: Optional[str] = None) -> Optional[Dict]:
         """Extract data from a single page"""
         await self.rate_limiter.acquire()
 
@@ -761,12 +770,17 @@ class CrawlerService:
                                 if not urlparse(absolute_img_url).path.lower().endswith("piwik.php") and absolute_img_url not in images:
                                     images.append(absolute_img_url)
 
-            # Download images to page-specific directory
+            # Download images to hash-based directory
             downloaded_images = []
             if images and not self.config.skip_images:
-                # Create page directory and images subfolder
-                page_dir = await self.create_page_directory(page_number)
-                images_dir = page_dir / "images"
+                if url_hash and self.storage_manager:
+                    # Use hash-based storage
+                    self.storage_manager.create_hash_directory(url_hash, create_images_dir=True)
+                    images_dir = self.storage_manager.get_hash_images_directory(url_hash)
+                else:
+                    # Fallback to page number-based storage
+                    page_dir = await self.create_page_directory(page_number)
+                    images_dir = page_dir / "images"
 
                 async with aiohttp.ClientSession(headers=self.headers) as session:
                     for img_url in images:
@@ -787,6 +801,7 @@ class CrawlerService:
             page_data = {
                 'title': title,
                 'page_url': [url],
+                'url_hash': url_hash,
                 'final_url': final_url,
                 'canonical_url': canonical_url,
                 'domain': domain,
@@ -819,23 +834,25 @@ class CrawlerService:
             print(f"Error extracting data from {url}: {e}")
             return None
 
-    async def save_page_data(self, page_data: Dict, page_number: int):
-        """Save page data to JSON and markdown files in page-specific directory"""
-        # Create page directory
-        page_dir = await self.create_page_directory(page_number)
-
-        if self.storage_manager:
-            # Use storage_manager for consistent file operations
+    async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
+        """Save page data to JSON and markdown files in hash-based directory"""
+        if self.storage_manager and url_hash:
+            # Use hash-based storage (new system)
+            self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
+            await self.storage_manager.save_hash_json(url_hash, page_data['data'])
+            await self.storage_manager.save_hash_content(url_hash, page_data['markdown'] if page_data['markdown'] else "")
+        elif self.storage_manager:
+            # Use page number-based storage (deprecated)
+            page_dir = await self.create_page_directory(page_number)
             await self.storage_manager.save_page_json(page_number, page_data['data'])
             await self.storage_manager.save_page_content(page_number, page_data['markdown'] if page_data['markdown'] else "")
         else:
-            # Original logic for backwards compatibility
-            # Save JSON data
+            # Original logic for backwards compatibility (no storage_manager)
+            page_dir = await self.create_page_directory(page_number)
             json_filename = page_dir / f"data_{page_number:05d}.json"
             async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False))
 
-            # Save markdown content
             md_filename = page_dir / f"content_{page_number:05d}.md"
             async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
                 await f.write(page_data['markdown'] if page_data['markdown'] else "")
@@ -851,6 +868,9 @@ class CrawlerService:
                 self.visited_urls.add(url)
                 self.page_counter += 1
                 current_page_number = self.page_counter
+
+            # Generate URL hash for storage
+            url_hash = generate_url_hash(url)
 
             # Display progress
             total_pages = self.config.max_pages if self.config.max_pages > 0 else "unlimited"
@@ -872,13 +892,14 @@ class CrawlerService:
             # Handle direct PDF URLs
             page_data = None
             if await self.is_pdf_resource(url, head_status, head_headers):
-                pdf_entry = await self.fetch_and_save_pdf(url, current_page_number)
+                pdf_entry = await self.fetch_and_save_pdf(url, current_page_number, url_hash=url_hash)
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers)
                     page_data = {
                         'data': {
                             'title': [],
                             'page_url': [url],
+                            'url_hash': url_hash,
                             'meta_img_url': [],
                             'images': [],
                             'date': [],
@@ -899,7 +920,8 @@ class CrawlerService:
                     head_headers=head_headers,
                     head_status=head_status,
                     depth=self.url_depth.get(url, 0),
-                    source_type=self.url_source.get(url, 'seed')
+                    source_type=self.url_source.get(url, 'seed'),
+                    url_hash=url_hash
                 )
 
             if page_data:
@@ -911,13 +933,13 @@ class CrawlerService:
                     if pdf_links:
                         async with aiohttp.ClientSession(headers=self.headers) as pdf_session:
                             for pdf_url in pdf_links:
-                                pdf_entry = await self.fetch_and_save_pdf(pdf_url, current_page_number, session=pdf_session)
+                                pdf_entry = await self.fetch_and_save_pdf(pdf_url, current_page_number, session=pdf_session, url_hash=url_hash)
                                 if pdf_entry:
                                     pdf_entries.append(pdf_entry)
 
                 page_data['data']['pdfs'] = pdf_entries
 
-                await self.save_page_data(page_data, current_page_number)
+                await self.save_page_data(page_data, current_page_number, url_hash)
 
                 # Extract header dates for URLTrackingManager
                 header_dates = None
