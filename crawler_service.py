@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 import aiohttp
 import aiofiles
 import html2text
+from email.utils import parsedate_to_datetime
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
@@ -278,6 +279,30 @@ class CrawlerService:
             return None
         return self.hawk_sitemap_map.get(key)
 
+    def _first_sitemap_entry(self, *urls: str) -> Optional[Dict[str, str]]:
+        """Return the first sitemap entry found for the provided URLs."""
+        for u in urls:
+            if not u:
+                continue
+            entry = self._lookup_sitemap_entry(u)
+            if entry:
+                return entry
+        return None
+
+    @staticmethod
+    def _parse_http_date(date_str: Optional[str]) -> Optional[str]:
+        """Parse HTTP date string to ISO format with timezone if possible."""
+        if not date_str:
+            return None
+        try:
+            dt = parsedate_to_datetime(date_str)
+            if dt:
+                # Ensure timezone-aware; parsedate_to_datetime returns aware for HTTP dates
+                return dt.isoformat()
+        except Exception:
+            return None
+        return None
+
     async def is_sitemap(self, url: str) -> bool:
         """Check if URL is a sitemap"""
         url_lower = url.lower()
@@ -529,12 +554,18 @@ class CrawlerService:
             if cleanup_session:
                 await session.close()
 
-    def detect_language(self, html_content: Optional[str], head_headers: Optional[Dict[str, str]], url: Optional[str] = None) -> Optional[str]:
+    def detect_language(
+        self,
+        html_content: Optional[str],
+        head_headers: Optional[Dict[str, str]],
+        url: Optional[str] = None,
+        sitemap_entry: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
         """
         Prefer sitemap JSON language when available; fallback to headers/HTML lang.
         Returns an uppercased language code when found.
         """
-        entry = self._lookup_sitemap_entry(url) if url else None
+        entry = sitemap_entry or (self._lookup_sitemap_entry(url) if url else None)
         if entry and entry.get("language"):
             return entry["language"].upper()
 
@@ -636,11 +667,20 @@ class CrawlerService:
             if og_image and og_image.get('content'):
                 meta_img_url.append(og_image['content'])
 
-            entry = self._lookup_sitemap_entry(url)
-            lang = self.detect_language(result.html, head_headers, url=url)
-            published_date = entry.get("last_modified") if entry else None
+            final_url = getattr(result, 'final_url', None) or getattr(result, 'page_url', None)
+            entry = self._first_sitemap_entry(url, final_url)
+
+            lang = self.detect_language(result.html, head_headers, url=final_url or url, sitemap_entry=entry)
+            updated_at = entry.get("last_modified") if entry else None
             if not entry and head_headers:
-                published_date = head_headers.get("date")
+                updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
+                if updated_at and isinstance(updated_at, str) and " " in updated_at:
+                    # If parsing failed to ISO, try datetime + isoformat fallback
+                    try:
+                        dt = parsedate_to_datetime(head_headers.get("last-modified") or head_headers.get("date"))
+                        updated_at = dt.isoformat() if dt else updated_at
+                    except Exception:
+                        pass
 
             # Extract images - use both crawl4ai and BeautifulSoup
             images = []
@@ -709,11 +749,10 @@ class CrawlerService:
             content_for_hash = markdown_content if markdown_content else result.html
             content_hash = hashlib.sha256(content_for_hash.encode('utf-8', errors='ignore')).hexdigest()
 
-            fetch_time = datetime.now().strftime("%Y-%m-%d")
-            content_length = (head_headers or {}).get('content-length') if head_headers else None
-            sitemap_lastmod = self.sitemap_lastmod.get(url)
-            domain = urlparse(url).netloc
-            canonicalized_path = urlparse(url).path
+            fetch_time = datetime.now().isoformat()
+            content_length = len((result.html or "")) if result and result.html else None
+            domain = urlparse(final_url or url).netloc
+            canonicalized_path = urlparse(final_url or url).path
 
             page_data = {
                 'title': title,
@@ -725,13 +764,12 @@ class CrawlerService:
                 'meta_img_url': meta_img_url,
                 'images': downloaded_images if not self.config.skip_images else images,
                 'lang': lang,
-                'published_date': published_date,
+                'updated_at': updated_at,
                 'source_type': source_type,
                 'etag': (head_headers or {}).get('etag') if head_headers else None,
                 'http_status': head_status,
                 'content_length': content_length,
                 'fetch_time': fetch_time,
-                'sitemap_lastmod': sitemap_lastmod,
                 'redirect_chain': [url],
                 'content_hash': content_hash
             }
@@ -807,9 +845,9 @@ class CrawlerService:
                 pdf_entry = await self.fetch_and_save_pdf(url, current_page_number, url_hash=url_hash)
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers, url=url)
-                    published_date = (self._lookup_sitemap_entry(url) or {}).get("last_modified")
+                    updated_at = (self._lookup_sitemap_entry(url) or {}).get("last_modified")
                     if not self._lookup_sitemap_entry(url) and head_headers:
-                        published_date = head_headers.get("date")
+                        updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
                     page_data = {
                         'data': {
                             'title': [],
@@ -818,7 +856,7 @@ class CrawlerService:
                             'meta_img_url': [],
                             'images': [],
                             'lang': pdf_lang,
-                            'published_date': published_date,
+                            'updated_at': updated_at,
                             'source_type': self.url_source.get(url, 'seed'),
                             'pdfs': [pdf_entry]
                         },
