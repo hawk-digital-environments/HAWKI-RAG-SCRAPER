@@ -3,6 +3,14 @@ SITEMAP_START ?= 1
 SITEMAP_OUTPUT ?= /app/data/hawk_sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
 
+# Allow `make cancel <job_id>` as shorthand
+ifeq ($(firstword $(MAKECMDGOALS)),cancel)
+  ifneq ($(word 2,$(MAKECMDGOALS)),)
+    override JOB_ID := $(word 2,$(MAKECMDGOALS))
+    $(eval $(word 2,$(MAKECMDGOALS)):=)
+  endif
+endif
+
 .PHONY: crawl-sitemap crawl-test crawl-full build up down logs
 
 crawl-sitemap:
@@ -22,14 +30,14 @@ crawl-test:
 crawl-full:
 	curl -s -X POST http://localhost:8004/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 30}' \
+		-d '{"url": "https://www.hawk.de", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
 		| python -m json.tool
 
 jobs:
 	curl -s http://localhost:8004/jobs | python -m json.tool
 
 cancel:
-	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make cancel JOB_ID=<id>"; exit 1; fi
+	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make cancel JOB_ID=<id>  (or make cancel <id>)"; exit 1; fi
 	curl -s -X POST http://localhost:8004/jobs/$(JOB_ID)/cancel | python -m json.tool
 
 build:
