@@ -19,22 +19,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Redis Pub/Sub Configuration (recommended)
-      - REDIS_ENABLED=false
-      # - REDIS_HOST=${REDIS_HOST:-redis}
-      # - REDIS_PORT=${REDIS_PORT:-6379}
-      # - REDIS_DB=${REDIS_DB:-0}
-      # - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      # - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
-      - REDIS_HOST=
-      - REDIS_PORT=
-      - REDIS_DB=
-      - REDIS_PASSWORD=
-      - REDIS_CHANNEL=
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_CHANNEL=scrape-events
       # WebSocket URL for real-time events (legacy, deprecated)
       # Example: ws://laravel-app:6001 for Laravel WebSocket
       - WEBSOCKET_URL=${WEBSOCKET_URL:-}
       # Data storage path for job files
-      - DATA_PATH=${DATA_PATH:-/app/data/jobs}
+      - DATA_PATH=${DATA_PATH:-/app/shared}
     volumes:
       # Mount data directory for job-specific storage (new structure)
       - ./data:/app/data
@@ -42,6 +37,7 @@ services:
       - ./output:/app/output
       # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
+      - rawki_shared_storage:/app/shared
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
@@ -59,7 +55,11 @@ services:
           cpus: '1'
           memory: 1G
 
+volumes:
+  rawki_shared_storage:
+    external: true
+
 networks:
   default:
-    name: hawki-network
+    name: rawki-network
     external: true

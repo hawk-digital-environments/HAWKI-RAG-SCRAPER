@@ -132,7 +132,9 @@ class RateLimiter:
 class CrawlerService:
     """Main crawler service handling all crawling operations"""
 
-    def __init__(self, config: CrawlConfig, job_id: Optional[str] = None,
+    def __init__(self,
+                 config: CrawlConfig,
+                 job_id: Optional[str] = None,
                  event_emitter: Optional[Any] = None,
                  job_state_manager: Optional[Any] = None,
                  storage_manager: Optional[Any] = None):
@@ -1012,7 +1014,7 @@ class CrawlerService:
                 await self.progress_tracker.set_stage("initialization")
 
             start_url = str(self.config.url)
-
+            print(f"Crawl for {start_url}")
             # Check if URL is a sitemap
             if await self.is_sitemap(start_url):
                 print(f"Detected sitemap: {start_url}")

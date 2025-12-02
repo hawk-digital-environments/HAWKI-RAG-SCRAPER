@@ -160,7 +160,6 @@ class RedisEventEmitter:
             "data": data,
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
-
         # Log the event
         self.logger.info(f"Event [{event}]: {json.dumps(data, default=str)}")
 

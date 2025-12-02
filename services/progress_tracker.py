@@ -103,8 +103,8 @@ class ProgressTracker:
             if stage in ["completed", "failed"]:
                 self.completed_at = datetime.utcnow().isoformat() + "Z"
 
-            # Emit immediately on stage change
-            await self._emit_progress(force=True)
+        # Emit immediately on stage change (outside the lock to avoid deadlock)
+        await self._emit_progress(force=True)
 
     async def set_total_urls(self, total: int):
         """Set total number of URLs to process."""
@@ -238,10 +238,15 @@ class ProgressTracker:
             while True:
                 await asyncio.sleep(self.emit_interval)
 
+                should_emit = False
                 async with self.lock:
                     if self._should_emit:
-                        await self._emit_progress(force=False)
+                        should_emit = True
                         self._should_emit = False
+
+                # Emit outside the lock to avoid deadlock
+                if should_emit:
+                    await self._emit_progress(force=False)
         except asyncio.CancelledError:
             pass
 
