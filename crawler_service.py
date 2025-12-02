@@ -3,9 +3,10 @@ import json
 import os
 import hashlib
 import time
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set, Dict, Optional, Any
+from typing import List, Set, Dict, Optional, Any, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 from bs4 import BeautifulSoup
 import aiohttp
@@ -459,7 +460,7 @@ class CrawlerService:
 
         return list(pdf_urls)
 
-    async def fetch_head(self, url: str) -> (Optional[int], Dict[str, str]):
+    async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD headers for a URL to detect content-type, etag, last-modified."""
         await self.rate_limiter.acquire()
         headers: Dict[str, str] = {}
@@ -574,7 +575,7 @@ class CrawlerService:
             if content_lang:
                 lang_val = content_lang.split(',')[0].split(';')[0].strip().lower()
                 if lang_val:
-                    return lang_val
+                    return lang_val.upper()
 
         if html_content:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -582,13 +583,13 @@ class CrawlerService:
             if html_tag and html_tag.get('lang'):
                 lang_val = html_tag.get('lang').split('-')[0].strip().lower()
                 if lang_val:
-                    return lang_val
+                    return lang_val.upper()
 
             meta_lang = soup.find('meta', attrs={'http-equiv': 'Content-Language'})
             if meta_lang and meta_lang.get('content'):
                 lang_val = meta_lang.get('content').split(',')[0].split(';')[0].strip().lower()
                 if lang_val:
-                    return lang_val
+                    return lang_val.upper()
 
         return None
 
@@ -751,26 +752,19 @@ class CrawlerService:
 
             fetch_time = datetime.now().isoformat()
             content_length = len((result.html or "")) if result and result.html else None
-            domain = urlparse(final_url or url).netloc
-            canonicalized_path = urlparse(final_url or url).path
 
             page_data = {
                 'title': title,
                 'page_url': [url],
                 'url_hash': url_hash,
                 'canonical_url': canonical_url,
-                'domain': domain,
-                'canonicalized_path': canonicalized_path,
                 'meta_img_url': meta_img_url,
                 'images': downloaded_images if not self.config.skip_images else images,
                 'lang': lang,
                 'updated_at': updated_at,
-                'source_type': source_type,
-                'etag': (head_headers or {}).get('etag') if head_headers else None,
                 'http_status': head_status,
                 'content_length': content_length,
                 'fetch_time': fetch_time,
-                'redirect_chain': [url],
                 'content_hash': content_hash
             }
 
@@ -823,7 +817,6 @@ class CrawlerService:
             url_hash = generate_url_hash(url)
 
             # Display progress
-            total_pages = self.config.max_pages if self.config.max_pages > 0 else "unlimited"
             if self.config.max_pages > 0:
                 print(f"Crawling [{current_page_number}/{self.config.max_pages}]: {url}")
             else:
