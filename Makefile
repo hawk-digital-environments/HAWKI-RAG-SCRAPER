@@ -1,6 +1,6 @@
 SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
-SITEMAP_OUTPUT ?= /app/data/hawk_sitemap.json
+SITEMAP_OUTPUT ?= /app/data/sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
 
 # Allow `make cancel <job_id>` as shorthand
@@ -15,7 +15,7 @@ endif
 
 crawl-sitemap:
 	docker compose run --rm crawler \
-		python hawk_sitemap_scraper.py --hawk-sitemap \
+		python services/sitemap_scraper.py --sitemap \
 		--base-url $(SITEMAP_BASE) \
 		--start-page $(SITEMAP_START) \
 		--pages $(SITEMAP_PAGES) \

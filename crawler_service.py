@@ -63,7 +63,7 @@ def clean_html_for_markdown(html: str) -> str:
         t.decompose()
     ################################################################################### HAWK WEBSITE REGION ##################################################################
     # HAWK-specific content removal (sitewide navigation, cookie, social, and footer blocks)
-    hawk_keywords = [
+    navigation_keywords = [
         "hauptnavigation", "hauptmenü", "schnellzugriff",
         "diese seite teilen", "cookie-einstellungen", "ihre cookie-einstellungen",
         "technisch notwendig", "statistik", "externe medien", "sonstiges", "alle akzeptieren", "ablehnen",
@@ -72,12 +72,12 @@ def clean_html_for_markdown(html: str) -> str:
         "facebook", "linkedin", "pinterest", "xing", "whatsapp"
     ]
 
-    def is_hawk_global(tag):
+    def is_global_nav(tag):
         if tag.name not in ("section", "div"):
             return False
         text = (tag.get_text(" ", strip=True) or "").lower()
-        return any(k in text for k in hawk_keywords)
-    for t in list(soup.find_all(is_hawk_global)):
+        return any(k in text for k in navigation_keywords)
+    for t in list(soup.find_all(is_global_nav)):
         t.decompose()
     return str(soup)
 
@@ -177,7 +177,7 @@ class CrawlerService:
         self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
 
         # Preload sitemap metadata for fast language/date lookups (constant-time via dict)
-        self.hawk_sitemap_path = os.getenv("HAWK_SITEMAP_JSON", "data/hawk_sitemap.json")
+        self.hawk_sitemap_path = os.getenv("HAWK_SITEMAP_JSON", "data/sitemap.json")
         self.hawk_sitemap_map = self._load_hawk_sitemap_map(self.hawk_sitemap_path)
 
         # HTTP headers to avoid being blocked

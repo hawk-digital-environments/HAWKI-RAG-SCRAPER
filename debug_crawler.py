@@ -4,7 +4,7 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CacheMode, CrawlerRunConfig
 from bs4 import BeautifulSoup
 
-from hawk_sitemap_scraper import _run_hawk_sitemap, _build_arg_parser
+from services.sitemap_scraper import _run_sitemap, _build_arg_parser
 
 
 async def test_crawl():
@@ -64,8 +64,8 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.hawk_sitemap:
-        asyncio.run(_run_hawk_sitemap(args))
+    if args.sitemap:
+        asyncio.run(_run_sitemap(args))
     elif args.debug_crawl:
         asyncio.run(test_crawl())
     else:

@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: crawl4ai-fastapi:${IMAGE_TAG:-feature-hawk-sitemap}
-    container_name: crawl4ai-service
+    container_name: hawk-crawler
     ports:
       - "8004:8000"
     environment:

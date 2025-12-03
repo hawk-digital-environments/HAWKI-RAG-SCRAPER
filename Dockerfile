@@ -62,7 +62,6 @@ COPY models.py .
 COPY crawler_service.py .
 COPY example_client.py .
 COPY debug_crawler.py .
-COPY hawk_sitemap_scraper.py .
 COPY services/ ./services/
 
 # Create output and data directories
