@@ -16,14 +16,6 @@ class CrawlConfig(BaseModel):
     max_rpm: int = Field(default=60, ge=1, description="Maximum requests per minute")
     request_delay: Optional[int] = Field(default=None, ge=0, description="Delay between requests in milliseconds")
     discovery_mode: bool = Field(default=False, description="Discover URLs inside the given page")
-    sitemap: bool = Field(default=False, alias="hawk_sitemap", description="Pre-scrape the sitemap before crawling")
-    sitemap_base: Optional[str] = Field(default=None, description="Base URL for the sitemap pages")
-    sitemap_output: Optional[str] = Field(default=None, description="Output path for the scraped sitemap JSON")
-    sitemap_start_page: Optional[int] = Field(default=None, description="Starting page for sitemap pagination")
-    sitemap_pages: Optional[int] = Field(default=None, description="Number of sitemap pages to scrape")
-
-    class Config:
-        allow_population_by_field_name = True
 
 
 class CrawlStatus(BaseModel):

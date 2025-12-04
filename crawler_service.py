@@ -1,12 +1,12 @@
 import asyncio
 import json
 import os
+import re
 import hashlib
 import time
-import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set, Dict, Optional, Any, Tuple
+from typing import List, Set, Dict, Optional, Any
 from urllib.parse import urljoin, urlparse, urlunparse
 from bs4 import BeautifulSoup
 import aiohttp
@@ -20,7 +20,6 @@ from models import CrawlConfig
 from services.progress_tracker import ProgressTracker
 from services.url_tracking_manager import URLTrackingManager, generate_url_hash
 from services.summary_manager import SummaryManager
-from services.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BASE
 
 
 def clean_html_for_markdown(html: str) -> str:
@@ -64,7 +63,7 @@ def clean_html_for_markdown(html: str) -> str:
         t.decompose()
     ################################################################################### HAWK WEBSITE REGION ##################################################################
     # HAWK-specific content removal (sitewide navigation, cookie, social, and footer blocks)
-    navigation_keywords = [
+    hawk_keywords = [
         "hauptnavigation", "hauptmenü", "schnellzugriff",
         "diese seite teilen", "cookie-einstellungen", "ihre cookie-einstellungen",
         "technisch notwendig", "statistik", "externe medien", "sonstiges", "alle akzeptieren", "ablehnen",
@@ -73,12 +72,12 @@ def clean_html_for_markdown(html: str) -> str:
         "facebook", "linkedin", "pinterest", "xing", "whatsapp"
     ]
 
-    def is_global_nav(tag):
+    def is_hawk_global(tag):
         if tag.name not in ("section", "div"):
             return False
         text = (tag.get_text(" ", strip=True) or "").lower()
-        return any(k in text for k in navigation_keywords)
-    for t in list(soup.find_all(is_global_nav)):
+        return any(k in text for k in hawk_keywords)
+    for t in list(soup.find_all(is_hawk_global)):
         t.decompose()
     return str(soup)
 
@@ -172,18 +171,12 @@ class CrawlerService:
         self.url_tracking_manager = None
         self.summary_manager = None
 
-        base_path = None
         if self.job_id and self.storage_manager:
             # Use storage_manager's base path
             base_path = str(self.storage_manager.base_path)
             self.progress_tracker = ProgressTracker(event_emitter=event_emitter)
             self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
-
-        # Preload sitemap metadata for fast language/date lookups (constant-time via dict)
-        self.sitemap_path = self.config.sitemap_output or os.getenv("SITEMAP_JSON", os.getenv("HAWK_SITEMAP_JSON", "data/sitemap.json"))
-        self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
-        self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", DEFAULT_SITEMAP_BASE)
 
         # HTTP headers to avoid being blocked
         self.headers = {
@@ -250,83 +243,6 @@ class CrawlerService:
             ''  # Remove fragment
         ))
         return normalized
-
-    @staticmethod
-    def _normalize_url_key(url: str) -> Optional[str]:
-        """Create a normalized key for quick sitemap map lookup."""
-        if not url:
-            return None
-        try:
-            parsed = urlparse(url)
-            path = parsed.path.rstrip('/') or '/'
-            return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, '', '', ''))
-        except Exception:
-            return None
-
-    def _load_sitemap_map(self, path: str) -> Dict[str, Dict[str, str]]:
-        """Load sitemap JSON into a normalized dict; silent fallback to empty."""
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
-                return {}
-            mapped = {}
-            for raw_url, meta in data.items():
-                key = self._normalize_url_key(raw_url)
-                if key:
-                    mapped[key] = meta if isinstance(meta, dict) else {}
-            return mapped
-        except Exception:
-            return {}
-
-    def _lookup_sitemap_entry(self, url: str) -> Optional[Dict[str, str]]:
-        key = self._normalize_url_key(url)
-        if not key:
-            return None
-        return self.sitemap_map.get(key)
-
-    def _first_sitemap_entry(self, *urls: str) -> Optional[Dict[str, str]]:
-        """Return the first sitemap entry found for the provided URLs."""
-        for u in urls:
-            if not u:
-                continue
-            entry = self._lookup_sitemap_entry(u)
-            if entry:
-                return entry
-        return None
-
-    @staticmethod
-    def _parse_http_date(date_str: Optional[str]) -> Optional[str]:
-        """Parse HTTP date string to ISO format with timezone if possible."""
-        if not date_str:
-            return None
-        try:
-            dt = parsedate_to_datetime(date_str)
-            if dt:
-                return dt.isoformat()
-        except Exception:
-            return None
-        return None
-
-    async def _run_sitemap_scrape(self):
-        """Optionally scrape the sitemap JSON before crawling."""
-        if not getattr(self.config, "sitemap", False):
-            return
-        base_url = self.sitemap_base or DEFAULT_SITEMAP_BASE
-        output_path = Path(self.sitemap_path)
-        start_page = self.config.sitemap_start_page or int(os.getenv("SITEMAP_START", "1"))
-        max_pages = self.config.sitemap_pages or int(os.getenv("SITEMAP_PAGES", "6"))
-        try:
-            scraper = SitemapScraper(
-                base_url=base_url,
-                start_page=start_page,
-                max_pages=max_pages,
-                output_path=output_path
-            )
-            await scraper.scrape()
-            self.sitemap_map = self._load_sitemap_map(str(output_path))
-        except Exception as e:
-            print(f"Error scraping HAWK sitemap: {e}")
 
     async def is_sitemap(self, url: str) -> bool:
         """Check if URL is a sitemap"""
@@ -484,7 +400,7 @@ class CrawlerService:
 
         return list(pdf_urls)
 
-    async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
+    async def fetch_head(self, url: str) -> (Optional[int], Dict[str, str]):
         """Fetch HEAD headers for a URL to detect content-type, etag, last-modified."""
         await self.rate_limiter.acquire()
         headers: Dict[str, str] = {}
@@ -579,43 +495,138 @@ class CrawlerService:
             if cleanup_session:
                 await session.close()
 
-    def detect_language(
-        self,
-        html_content: Optional[str],
-        head_headers: Optional[Dict[str, str]],
-        url: Optional[str] = None,
-        sitemap_entry: Optional[Dict[str, str]] = None
-    ) -> Optional[str]:
-        """
-        Prefer sitemap JSON language when available; fallback to headers/HTML lang.
-        Returns an uppercased language code when found.
-        """
-        entry = sitemap_entry or (self._lookup_sitemap_entry(url) if url else None)
-        if entry and entry.get("language"):
-            return entry["language"].upper()
+    def parse_date_string(self, date_str: str) -> Optional[str]:
+        """Parse a date string into ISO format if plausible."""
+        if not date_str:
+            return None
+        cleaned = date_str.strip()
+        if not cleaned:
+            return None
 
+        # Try ISO-like
+        try:
+            dt = datetime.fromisoformat(cleaned.replace('Z', '+00:00'))
+            if 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        # Try RFC822/HTTP style
+        try:
+            dt = parsedate_to_datetime(cleaned)
+            if dt and 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        return None
+
+    def detect_language(self, html_content: Optional[str], head_headers: Optional[Dict[str, str]]) -> Optional[str]:
+        """
+        Infer page language from HTML lang attributes or Content-Language header.
+        Returns a lowercased language code when found, otherwise None.
+        """
+        # From headers
         if head_headers:
             content_lang = head_headers.get('content-language')
             if content_lang:
                 lang_val = content_lang.split(',')[0].split(';')[0].strip().lower()
                 if lang_val:
-                    return lang_val.upper()
+                    return lang_val
 
+        # From HTML
         if html_content:
             soup = BeautifulSoup(html_content, 'html.parser')
             html_tag = soup.find('html')
             if html_tag and html_tag.get('lang'):
                 lang_val = html_tag.get('lang').split('-')[0].strip().lower()
                 if lang_val:
-                    return lang_val.upper()
+                    return lang_val
 
             meta_lang = soup.find('meta', attrs={'http-equiv': 'Content-Language'})
             if meta_lang and meta_lang.get('content'):
                 lang_val = meta_lang.get('content').split(',')[0].split(';')[0].strip().lower()
                 if lang_val:
-                    return lang_val.upper()
+                    return lang_val
 
         return None
+
+    def extract_dates(self, html_content: str, soup: BeautifulSoup) -> Dict[str, Optional[str]]:
+        """
+        Collects dates in a deterministic order: JSON-LD (datePublished/dateModified), meta tags (og/article/date/lastmod variants), <time> tags, then elements with date-ish class names. Each candidate is normalized to ISO when plausible. Returns best-effort published/updated timestamps for downstream freshness logic.
+        """
+        published = None
+        updated = None
+
+        def pick(first: Optional[str], second: Optional[str]) -> Optional[str]:
+            return first or second
+
+        # JSON-LD
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string or '')
+            except Exception:
+                continue
+
+            candidates = []
+            if isinstance(data, list):
+                candidates.extend(data)
+            elif isinstance(data, dict):
+                candidates.append(data)
+
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                pub = self.parse_date_string(str(item.get('datePublished', '')).strip()) if item.get('datePublished') else None
+                mod = self.parse_date_string(str(item.get('dateModified', '')).strip()) if item.get('dateModified') else None
+                published = pick(published, pub)
+                updated = pick(updated, mod)
+                if published and updated:
+                    break
+
+        # Meta tags
+        meta_map = {
+            'article:published_time': 'published',
+            'article:modified_time': 'updated',
+            'og:updated_time': 'updated',
+            'og:published_time': 'published',
+            'date': 'published',
+            'lastmod': 'updated'
+        }
+        for prop, target in meta_map.items():
+            meta_tag = soup.find('meta', attrs={'property': prop}) or soup.find('meta', attrs={'name': prop})
+            if meta_tag and meta_tag.get('content'):
+                parsed = self.parse_date_string(meta_tag['content'])
+                if target == 'published':
+                    published = pick(published, parsed)
+                else:
+                    updated = pick(updated, parsed)
+
+        # <time> tags
+        for time_tag in soup.find_all('time'):
+            dt_attr = time_tag.get('datetime') or time_tag.get('content')
+            parsed = self.parse_date_string(dt_attr or time_tag.text)
+            if parsed:
+                published = pick(published, parsed)
+                break
+
+        # Class/id heuristics
+        class_keywords = ('date', 'time', 'publish', 'posted', 'update', 'modified')
+        for elem in soup.find_all(True, class_=True):
+            class_str = ' '.join(elem.get('class', [])).lower()
+            if any(k in class_str for k in class_keywords):
+                parsed = self.parse_date_string(elem.get('content') or elem.get('datetime') or elem.text)
+                if parsed:
+                    if not published:
+                        published = parsed
+                    elif not updated and parsed != published:
+                        updated = parsed
+                    break
+
+        return {
+            'published_at': published,
+            'updated_at': updated
+        }
 
     async def extract_page_data(self, url: str, crawler: AsyncWebCrawler, page_number: int,
                                 head_headers: Optional[Dict[str, str]] = None,
@@ -695,20 +706,26 @@ class CrawlerService:
             if og_image and og_image.get('content'):
                 meta_img_url.append(og_image['content'])
 
-            final_url = getattr(result, 'final_url', None) or getattr(result, 'page_url', None)
-            entry = self._first_sitemap_entry(url, final_url)
+            # Extract date if selector provided plus smart extraction
+            dates = []
+            if self.config.date_selector:
+                date_elements = soup.select(self.config.date_selector)
+                for elem in date_elements:
+                    date_text = elem.get('content') or elem.get('datetime') or elem.text
+                    if date_text:
+                        normalized = self.parse_date_string(date_text)
+                        if normalized:
+                            dates.append(normalized)
+                        else:
+                            dates.append(date_text.strip())
 
-            lang = self.detect_language(result.html, head_headers, url=final_url or url, sitemap_entry=entry)
-            updated_at = entry.get("last_modified") if entry else None
-            if not entry and head_headers:
-                updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
-                if updated_at and isinstance(updated_at, str) and " " in updated_at:
-                    # If parsing failed to ISO, try datetime + isoformat fallback
-                    try:
-                        dt = parsedate_to_datetime(head_headers.get("last-modified") or head_headers.get("date"))
-                        updated_at = dt.isoformat() if dt else updated_at
-                    except Exception:
-                        pass
+            date_info = self.extract_dates(result.html, soup)
+            if date_info.get('published_at'):
+                dates.insert(0, date_info['published_at'])
+            if date_info.get('updated_at') and date_info['updated_at'] not in dates:
+                dates.append(date_info['updated_at'])
+
+            lang = self.detect_language(result.html, head_headers)
 
             # Extract images - use both crawl4ai and BeautifulSoup
             images = []
@@ -778,20 +795,34 @@ class CrawlerService:
             content_hash = hashlib.sha256(content_for_hash.encode('utf-8', errors='ignore')).hexdigest()
 
             fetch_time = datetime.now().isoformat()
-            content_length = len((result.html or "")) if result and result.html else None
+            content_length = (head_headers or {}).get('content-length') if head_headers else None
+            sitemap_lastmod = self.sitemap_lastmod.get(url)
+            domain = urlparse(final_url).netloc if final_url else urlparse(url).netloc
+            canonicalized_path = urlparse(final_url).path if final_url else urlparse(url).path
 
             page_data = {
                 'title': title,
                 'page_url': [url],
                 'url_hash': url_hash,
+                'final_url': final_url,
                 'canonical_url': canonical_url,
+                'domain': domain,
+                'canonicalized_path': canonicalized_path,
                 'meta_img_url': meta_img_url,
                 'images': downloaded_images if not self.config.skip_images else images,
+                'date': dates,
                 'lang': lang,
-                'updated_at': updated_at,
+                'source_type': source_type,
+                'crawl_depth': depth,
+                'published_at': date_info.get('published_at'),
+                'updated_at': date_info.get('updated_at'),
+                'last_modified_header': (head_headers or {}).get('last-modified') if head_headers else None,
+                'etag': (head_headers or {}).get('etag') if head_headers else None,
                 'http_status': head_status,
                 'content_length': content_length,
                 'fetch_time': fetch_time,
+                'sitemap_lastmod': sitemap_lastmod,
+                'redirect_chain': [url, final_url] if final_url and final_url != url else [url],
                 'content_hash': content_hash
             }
 
@@ -865,10 +896,7 @@ class CrawlerService:
             if await self.is_pdf_resource(url, head_status, head_headers):
                 pdf_entry = await self.fetch_and_save_pdf(url, current_page_number, url_hash=url_hash)
                 if pdf_entry:
-                    pdf_lang = self.detect_language(None, head_headers, url=url)
-                    updated_at = (self._lookup_sitemap_entry(url) or {}).get("last_modified")
-                    if not self._lookup_sitemap_entry(url) and head_headers:
-                        updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
+                    pdf_lang = self.detect_language(None, head_headers)
                     page_data = {
                         'data': {
                             'title': [],
@@ -876,9 +904,10 @@ class CrawlerService:
                             'url_hash': url_hash,
                             'meta_img_url': [],
                             'images': [],
+                            'date': [],
                             'lang': pdf_lang,
-                            'updated_at': updated_at,
                             'source_type': self.url_source.get(url, 'seed'),
+                            'crawl_depth': self.url_depth.get(url, 0),
                             'pdfs': [pdf_entry]
                         },
                         'markdown': '',
@@ -968,7 +997,6 @@ class CrawlerService:
     async def crawl(self) -> Dict:
         """Main crawl method"""
         try:
-            await self._run_sitemap_scrape()
             await self.setup_directories()
 
             # Initialize tracking systems
