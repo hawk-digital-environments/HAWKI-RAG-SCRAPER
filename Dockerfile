@@ -57,11 +57,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN playwright install --with-deps chromium
 
 # Copy application code
-COPY main.py .
-COPY models.py .
-COPY crawler_service.py .
-COPY example_client.py .
-COPY services/ ./services/
+COPY src/ ./src/
+COPY data/ ./data/
+
+# Ensure src is on PYTHONPATH for runtime
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 # Create output and data directories
 RUN mkdir -p /app/output && chmod 755 /app/output && \
@@ -75,4 +75,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

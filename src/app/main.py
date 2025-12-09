@@ -16,9 +16,11 @@ import html2text
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
-from models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
-from crawler_service import CrawlerService
-from services import RedisEventEmitter, JobStateManager, StorageManager
+from src.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
+from src.crawler.core.service import CrawlerService
+from src.crawler.events.redis_event_emitter import RedisEventEmitter
+from src.crawler.jobs.job_state_manager import JobStateManager
+from src.crawler.storage.storage_manager import StorageManager
 
 # Configure logging
 logging.basicConfig(

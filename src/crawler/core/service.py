@@ -16,11 +16,11 @@ from email.utils import parsedate_to_datetime
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
-from models import CrawlConfig
-from services.progress_tracker import ProgressTracker
-from services.url_tracking_manager import URLTrackingManager, generate_url_hash
-from services.summary_manager import SummaryManager
-from services.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BASE
+from src.crawler.models import CrawlConfig
+from src.crawler.jobs.progress_tracker import ProgressTracker
+from src.crawler.storage.url_tracking_manager import URLTrackingManager, generate_url_hash
+from src.crawler.storage.summary_manager import SummaryManager
+from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BASE
 
 
 def clean_html_for_markdown(html: str) -> str:

@@ -15,7 +15,7 @@ endif
 
 crawl-sitemap:
 	docker compose run --rm crawler \
-		python services/sitemap_scraper.py --sitemap \
+		python -m src.crawler.core.sitemap_scraper --sitemap \
 		--base-url $(SITEMAP_BASE) \
 		--start-page $(SITEMAP_START) \
 		--pages $(SITEMAP_PAGES) \
