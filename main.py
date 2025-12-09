@@ -18,15 +18,22 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
 from crawler_service import CrawlerService
-from services import RedisEventEmitter, JobStateManager, StorageManager
+from services import CommunicationFactory, JobStateManager, StorageManager
 
-# Configure logging
+# Configure logging for Docker - ensure all output goes to stdout
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True  # Override any existing handlers
 )
+# Set root logger to INFO
+logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Force unbuffered output for Docker
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 app = FastAPI(
     title="Crawl4AI API",
@@ -42,6 +49,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Log startup configuration"""
+    logger.info("="*60)
+    logger.info("Crawl4AI Service Starting...")
+    logger.info("="*60)
+    logger.info(f"Communication Method: {os.getenv('COMMUNICATION_METHOD', 'redis')}")
+    logger.info(f"Communication Enabled: {os.getenv('COMMUNICATION_ENABLED', 'true')}")
+
+    comm_method = os.getenv('COMMUNICATION_METHOD', 'redis').lower()
+    if comm_method == 'rabbitmq':
+        logger.info(f"RabbitMQ Host: {os.getenv('RABBITMQ_HOST', 'localhost')}")
+        logger.info(f"RabbitMQ Port: {os.getenv('RABBITMQ_PORT', '5672')}")
+        logger.info(f"RabbitMQ User: {os.getenv('RABBITMQ_USER', 'guest')}")
+        logger.info(f"RabbitMQ Exchange: {os.getenv('RABBITMQ_EXCHANGE', 'scrape-events')}")
+    elif comm_method == 'redis':
+        logger.info(f"Redis Host: {os.getenv('REDIS_HOST', 'localhost')}")
+        logger.info(f"Redis Port: {os.getenv('REDIS_PORT', '6379')}")
+        logger.info(f"Redis Channel: {os.getenv('REDIS_CHANNEL', 'scrape-events')}")
+
+    logger.info(f"Data Path: {os.getenv('DATA_PATH', '/app/data/jobs')}")
+    logger.info("="*60)
 
 # Store job statuses
 jobs: Dict[str, CrawlStatus] = {}
@@ -175,58 +205,49 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     Background task to run crawl job.
 
     This function integrates the service layer components:
-    - RedisEventEmitter: For real-time progress updates via Redis Pub/Sub
+    - CommunicationFactory: Creates appropriate communication service (Redis/RabbitMQ)
     - JobStateManager: For persistent state tracking
     - StorageManager: For consistent file I/O operations
     """
     # Initialize service layer components
-    redis_host = os.getenv("REDIS_HOST", "").strip()
-    redis_enabled_flag = os.getenv("REDIS_ENABLED", "true").strip().lower()
-    redis_enabled = redis_enabled_flag not in ("0", "false", "no", "off", "")
-    redis_port_raw = (os.getenv("REDIS_PORT", "") or "").strip()
-    redis_db_raw = (os.getenv("REDIS_DB", "") or "").strip()
-    redis_password = os.getenv("REDIS_PASSWORD", None)
-    redis_channel = "scrape-events"
-    redis_port = None
-    redis_db = None
-    if redis_enabled and redis_host:
-        redis_port = int(redis_port_raw or "6379")
-        redis_db = int(redis_db_raw or "0")
-        redis_channel = (os.getenv("REDIS_CHANNEL", "scrape-events") or "scrape-events").strip()
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    communication_method = os.getenv("COMMUNICATION_METHOD", "redis")
 
-    event_emitter = None
-    if redis_enabled and redis_host:
-        event_emitter = RedisEventEmitter(
-            job_id,
-            redis_host=redis_host,
-            redis_port=redis_port,
-            redis_db=redis_db,
-            redis_password=redis_password,
-            channel=redis_channel
-        )
+    logger.info("="*60)
+    logger.info(f"[Job {job_id}] Starting crawl job")
+    logger.info(f"[Job {job_id}] Target URL: {config.url}")
+    logger.info(f"[Job {job_id}] Max Pages: {config.max_pages}")
+    logger.info(f"[Job {job_id}] Communication Method: {communication_method}")
+    logger.info("="*60)
+
+    # Use CommunicationFactory to create appropriate communication service
+    event_emitter = CommunicationFactory.create(job_id)
     job_state_manager = JobStateManager(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     try:
-        print(
-            f"[run_crawl_job] starting job {job_id} "
-            f"(redis_enabled={redis_enabled}, redis_host='{redis_host}', redis_port={redis_port}, redis_db={redis_db})",
-            flush=True
-        )
         # Initialize state manager (creates job directory and initial state file)
+        logger.info(f"[Job {job_id}] Initializing state manager...")
         await job_state_manager.initialize()
+        logger.info(f"[Job {job_id}] State manager initialized")
 
-        # Connect to Redis (optional - scraping will continue even if this fails)
-        try:
-            logger.info(f"[{job_id}] Attempting to connect to Redis...")
-            redis_connected = await event_emitter.connect()
-            if not redis_connected:
-                logger.warning(f"[{job_id}] Redis connection failed. Continuing without real-time event updates.")
-        except Exception as redis_error:
-            logger.warning(f"[{job_id}] Redis connection error: {redis_error}. Continuing without real-time event updates.")
+        # Connect to communication service (optional - scraping will continue even if this fails)
+        if event_emitter:
+            try:
+                logger.info(f"[Job {job_id}] Attempting to connect to {communication_method}...")
+                connected = await event_emitter.connect()
+                if connected:
+                    logger.info(f"[Job {job_id}] Successfully connected to {communication_method}")
+                else:
+                    logger.warning(f"[Job {job_id}] {communication_method} connection failed. Continuing without real-time event updates.")
+            except Exception as comm_error:
+                logger.error(f"[Job {job_id}] {communication_method} connection error: {comm_error}. Continuing without real-time event updates.")
+                import traceback
+                logger.error(traceback.format_exc())
+        else:
+            logger.info(f"[Job {job_id}] No event emitter configured (communication disabled or failed to initialize)")
 
-        logger.info(f"[{job_id}] Redis connection check complete. Starting crawler...")
+        logger.info(f"[Job {job_id}] Communication setup complete. Starting crawler...")
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -269,7 +290,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     finally:
         # Close event emitter connection
         if event_emitter:
-            await event_emitter.close()
+            await event_emitter.disconnect()
         tasks.pop(job_id, None)
 
 

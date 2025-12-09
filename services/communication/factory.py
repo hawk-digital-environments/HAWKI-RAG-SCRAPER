@@ -47,21 +47,22 @@ class CommunicationFactory:
         # Check if communication is enabled
         enabled = os.getenv("COMMUNICATION_ENABLED", "true").lower() == "true"
         if not enabled:
-            print(f"[CommunicationFactory] Communication disabled for job {job_id}")
+            print(f"[CommunicationFactory] Communication disabled for job {job_id}", flush=True)
             return None
 
         # Get communication method
         method = os.getenv("COMMUNICATION_METHOD", "redis").lower()
+        print(f"[CommunicationFactory] Creating {method} communication service for job {job_id}", flush=True)
 
         if method == "redis":
             return CommunicationFactory._create_redis(job_id)
         elif method == "rabbitmq":
             return CommunicationFactory._create_rabbitmq(job_id)
         elif method == "none":
-            print(f"[CommunicationFactory] Communication method set to 'none' for job {job_id}")
+            print(f"[CommunicationFactory] Communication method set to 'none' for job {job_id}", flush=True)
             return None
         else:
-            print(f"[CommunicationFactory] Unknown communication method '{method}', falling back to Redis")
+            print(f"[CommunicationFactory] Unknown communication method '{method}', falling back to Redis", flush=True)
             return CommunicationFactory._create_redis(job_id)
 
     @staticmethod
@@ -104,7 +105,7 @@ class CommunicationFactory:
 
             rabbitmq_host = os.getenv("RABBITMQ_HOST")
             if not rabbitmq_host:
-                print(f"[CommunicationFactory] RABBITMQ_HOST not configured, communication disabled for job {job_id}")
+                print(f"[CommunicationFactory] ❌ RABBITMQ_HOST not configured, communication disabled for job {job_id}", flush=True)
                 return None
 
             rabbitmq_port = int(os.getenv("RABBITMQ_PORT", "5672"))
@@ -113,7 +114,9 @@ class CommunicationFactory:
             rabbitmq_exchange = os.getenv("RABBITMQ_EXCHANGE", "scrape-events")
             rabbitmq_queue = os.getenv("RABBITMQ_QUEUE", f"job-{job_id}")
 
-            print(f"[CommunicationFactory] Creating RabbitMQ communication service for job {job_id}")
+            print(f"[CommunicationFactory] ✅ Creating RabbitMQ communication service for job {job_id}", flush=True)
+            print(f"[CommunicationFactory] RabbitMQ Config - Host: {rabbitmq_host}, Port: {rabbitmq_port}, Exchange: {rabbitmq_exchange}", flush=True)
+
             return RabbitMQCommunicationService(
                 job_id=job_id,
                 host=rabbitmq_host,
@@ -124,8 +127,12 @@ class CommunicationFactory:
                 queue=rabbitmq_queue
             )
         except ImportError as e:
-            print(f"[CommunicationFactory] Failed to import RabbitMQ service (is aio-pika installed?): {e}")
+            print(f"[CommunicationFactory] ❌ Failed to import RabbitMQ service (is aio-pika installed?): {e}", flush=True)
+            import traceback
+            print(traceback.format_exc(), flush=True)
             return None
         except Exception as e:
-            print(f"[CommunicationFactory] Failed to create RabbitMQ service: {e}")
+            print(f"[CommunicationFactory] ❌ Failed to create RabbitMQ service: {e}", flush=True)
+            import traceback
+            print(traceback.format_exc(), flush=True)
             return None

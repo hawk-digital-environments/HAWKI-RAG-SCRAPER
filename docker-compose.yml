@@ -18,16 +18,21 @@ services:
       # Optional LLM Provider Keys (for advanced crawl4ai features)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # Redis Pub/Sub Configuration (recommended)
-      - REDIS_ENABLED=true
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
+      # Communication Configuration
+      - COMMUNICATION_METHOD=${COMMUNICATION_METHOD:-rabbitmq}
+      - COMMUNICATION_ENABLED=${COMMUNICATION_ENABLED:-true}
+      # Redis Pub/Sub Configuration (when COMMUNICATION_METHOD=redis)
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - REDIS_CHANNEL=scrape-events
-      # WebSocket URL for real-time events (legacy, deprecated)
-      # Example: ws://laravel-app:6001 for Laravel WebSocket
-      - WEBSOCKET_URL=${WEBSOCKET_URL:-}
+      - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
+      # RabbitMQ Configuration (when COMMUNICATION_METHOD=rabbitmq)
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rawki_rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-admin}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-admin123}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE:-scrape-events}
       # Data storage path for job files
       - DATA_PATH=${DATA_PATH:-/app/shared}
     volumes:
@@ -40,7 +45,7 @@ services:
       - rawki_shared_storage:/app/shared
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
