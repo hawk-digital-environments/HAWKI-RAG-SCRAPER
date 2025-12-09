@@ -2,11 +2,19 @@
 
 ## Overview
 
-Both the `/crawl` endpoint response and WebSocket events now use the same consistent structure, making it easier to handle responses with a single parser/handler.
+Both the `/crawl` endpoint response and RabbitMQ/Redis events use the same consistent structure, making it easier to handle responses with a single parser/handler.
+
+## Event System Architecture
+
+The event system has been simplified to 3 main event types:
+
+1. **`stage`** - Job lifecycle stage transitions
+2. **`report`** - Progress updates and per-URL completion reports
+3. **`summary`** - Final job summary with statistics
 
 ## Structure
 
-All responses follow this format:
+All events follow this format:
 
 ```json
 {
@@ -24,79 +32,313 @@ All responses follow this format:
 | Field | Type | Description |
 |-------|------|-------------|
 | `job_id` | string | Unique identifier for the job |
-| `event` | string | Type of event (e.g., "job_submitted", "url_scraped") |
+| `event` | string | Type of event: "stage", "report", or "summary" |
 | `data` | object | Event-specific data |
 | `timestamp` | string | ISO-8601 UTC timestamp |
 
-## Examples
+---
 
-### 1. POST /crawl Response
+## Event Type 1: `stage` - Stage Transitions
 
-**Request**:
-```bash
-curl -X POST http://localhost:8004/crawl \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "url": "https://example.com",
-    "max_pages": 10
-  }'
-```
+Stage events indicate discrete transitions in the job lifecycle.
 
-**Response**:
+### Valid Stages
+
+- `initialization` - Job starting, directories being created
+- `sitemap_detected` - Sitemap discovered
+- `urls_discovered` - URLs extracted from sitemap
+- `crawling_started` - Beginning crawl process
+- `scraping` - Active scraping phase
+- `completed` - Job finished successfully
+- `failed` - Job failed with errors
+- `interrupted` - Job stopped by user/system
+
+### Example 1: Initialization
+
 ```json
 {
   "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
-  "event": "job_submitted",
+  "event": "stage",
   "data": {
-    "status": "pending",
-    "message": "Crawl job submitted successfully"
+    "stage": "initialization",
+    "timestamp": "2025-12-09T10:00:00.000000Z",
+    "details": {}
   },
-  "timestamp": "2025-11-24T11:55:23.046721Z"
+  "timestamp": "2025-12-09T10:00:00.000000Z"
 }
 ```
 
-### 2. WebSocket Event: sitemap_detected
+### Example 2: Sitemap Detected
 
 ```json
 {
   "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
-  "event": "sitemap_detected",
+  "event": "stage",
   "data": {
-    "sitemap_url": "https://example.com/sitemap.xml",
-    "total_urls": 150
+    "stage": "sitemap_detected",
+    "timestamp": "2025-12-09T10:00:02.000000Z",
+    "details": {
+      "sitemap_url": "https://example.com/sitemap.xml",
+      "total_urls": 150
+    }
   },
-  "timestamp": "2025-11-24T11:55:25.123456Z"
+  "timestamp": "2025-12-09T10:00:02.000000Z"
 }
 ```
 
-### 3. WebSocket Event: url_scraped
+### Example 3: URLs Discovered
 
 ```json
 {
   "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
-  "event": "url_scraped",
+  "event": "stage",
   "data": {
-    "url": "https://example.com/page1",
-    "page_number": 1,
-    "success": true
+    "stage": "urls_discovered",
+    "timestamp": "2025-12-09T10:00:05.000000Z",
+    "details": {
+      "urls_count": 150,
+      "total_to_crawl": 100
+    }
   },
-  "timestamp": "2025-11-24T11:55:28.789012Z"
+  "timestamp": "2025-12-09T10:00:05.000000Z"
 }
 ```
 
-### 4. WebSocket Event: job_completed
+### Example 4: Crawling Started
 
 ```json
 {
   "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
-  "event": "job_completed",
+  "event": "stage",
   "data": {
-    "pages_crawled": 10,
+    "stage": "crawling_started",
+    "timestamp": "2025-12-09T10:00:06.000000Z",
+    "details": {
+      "total_pages": 100
+    }
+  },
+  "timestamp": "2025-12-09T10:00:06.000000Z"
+}
+```
+
+### Example 5: Completed
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "stage",
+  "data": {
+    "stage": "completed",
+    "timestamp": "2025-12-09T10:05:30.000000Z",
+    "details": {}
+  },
+  "timestamp": "2025-12-09T10:05:30.000000Z"
+}
+```
+
+### Example 6: Failed
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "stage",
+  "data": {
+    "stage": "failed",
+    "timestamp": "2025-12-09T10:05:30.000000Z",
+    "details": {
+      "error": "Connection timeout"
+    }
+  },
+  "timestamp": "2025-12-09T10:05:30.000000Z"
+}
+```
+
+---
+
+## Event Type 2: `report` - Progress & URL Completions
+
+Report events provide continuous updates including progress and per-URL completion reports.
+
+### Report Type A: Progress Report
+
+Emitted approximately every 1 second during crawling (rate-limited).
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "report",
+  "data": {
+    "report_type": "progress",
+    "timestamp": "2025-12-09T10:02:15.000000Z",
+    "progress": {
+      "stage": "scraping",
+      "total_urls": 100,
+      "completed_urls": 45,
+      "failed_urls": 2,
+      "processing_urls": 53,
+      "current_url": "https://example.com/page45",
+      "progress_percentage": 47.0,
+      "stats": {
+        "sessions": 1,
+        "requests": 120,
+        "errors": 3,
+        "warnings": 0,
+        "pdfs_downloaded": 5,
+        "images_downloaded": 150
+      }
+    }
+  },
+  "timestamp": "2025-12-09T10:02:15.000000Z"
+}
+```
+
+### Report Type B: URL Completion Report (NEW!)
+
+**Critical for orchestrators**: Emitted immediately after each URL is successfully saved to disk. Contains the `url_hash` needed to read the saved files.
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "report",
+  "data": {
+    "report_type": "url_completion",
+    "timestamp": "2025-12-09T10:01:30.000000Z",
+    "url_completion": {
+      "url": "https://example.com/page1",
+      "url_hash": "abc123def456789...",
+      "status": "success",
+      "page_number": 1,
+      "files_created": {
+        "data_json": "a/b/c/1/abc123def456789.../data.json",
+        "content_md": "a/b/c/1/abc123def456789.../content.md",
+        "images": ["img1.jpg", "img2.png"],
+        "pdfs": ["doc1.pdf"]
+      },
+      "error": null,
+      "processing_time": 2.5
+    }
+  },
+  "timestamp": "2025-12-09T10:01:30.000000Z"
+}
+```
+
+**How orchestrators use this:**
+
+```python
+# Orchestrator receives URL completion event
+job_id = event["job_id"]
+url_hash = event["data"]["url_completion"]["url_hash"]
+relative_path = event["data"]["url_completion"]["files_created"]["data_json"]
+
+# Construct absolute path and read file
+data_file = f"/app/data/jobs/{job_id}/{relative_path}"
+with open(data_file, 'r') as f:
+    page_data = json.load(f)
+
+# Process the scraped data immediately
+process_scraped_page(page_data)
+```
+
+### URL Completion Report - Failure Case
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "report",
+  "data": {
+    "report_type": "url_completion",
+    "timestamp": "2025-12-09T10:01:35.000000Z",
+    "url_completion": {
+      "url": "https://example.com/page2",
+      "url_hash": "def456ghi789...",
+      "status": "failed",
+      "page_number": 2,
+      "files_created": {},
+      "error": "Extraction failed",
+      "processing_time": 1.2
+    }
+  },
+  "timestamp": "2025-12-09T10:01:35.000000Z"
+}
+```
+
+---
+
+## Event Type 3: `summary` - Final Job Summary
+
+Emitted once when the job completes (successfully or with failure).
+
+### Success Summary
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "summary",
+  "data": {
+    "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+    "status": "completed",
+    "stage": "completed",
+    "timing": {
+      "started_at": "2025-12-09T10:00:00.000000Z",
+      "completed_at": "2025-12-09T10:05:30.000000Z",
+      "duration_seconds": 330.5
+    },
+    "urls": {
+      "total": 100,
+      "completed": 98,
+      "failed": 2,
+      "processing": 0,
+      "success_rate": 98.0
+    },
+    "statistics": {
+      "sessions": 1,
+      "requests": 500,
+      "errors": 5,
+      "warnings": 0,
+      "pdfs_downloaded": 12,
+      "images_downloaded": 450
+    },
     "output_directory": "/app/data/jobs/a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
-    "success": true,
     "error": null
   },
-  "timestamp": "2025-11-24T11:56:15.456789Z"
+  "timestamp": "2025-12-09T10:05:30.000000Z"
+}
+```
+
+### Failure Summary
+
+```json
+{
+  "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+  "event": "summary",
+  "data": {
+    "job_id": "a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+    "status": "failed",
+    "stage": "failed",
+    "timing": {
+      "started_at": "2025-12-09T10:00:00.000000Z",
+      "completed_at": "2025-12-09T10:02:15.000000Z",
+      "duration_seconds": 135.2
+    },
+    "urls": {
+      "total": 100,
+      "completed": 25,
+      "failed": 1,
+      "processing": 74,
+      "success_rate": 25.0
+    },
+    "statistics": {
+      "sessions": 1,
+      "requests": 30,
+      "errors": 10,
+      "warnings": 2,
+      "pdfs_downloaded": 3,
+      "images_downloaded": 50
+    },
+    "output_directory": "/app/data/jobs/a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+    "error": "Connection timeout"
+  },
+  "timestamp": "2025-12-09T10:02:15.000000Z"
 }
 ```
 

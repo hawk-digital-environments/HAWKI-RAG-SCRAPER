@@ -7,7 +7,26 @@ This allows for easy swapping between Redis, RabbitMQ, or other messaging system
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from enum import Enum
 from ..state.job_state import JobStateData
+
+
+class Stage(Enum):
+    """Valid job stages for stage events."""
+    INITIALIZATION = "initialization"
+    SITEMAP_DETECTED = "sitemap_detected"
+    URLS_DISCOVERED = "urls_discovered"
+    CRAWLING_STARTED = "crawling_started"
+    SCRAPING = "scraping"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+
+
+class ReportType(Enum):
+    """Valid report types for report events."""
+    PROGRESS = "progress"
+    URL_COMPLETION = "url_completion"
 
 
 class CommunicationInterface(ABC):
@@ -46,31 +65,14 @@ class CommunicationInterface(ABC):
         pass
 
     @abstractmethod
-    async def send_state_update(self, state: JobStateData) -> bool:
-        """
-        Send a job state update.
-
-        This is the primary method for broadcasting state changes.
-        The state object contains all job information in a unified format.
-
-        Args:
-            state: The current job state
-
-        Returns:
-            bool: True if sent successfully, False otherwise
-        """
-        pass
-
-    @abstractmethod
     async def send_event(self, event_type: str, data: Dict[str, Any]) -> bool:
         """
-        Send a custom event with additional data.
+        Send a custom event with additional data (low-level method).
 
-        Use this for events that need extra context beyond the job state
-        (e.g., specific URL completion, file creation, etc.)
+        Use the high-level methods (send_stage, send_report_*, send_summary) instead.
 
         Args:
-            event_type: Type of event (e.g., "url_completed", "file_created")
+            event_type: Type of event (e.g., "stage", "report", "summary")
             data: Event-specific data
 
         Returns:
@@ -83,59 +85,72 @@ class CommunicationInterface(ABC):
         """Check if the service is currently connected."""
         return self._connected
 
-    # Convenience methods (can be overridden by implementations)
+    # New Event System - Primary Methods
 
-    async def send_stage_change(self, stage: str, details: Optional[Dict[str, Any]] = None) -> bool:
+    @abstractmethod
+    async def send_stage(self, stage: Stage, details: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Send a stage change event.
+        Send a stage transition event.
 
         Args:
-            stage: One of "initialization", "scraping", "completed", "failed"
-            details: Optional additional details
+            stage: Stage enum value
+            details: Optional stage-specific details
 
         Returns:
             bool: True if sent successfully
         """
-        data = {"stage": stage}
-        if details:
-            data.update(details)
-        return await self.send_event("stage_changed", data)
+        pass
 
-    async def send_url_completed(
+    @abstractmethod
+    async def send_report_progress(self, progress_data: Dict[str, Any]) -> bool:
+        """
+        Send a progress report.
+
+        Args:
+            progress_data: Progress information from ProgressTracker
+
+        Returns:
+            bool: True if sent successfully
+        """
+        pass
+
+    @abstractmethod
+    async def send_report_url_completion(
         self,
         url: str,
+        url_hash: str,
+        status: str,
         page_number: int,
-        files_created: list,
-        state: JobStateData
+        files_created: Dict[str, Any],
+        error: Optional[str] = None,
+        processing_time: float = 0.0
     ) -> bool:
         """
-        Send URL completion event with current state.
+        Send a URL completion report.
 
         Args:
-            url: The completed URL
+            url: Completed URL
+            url_hash: SHA256 hash of the URL
+            status: "success" or "failed"
             page_number: Page number
-            files_created: List of created files
-            state: Current job state
+            files_created: Dictionary of created files
+            error: Error message if failed
+            processing_time: Time taken to process
 
         Returns:
             bool: True if sent successfully
         """
-        data = {
-            "url": url,
-            "page_number": page_number,
-            "files_created": files_created,
-            "state": state.to_dict()
-        }
-        return await self.send_event("url_completed", data)
+        pass
 
-    async def send_job_summary(self, summary: Dict[str, Any]) -> bool:
+    @abstractmethod
+    async def send_summary(self, summary_data: Dict[str, Any]) -> bool:
         """
-        Send job summary event.
+        Send final job summary.
 
         Args:
-            summary: Complete job summary with statistics
+            summary_data: Complete job summary
 
         Returns:
             bool: True if sent successfully
         """
-        return await self.send_event("job_summary", summary)
+        pass

@@ -12,7 +12,7 @@ from datetime import datetime
 import redis.asyncio as redis
 from redis.exceptions import RedisError, ConnectionError as RedisConnectionError
 
-from .interface import CommunicationInterface
+from .interface import CommunicationInterface, Stage, ReportType
 from ..state.job_state import JobStateData
 
 
@@ -184,18 +184,6 @@ class RedisCommunicationService(CommunicationInterface):
             self.logger.error(f"Unexpected error while publishing event '{event}': {e}")
             return False
 
-    async def send_state_update(self, state: JobStateData) -> bool:
-        """
-        Send job state update via Redis.
-
-        Args:
-            state: Current job state
-
-        Returns:
-            bool: True if sent successfully
-        """
-        return await self._publish("state_update", state.to_dict())
-
     async def send_event(self, event_type: str, data: Dict[str, Any]) -> bool:
         """
         Send custom event via Redis.
@@ -209,39 +197,91 @@ class RedisCommunicationService(CommunicationInterface):
         """
         return await self._publish(event_type, data)
 
-    # Legacy compatibility methods (for gradual migration)
+    # New Event System Implementation
 
-    async def sitemap_detected(self, sitemap_url: str, total_urls: int) -> bool:
-        """Legacy method for sitemap detection event."""
-        return await self.send_event("sitemap_detected", {
-            "sitemap_url": sitemap_url,
-            "total_urls": total_urls
-        })
+    async def send_stage(self, stage: Stage, details: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Send a stage transition event.
 
-    async def urls_discovered(self, urls_count: int, total_to_crawl: int) -> bool:
-        """Legacy method for URL discovery event."""
-        return await self.send_event("urls_discovered", {
-            "urls_count": urls_count,
-            "total_to_crawl": total_to_crawl
-        })
+        Args:
+            stage: Stage enum value
+            details: Optional stage-specific details
 
-    async def crawling_started(self, total_pages: int) -> bool:
-        """Legacy method for crawling start event."""
-        return await self.send_event("crawling_started", {
-            "total_pages": total_pages
-        })
+        Returns:
+            bool: True if sent successfully
+        """
+        data = {
+            "stage": stage.value,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "details": details or {}
+        }
+        return await self._publish("stage", data)
 
-    async def job_completed(
+    async def send_report_progress(self, progress_data: Dict[str, Any]) -> bool:
+        """
+        Send a progress report.
+
+        Args:
+            progress_data: Progress information from ProgressTracker
+
+        Returns:
+            bool: True if sent successfully
+        """
+        data = {
+            "report_type": ReportType.PROGRESS.value,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "progress": progress_data
+        }
+        return await self._publish("report", data)
+
+    async def send_report_url_completion(
         self,
-        pages_crawled: int,
-        output_directory: str,
-        success: bool,
-        error: Optional[str] = None
+        url: str,
+        url_hash: str,
+        status: str,
+        page_number: int,
+        files_created: Dict[str, Any],
+        error: Optional[str] = None,
+        processing_time: float = 0.0
     ) -> bool:
-        """Legacy method for job completion event."""
-        return await self.send_event("job_completed", {
-            "pages_crawled": pages_crawled,
-            "output_directory": output_directory,
-            "success": success,
-            "error": error
-        })
+        """
+        Send a URL completion report.
+
+        Args:
+            url: Completed URL
+            url_hash: SHA256 hash of the URL
+            status: "success" or "failed"
+            page_number: Page number
+            files_created: Dictionary of created files
+            error: Error message if failed
+            processing_time: Time taken to process
+
+        Returns:
+            bool: True if sent successfully
+        """
+        data = {
+            "report_type": ReportType.URL_COMPLETION.value,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "url_completion": {
+                "url": url,
+                "url_hash": url_hash,
+                "status": status,
+                "page_number": page_number,
+                "files_created": files_created,
+                "error": error,
+                "processing_time": processing_time
+            }
+        }
+        return await self._publish("report", data)
+
+    async def send_summary(self, summary_data: Dict[str, Any]) -> bool:
+        """
+        Send final job summary.
+
+        Args:
+            summary_data: Complete job summary
+
+        Returns:
+            bool: True if sent successfully
+        """
+        return await self._publish("summary", summary_data)

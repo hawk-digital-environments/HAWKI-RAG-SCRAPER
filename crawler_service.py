@@ -20,6 +20,7 @@ from models import CrawlConfig
 from services.progress_tracker import ProgressTracker
 from services.url_tracking_manager import URLTrackingManager, generate_url_hash
 from services.summary_manager import SummaryManager
+from services.communication.interface import Stage
 
 
 def clean_html_for_markdown(html: str) -> str:
@@ -861,6 +862,9 @@ class CrawlerService:
 
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler):
         """Crawl a single page"""
+        import time
+        processing_start_time = time.time()
+
         async with self.semaphore:
             # Check if URL already visited or max pages reached
             async with self.counter_lock:
@@ -943,6 +947,29 @@ class CrawlerService:
 
                 await self.save_page_data(page_data, current_page_number, url_hash)
 
+                # Send URL completion report
+                if self.event_emitter:
+                    processing_time = time.time() - processing_start_time
+
+                    # Construct relative paths for orchestrator
+                    hash_path_prefix = f"{url_hash[0]}/{url_hash[1]}/{url_hash[2]}/{url_hash[3]}/{url_hash}"
+
+                    files_created = {
+                        "data_json": f"{hash_path_prefix}/data.json",
+                        "content_md": f"{hash_path_prefix}/content.md",
+                        "images": [os.path.basename(img) for img in page_data['data'].get('images', [])],
+                        "pdfs": [os.path.basename(pdf.get('local_path', '')) for pdf in page_data['data'].get('pdfs', [])]
+                    }
+
+                    await self.event_emitter.send_report_url_completion(
+                        url=url,
+                        url_hash=url_hash,
+                        status="success",
+                        page_number=current_page_number,
+                        files_created=files_created,
+                        processing_time=processing_time
+                    )
+
                 # Extract header dates for URLTrackingManager
                 header_dates = None
                 if head_headers:
@@ -980,6 +1007,20 @@ class CrawlerService:
             else:
                 # URL extraction failed
                 error_msg = "Extraction failed"
+
+                # Send URL completion report for failure
+                if self.event_emitter:
+                    processing_time = time.time() - processing_start_time
+
+                    await self.event_emitter.send_report_url_completion(
+                        url=url,
+                        url_hash=url_hash,
+                        status="failed",
+                        page_number=current_page_number,
+                        files_created={},
+                        error=error_msg,
+                        processing_time=processing_time
+                    )
 
                 # Update tracking systems with failure
                 if self.url_tracking_manager:
@@ -1022,7 +1063,10 @@ class CrawlerService:
 
                 # Event: Sitemap detected
                 if self.event_emitter:
-                    await self.event_emitter.sitemap_detected(start_url, len(urls))
+                    await self.event_emitter.send_stage(
+                        Stage.SITEMAP_DETECTED,
+                        {"sitemap_url": start_url, "total_urls": len(urls)}
+                    )
 
                 urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
                 self.to_visit = urls_to_crawl
@@ -1033,7 +1077,10 @@ class CrawlerService:
 
                 # Event: URLs discovered
                 if self.event_emitter:
-                    await self.event_emitter.urls_discovered(len(urls), len(self.to_visit))
+                    await self.event_emitter.send_stage(
+                        Stage.URLS_DISCOVERED,
+                        {"urls_count": len(urls), "total_to_crawl": len(self.to_visit)}
+                    )
                 if self.job_state_manager:
                     await self.job_state_manager.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
@@ -1054,7 +1101,10 @@ class CrawlerService:
             # Event: Crawling started
             total_to_crawl = len(self.to_visit) if not self.config.discovery_mode else self.config.max_pages
             if self.event_emitter:
-                await self.event_emitter.crawling_started(total_to_crawl if total_to_crawl > 0 else 0)
+                await self.event_emitter.send_stage(
+                    Stage.CRAWLING_STARTED,
+                    {"total_pages": total_to_crawl if total_to_crawl > 0 else 0}
+                )
 
             # Emit stage: scraping
             if self.progress_tracker:
@@ -1095,18 +1145,10 @@ class CrawlerService:
 
                     # Emit summary event
                     if self.event_emitter:
-                        await self.event_emitter.job_summary(formatted_summary)
+                        await self.event_emitter.send_summary(formatted_summary)
 
                     # Print text summary
                     print("\n" + SummaryManager.format_text_summary(formatted_summary))
-
-            # Legacy event for backwards compatibility
-            if self.event_emitter:
-                await self.event_emitter.job_completed(
-                    self.page_counter,
-                    str(self.output_dir),
-                    success=True
-                )
             if self.job_state_manager:
                 await self.job_state_manager.set_status("completed")
 
@@ -1139,19 +1181,10 @@ class CrawlerService:
 
                     # Emit summary event
                     if self.event_emitter:
-                        await self.event_emitter.job_summary(formatted_summary)
+                        await self.event_emitter.send_summary(formatted_summary)
 
                     # Print text summary
                     print("\n" + SummaryManager.format_text_summary(formatted_summary))
-
-            # Legacy event for backwards compatibility
-            if self.event_emitter:
-                await self.event_emitter.job_completed(
-                    self.page_counter,
-                    str(self.output_dir),
-                    success=False,
-                    error=error_msg
-                )
             if self.job_state_manager:
                 await self.job_state_manager.set_error(error_msg)
 
