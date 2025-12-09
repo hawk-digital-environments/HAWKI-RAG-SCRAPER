@@ -15,6 +15,7 @@ import html2text
 from email.utils import parsedate_to_datetime
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
+from lxml import etree
 
 from models import CrawlConfig
 from services.progress_tracker import ProgressTracker
@@ -184,6 +185,7 @@ class CrawlerService:
         self.sitemap_path = self.config.sitemap_output or os.getenv("SITEMAP_JSON", os.getenv("HAWK_SITEMAP_JSON", "data/sitemap.json"))
         self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
         self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", DEFAULT_SITEMAP_BASE)
+        self.profile = self._load_profile_for_domain(urlparse(str(self.config.url)).netloc)
 
         # HTTP headers to avoid being blocked
         self.headers = {
@@ -295,6 +297,77 @@ class CrawlerService:
                 return entry
         return None
 
+    def _load_profile_for_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Load a selector profile for the given domain from configured path or default locations."""
+        if self.config.profile_path:
+            candidate_paths = [Path(self.config.profile_path)]
+        else:
+            candidate_paths = [
+                Path("profiles") / f"{domain}.json",
+                Path("SLM/profiles") / f"{domain}.json"
+            ]
+        for path in candidate_paths:
+            if path.is_file():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    continue
+        return None
+
+    def _extract_profile_fields(self, soup: BeautifulSoup, tree: Optional[etree._Element]) -> Dict[str, List[str]]:
+        """Extract fields based on a loaded profile's selectors."""
+        if not self.profile:
+            return {}
+        selectors = self.profile.get("selectors", {})
+        results: Dict[str, List[str]] = {}
+
+        def clean_text(val: str) -> str:
+            return (val or "").strip()
+
+        for field, rules in selectors.items():
+            values: List[str] = []
+            if not isinstance(rules, list):
+                continue
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                sel_type = rule.get("type")
+                sel_value = rule.get("value")
+                if not sel_type or not sel_value:
+                    continue
+                if sel_type == "css":
+                    for el in soup.select(sel_value):
+                        text_val = el.get_text(" ", strip=True)
+                        cleaned = clean_text(text_val)
+                        if cleaned:
+                            values.append(cleaned)
+                elif sel_type == "xpath" and tree is not None:
+                    try:
+                        matches = tree.xpath(sel_value)
+                        for m in matches:
+                            if isinstance(m, str):
+                                cleaned = clean_text(m)
+                            elif hasattr(m, "text"):
+                                cleaned = clean_text(m.text or "")
+                            else:
+                                cleaned = clean_text(str(m))
+                            if cleaned:
+                                values.append(cleaned)
+                    except Exception:
+                        continue
+            if values:
+                # Deduplicate while preserving order
+                seen = set()
+                deduped = []
+                for v in values:
+                    if v in seen:
+                        continue
+                    seen.add(v)
+                    deduped.append(v)
+                results[field] = deduped
+        return results
+
     @staticmethod
     def _parse_http_date(date_str: Optional[str]) -> Optional[str]:
         """Parse HTTP date string to ISO format with timezone if possible."""
@@ -326,7 +399,7 @@ class CrawlerService:
             await scraper.scrape()
             self.sitemap_map = self._load_sitemap_map(str(output_path))
         except Exception as e:
-            print(f"Error scraping HAWK sitemap: {e}")
+            print(f"Error scraping sitemap: {e}")
 
     async def is_sitemap(self, url: str) -> bool:
         """Check if URL is a sitemap"""
@@ -675,6 +748,7 @@ class CrawlerService:
 
             # Parse HTML for additional data
             soup = BeautifulSoup(result.html, 'html.parser')
+            tree = etree.HTML(result.html) if result.html else None
 
             # Extract title and Canonical URL
             title = []
@@ -794,6 +868,11 @@ class CrawlerService:
                 'fetch_time': fetch_time,
                 'content_hash': content_hash
             }
+
+            if self.profile:
+                profile_fields = self._extract_profile_fields(soup, tree)
+                if profile_fields:
+                    page_data['profile_fields'] = profile_fields
 
             return {
                 'data': page_data,

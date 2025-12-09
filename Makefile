@@ -2,6 +2,7 @@ SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
 SITEMAP_OUTPUT ?= /app/data/sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
+OLLAMA_MODEL ?= qwen2.5:1.5b
 
 # Allow `make cancel <job_id>` as shorthand
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
@@ -20,6 +21,17 @@ crawl-sitemap:
 		--start-page $(SITEMAP_START) \
 		--pages $(SITEMAP_PAGES) \
 		--output $(SITEMAP_OUTPUT)
+
+
+
+# make profgen DOMAIN=... SITEMAP_URL=https://projekte.g.hawk.de/sitemap [MAX_PAGES=20] [SKIP_FIRST=2] [MODEL=qwen2.5:1.5b]
+
+profgen:
+	docker compose run --rm $(if $(SITEMAP_URL),-e SITEMAP_URL=$(SITEMAP_URL),) profile-builder \
+		python spb.py $(DOMAIN) \
+		--max-pages $(or $(MAX_PAGES),20) \
+		$(if $(SITEMAP_URL),--sitemap-url $(SITEMAP_URL),) \
+		--output-dir SLM/profiles
 
 crawl-test:
 	curl -s -X POST http://localhost:8004/crawl \
@@ -44,6 +56,9 @@ build:
 	docker compose build
 
 up:
+	@docker network inspect rawki-network >/dev/null 2>&1 || docker network create rawki-network
+	@docker volume inspect rawki_shared_storage >/dev/null 2>&1 || docker volume create rawki_shared_storage >/dev/null
+	docker compose up -d ollama ollama-pull
 	docker compose up -d
 
 down:

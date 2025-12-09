@@ -56,12 +56,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Install Playwright browsers
 RUN playwright install --with-deps chromium
 
-# Copy application code
 COPY main.py .
 COPY models.py .
 COPY crawler_service.py .
 COPY example_client.py .
+COPY spb.py .
 COPY services/ ./services/
+COPY SLM/ ./SLM/
 
 # Create output and data directories
 RUN mkdir -p /app/output && chmod 755 /app/output && \

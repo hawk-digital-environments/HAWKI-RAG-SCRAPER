@@ -1,0 +1,89 @@
+{
+  "domain": "https://projekte.g.hawk.de",
+  "selectors": {
+    "backToMain": [
+      {
+        "type": "xpath",
+        "value": "//a[contains(concat(' ', normalize-space(@class), ' '), ' backToMain ')]"
+      }
+    ],
+    "gallery": [
+      {
+        "type": "xpath",
+        "value": "//div[contains(concat(' ', normalize-space(@class), ' '), ' gallery ')]"
+      }
+    ],
+    "padding": [
+      {
+        "type": "xpath",
+        "value": "//div[contains(concat(' ', normalize-space(@class), ' '), ' padding ')]"
+      }
+    ],
+    "details": [
+      {
+        "type": "xpath",
+        "value": "//div[contains(concat(' ', normalize-space(@class), ' '), ' details ')]"
+      }
+    ],
+    "type": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' type ')]"
+      }
+    ],
+    "date": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' date ')]"
+      }
+    ],
+    "teacher": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' teacher ')]"
+      }
+    ],
+    "tags": [
+      {
+        "type": "xpath",
+        "value": "//div[contains(concat(' ', normalize-space(@class), ' '), ' tags ')]"
+      }
+    ],
+    "tag": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' tag ')]"
+      }
+    ],
+    "person": [
+      {
+        "type": "xpath",
+        "value": "//div[contains(concat(' ', normalize-space(@class), ' '), ' person ')]"
+      }
+    ],
+    "portrait": [
+      {
+        "type": "xpath",
+        "value": "//img[contains(concat(' ', normalize-space(@class), ' '), ' portrait ')]"
+      }
+    ],
+    "name": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' name ')]"
+      }
+    ],
+    "category": [
+      {
+        "type": "xpath",
+        "value": "//p[contains(concat(' ', normalize-space(@class), ' '), ' category ')]"
+      }
+    ],
+    "Visuals": [
+      {
+        "type": "xpath",
+        "value": "//img[contains(concat(' ', normalize-space(@class), ' '), ' portrait ')]"
+      }
+    ]
+  }
+}

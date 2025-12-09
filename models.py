@@ -21,6 +21,7 @@ class CrawlConfig(BaseModel):
     sitemap_output: Optional[str] = Field(default=None, description="Output path for the scraped sitemap JSON")
     sitemap_start_page: Optional[int] = Field(default=None, description="Starting page for sitemap pagination")
     sitemap_pages: Optional[int] = Field(default=None, description="Number of sitemap pages to scrape")
+    profile_path: Optional[str] = Field(default=None, description="Path to a profile JSON; if not set, auto-resolve by domain from profiles/ or SLM/profiles/")
 
     class Config:
         allow_population_by_field_name = True

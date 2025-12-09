@@ -55,9 +55,46 @@ services:
           cpus: '1'
           memory: 1G
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=llama3.1:8b
+    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull ${OLLAMA_MODEL:-llama3.1:8b}"]
+
+  profile-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crawl4ai-profile-builder:latest
+    container_name: profile-builder
+    depends_on:
+      - ollama
+      - ollama-pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - ./SLM:/app/SLM
+      - ./profiles:/app/profiles
+    command: ["sleep", "infinity"]
+
 volumes:
   rawki_shared_storage:
     external: true
+  ollama_models:
 
 networks:
   default:
