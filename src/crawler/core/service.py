@@ -182,6 +182,9 @@ class CrawlerService:
             self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
 
+        # Shared HTTP session for lightweight requests (HEAD, sitemaps)
+        self.http_session: Optional[aiohttp.ClientSession] = None
+
         # Preload sitemap metadata for fast language/date lookups (constant-time via dict)
         self.sitemap_path = self.config.sitemap_output or os.getenv("SITEMAP_JSON", os.getenv("HAWK_SITEMAP_JSON", "data/sitemap.json"))
         self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
@@ -486,14 +489,23 @@ class CrawlerService:
         if 'sitemap' in url_lower or url_lower.endswith('.xml'):
             return True
 
+        # Prefer shared session to avoid socket churn; fallback to a temp session
+        session = self.http_session
+        cleanup_session = False
+        if session is None:
+            session = aiohttp.ClientSession(headers=self.headers)
+            cleanup_session = True
+
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    content_type = response.headers.get('Content-Type', '')
-                    if 'xml' in content_type.lower():
-                        return True
+            async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
+                content_type = response.headers.get('Content-Type', '')
+                if 'xml' in content_type.lower():
+                    return True
         except Exception:
             pass
+        finally:
+            if cleanup_session:
+                await session.close()
 
         return False
 
@@ -502,69 +514,75 @@ class CrawlerService:
         urls = []
         urls_with_dates = []  # List of (url, date) tuples to preserve duplicates for URLTrackingManager
 
-        try:
-            # Create session with increased max response size for large sitemaps
+        session = self.http_session
+        cleanup_session = False
+        if session is None:
             connector = aiohttp.TCPConnector(limit=100)
-            async with aiohttp.ClientSession(headers=self.headers, connector=connector) as session:
-                async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30),
-                                       max_line_size=16*1024, max_field_size=16*1024) as response:
-                    if response.status != 200:
-                        print(f"Error fetching sitemap {sitemap_url}: HTTP {response.status}")
-                        return urls
+            session = aiohttp.ClientSession(headers=self.headers, connector=connector)
+            cleanup_session = True
 
-                    content = await response.text()
-                    soup = BeautifulSoup(content, 'xml')
+        try:
+            async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30), allow_redirects=True) as response:
+                if response.status != 200:
+                    print(f"Error fetching sitemap {sitemap_url}: HTTP {response.status}")
+                    return urls
 
-                    # Handle sitemap index
-                    sitemap_tags = soup.find_all('sitemap')
-                    if sitemap_tags:
-                        for sitemap in sitemap_tags:
-                            loc = sitemap.find('loc')
-                            if loc:
-                                nested_urls = await self.parse_sitemap(loc.text)
-                                urls.extend(nested_urls)
+                content = await response.text()
+                soup = BeautifulSoup(content, 'xml')
 
-                    # Handle URL entries
-                    url_tags = soup.find_all('url')
-                    for url_tag in url_tags:
-                        loc = url_tag.find('loc')
+                # Handle sitemap index
+                sitemap_tags = soup.find_all('sitemap')
+                if sitemap_tags:
+                    for sitemap in sitemap_tags:
+                        loc = sitemap.find('loc')
                         if loc:
-                            url = loc.text
-                            if urlparse(url).path.lower().endswith("piwik.php"):
+                            nested_urls = await self.parse_sitemap(loc.text)
+                            urls.extend(nested_urls)
+
+                # Handle URL entries
+                url_tags = soup.find_all('url')
+                for url_tag in url_tags:
+                    loc = url_tag.find('loc')
+                    if loc:
+                        url = loc.text
+                        if urlparse(url).path.lower().endswith("piwik.php"):
+                            continue
+                        urls.append(url)
+
+                        # Extract lastmod if available
+                        lastmod_tag = url_tag.find('lastmod')
+                        lastmod_date = None
+                        if lastmod_tag and lastmod_tag.text:
+                            lastmod_date = lastmod_tag.text.strip()
+                            self.sitemap_lastmod[url] = lastmod_date
+
+                        # Store for URLTrackingManager (as tuple to preserve duplicates)
+                        urls_with_dates.append((url, lastmod_date))
+
+                # Fallback: Parse as plain text list if no XML URLs were found
+                if not urls:
+                    print(f"No URLs found via XML parsing, trying plain text fallback for {sitemap_url}")
+                    # Split content by newlines and extract valid URLs
+                    lines = content.strip().split('\n')
+                    url_pattern = re.compile(r'^https?://[^\s]+$')
+                    for line in lines:
+                        line = line.strip()
+                        # Check if line matches URL pattern
+                        if url_pattern.match(line):
+                            # Skip piwik.php tracking pixels
+                            if urlparse(line).path.lower().endswith("piwik.php"):
                                 continue
-                            urls.append(url)
+                            urls.append(line)
+                            urls_with_dates.append((line, None))  # Preserve duplicates
 
-                            # Extract lastmod if available
-                            lastmod_tag = url_tag.find('lastmod')
-                            lastmod_date = None
-                            if lastmod_tag and lastmod_tag.text:
-                                lastmod_date = lastmod_tag.text.strip()
-                                self.sitemap_lastmod[url] = lastmod_date
-
-                            # Store for URLTrackingManager (as tuple to preserve duplicates)
-                            urls_with_dates.append((url, lastmod_date))
-
-                    # Fallback: Parse as plain text list if no XML URLs were found
-                    if not urls:
-                        print(f"No URLs found via XML parsing, trying plain text fallback for {sitemap_url}")
-                        # Split content by newlines and extract valid URLs
-                        lines = content.strip().split('\n')
-                        url_pattern = re.compile(r'^https?://[^\s]+$')
-                        for line in lines:
-                            line = line.strip()
-                            # Check if line matches URL pattern
-                            if url_pattern.match(line):
-                                # Skip piwik.php tracking pixels
-                                if urlparse(line).path.lower().endswith("piwik.php"):
-                                    continue
-                                urls.append(line)
-                                urls_with_dates.append((line, None))  # Preserve duplicates
-
-                        if urls:
-                            print(f"Found {len(urls)} URLs via plain text parsing")
+                    if urls:
+                        print(f"Found {len(urls)} URLs via plain text parsing")
 
         except Exception as e:
             print(f"Error parsing sitemap {sitemap_url}: {e}")
+        finally:
+            if cleanup_session:
+                await session.close()
 
         # Save URLs to URLTrackingManager if available
         if self.url_tracking_manager and urls_with_dates:
@@ -641,18 +659,25 @@ class CrawlerService:
         await self.rate_limiter.acquire()
         headers: Dict[str, str] = {}
         status_code: Optional[int] = None
+        session = self.http_session
+        cleanup_session = False
+        if session is None:
+            session = aiohttp.ClientSession(headers=self.headers)
+            cleanup_session = True
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
-                    status_code = response.status
-                    headers = {k.lower(): v for k, v in response.headers.items()}
+            async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
+                status_code = response.status
+                headers = {k.lower(): v for k, v in response.headers.items()}
 
-                    # Track request
-                    if self.progress_tracker:
-                        await self.progress_tracker.increment_requests()
+                # Track request
+                if self.progress_tracker:
+                    await self.progress_tracker.increment_requests()
         except Exception:
             if self.progress_tracker:
                 await self.progress_tracker.increment_errors()
+        finally:
+            if cleanup_session:
+                await session.close()
         return status_code, headers
 
     async def is_pdf_resource(self, url: str, head_status: Optional[int] = None, head_headers: Optional[Dict[str, str]] = None) -> bool:
@@ -1130,6 +1155,18 @@ class CrawlerService:
     async def crawl(self) -> Dict:
         """Main crawl method"""
         try:
+            # Ensure a shared HTTP session is ready for all lightweight requests
+            if self.http_session is None or self.http_session.closed:
+                connector = aiohttp.TCPConnector(
+                    limit=self.config.max_concurrency,
+                    limit_per_host=self.config.max_concurrency
+                )
+                self.http_session = aiohttp.ClientSession(
+                    headers=self.headers,
+                    connector=connector,
+                    timeout=aiohttp.ClientTimeout(total=120)
+                )
+
             await self._run_sitemap_scrape()
             await self.setup_directories()
 
@@ -1271,3 +1308,7 @@ class CrawlerService:
                 await self.job_state.set_error(error_msg)
 
             raise
+        finally:
+            if self.http_session:
+                await self.http_session.close()
+                self.http_session = None

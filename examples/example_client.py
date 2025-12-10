@@ -7,6 +7,7 @@ Demonstrates how to submit crawl jobs and monitor their progress
 import requests
 import time
 import sys
+import uuid
 from typing import Optional
 
 
@@ -75,7 +76,9 @@ def example_sitemap_crawl():
 
     client = CrawlClient()
 
+    job_id = str(uuid.uuid4())
     config = {
+        "job_id": job_id,
         "url": "https://www.python.org/sitemap.xml",
         "max_pages": 10,
         "skip_images": True,
@@ -88,9 +91,9 @@ def example_sitemap_crawl():
 
     if result:
         print(f"✓ Job submitted successfully!")
-        print(f"Job ID: {result['job_id']}")
+        print(f"Job ID: {job_id}")
 
-        final_status = client.wait_for_completion(result['job_id'])
+        final_status = client.wait_for_completion(job_id)
         if final_status and final_status['status'] == 'completed':
             print(f"\n✓ Crawl completed successfully!")
             print(f"Output directory: {final_status['output_directory']}")
@@ -105,7 +108,9 @@ def example_discovery_mode():
 
     client = CrawlClient()
 
+    job_id = str(uuid.uuid4())
     config = {
+        "job_id": job_id,
         "url": "https://example.com",
         "max_pages": 20,
         "discovery_mode": True,
@@ -122,9 +127,9 @@ def example_discovery_mode():
 
     if result:
         print(f"✓ Job submitted successfully!")
-        print(f"Job ID: {result['job_id']}")
+        print(f"Job ID: {job_id}")
 
-        final_status = client.wait_for_completion(result['job_id'])
+        final_status = client.wait_for_completion(job_id)
         if final_status and final_status['status'] == 'completed':
             print(f"\n✓ Crawl completed successfully!")
             print(f"Output directory: {final_status['output_directory']}")
@@ -139,7 +144,9 @@ def example_custom_rate_limiting():
 
     client = CrawlClient()
 
+    job_id = str(uuid.uuid4())
     config = {
+        "job_id": job_id,
         "url": "https://news.ycombinator.com",
         "max_pages": 5,
         "request_delay": 3000,  # 3 seconds between requests
@@ -155,9 +162,9 @@ def example_custom_rate_limiting():
 
     if result:
         print(f"✓ Job submitted successfully!")
-        print(f"Job ID: {result['job_id']}")
+        print(f"Job ID: {job_id}")
 
-        final_status = client.wait_for_completion(result['job_id'])
+        final_status = client.wait_for_completion(job_id)
         if final_status and final_status['status'] == 'completed':
             print(f"\n✓ Crawl completed successfully!")
             print(f"Output directory: {final_status['output_directory']}")

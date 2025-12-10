@@ -1,4 +1,3 @@
-import uuid
 import os
 import asyncio
 import time
@@ -22,13 +21,19 @@ from src.crawler.communication.factory import CommunicationFactory
 from src.crawler.state.job_state import JobState
 from src.crawler.storage.storage_manager import StorageManager
 
-# Configure logging
+# Configure logging for Docker - ensure all output goes to stdout
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True  # Override any existing handlers
 )
+logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Force unbuffered output for Docker
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 app = FastAPI(
     title="Crawl4AI API",
@@ -44,6 +49,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Log startup configuration"""
+    logger.info("=" * 60)
+    logger.info("Crawl4AI Service Starting...")
+    logger.info("=" * 60)
+    logger.info(f"Communication Method: {os.getenv('COMMUNICATION_METHOD', 'redis')}")
+    logger.info(f"Communication Enabled: {os.getenv('COMMUNICATION_ENABLED', 'true')}")
+
+    comm_method = os.getenv('COMMUNICATION_METHOD', 'redis').lower()
+    if comm_method == 'rabbitmq':
+        logger.info(f"RabbitMQ Host: {os.getenv('RABBITMQ_HOST', 'localhost')}")
+        logger.info(f"RabbitMQ Port: {os.getenv('RABBITMQ_PORT', '5672')}")
+        logger.info(f"RabbitMQ User: {os.getenv('RABBITMQ_USER', 'guest')}")
+        logger.info(f"RabbitMQ Exchange: {os.getenv('RABBITMQ_EXCHANGE', 'scrape-events')}")
+    elif comm_method == 'redis':
+        logger.info(f"Redis Host: {os.getenv('REDIS_HOST', 'localhost')}")
+        logger.info(f"Redis Port: {os.getenv('REDIS_PORT', '6379')}")
+        logger.info(f"Redis Channel: {os.getenv('REDIS_CHANNEL', 'scrape-events')}")
+
+    logger.info(f"Data Path: {os.getenv('DATA_PATH', '/app/data/jobs')}")
+    logger.info("=" * 60)
 
 # Store job statuses
 jobs: Dict[str, CrawlStatus] = {}
@@ -182,30 +210,42 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     - StorageManager: File I/O operations
     """
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    communication_method = os.getenv("COMMUNICATION_METHOD", "redis")
+
+    logger.info("=" * 60)
+    logger.info(f"[Job {job_id}] Starting crawl job")
+    logger.info(f"[Job {job_id}] Target URL: {config.url}")
+    logger.info(f"[Job {job_id}] Max Pages: {config.max_pages}")
+    logger.info(f"[Job {job_id}] Communication Method: {communication_method}")
+    logger.info("=" * 60)
 
     communication_service = CommunicationFactory.create(job_id)
     job_state = JobState(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     try:
-        print(
-            f"[run_crawl_job] starting job {job_id}",
-            flush=True
-        )
+        logger.info(f"[Job {job_id}] Initializing state manager...")
         # Initialize state manager (creates job directory and initial state file)
         await job_state.initialize()
+        logger.info(f"[Job {job_id}] State manager initialized")
 
         # Connect to communication service (optional)
         if communication_service:
             try:
-                logger.info(f"[{job_id}] Attempting to connect to communication service...")
+                logger.info(f"[Job {job_id}] Attempting to connect to {communication_method}...")
                 connected = await communication_service.connect()
-                if not connected:
-                    logger.warning(f"[{job_id}] Communication connection failed. Continuing without real-time events.")
+                if connected:
+                    logger.info(f"[Job {job_id}] Successfully connected to {communication_method}")
+                else:
+                    logger.warning(f"[Job {job_id}] {communication_method} connection failed. Continuing without real-time event updates.")
             except Exception as comm_error:
-                logger.warning(f"[{job_id}] Communication connection error: {comm_error}. Continuing without real-time events.")
+                logger.error(f"[Job {job_id}] {communication_method} connection error: {comm_error}. Continuing without real-time event updates.")
+                import traceback
+                logger.error(traceback.format_exc())
+        else:
+            logger.info(f"[Job {job_id}] No communication service configured (communication disabled or failed to initialize)")
 
-        logger.info(f"[{job_id}] Communication check complete. Starting crawler...")
+        logger.info(f"[Job {job_id}] Communication setup complete. Starting crawler...")
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -279,6 +319,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     Submit a crawl job
 
     Parameters:
+    - job_id: Unique identifier for the crawl job (required)
     - url: The starting URL to crawl (required)
     - max_pages: Maximum number of pages to crawl (default: 100)
     - output_dir: Directory to store crawled data (default: "output")
@@ -297,7 +338,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - data: Object with status and message
     - timestamp: ISO-8601 timestamp
     """
-    job_id = str(uuid.uuid4())
+    job_id = config.job_id
 
     # Create job status
     job_status = CrawlStatus(
