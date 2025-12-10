@@ -1,4 +1,3 @@
-import uuid
 import os
 import asyncio
 import time
@@ -16,7 +15,7 @@ import html2text
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
-from models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
+from models import CrawlConfig, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
 from crawler_service import CrawlerService
 from services import CommunicationFactory, JobStateManager, StorageManager
 
@@ -312,12 +311,13 @@ async def root():
     }
 
 
-@app.post("/crawl", response_model=CrawlResponse)
+@app.post("/crawl")
 async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     """
     Submit a crawl job
 
     Parameters:
+    - job_id: Unique identifier for the crawl job (required)
     - url: The starting URL to crawl (required)
     - max_pages: Maximum number of pages to crawl (default: 100)
     - output_dir: Directory to store crawled data (default: "output")
@@ -330,13 +330,10 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - request_delay: Delay between requests in milliseconds (overrides RPM)
     - discovery_mode: Discover URLs inside the given page (default: False)
 
-    Returns (matches event_emitter structure):
-    - job_id: Unique identifier for the crawl job
-    - event: Event type (e.g., "job_submitted")
-    - data: Object with status and message
-    - timestamp: ISO-8601 timestamp
+    Returns:
+    - success: Boolean indicating if the job was successfully submitted
     """
-    job_id = str(uuid.uuid4())
+    job_id = config.job_id
 
     # Create job status
     job_status = CrawlStatus(
@@ -361,15 +358,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     )
     tasks[job_id] = task
 
-    return CrawlResponse(
-        job_id=job_id,
-        event="job_submitted",
-        data={
-            "status": "pending",
-            "message": "Crawl job submitted successfully"
-        },
-        timestamp=datetime.utcnow().isoformat() + "Z"
-    )
+    return {"success": True}
 
 
 @app.post("/scrape", response_model=QuickScrapeResponse)

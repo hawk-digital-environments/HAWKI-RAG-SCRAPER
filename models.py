@@ -5,6 +5,7 @@ from datetime import datetime
 
 class CrawlConfig(BaseModel):
     """Configuration for crawl job"""
+    job_id: str = Field(..., description="Unique identifier for the crawl job")
     url: HttpUrl = Field(..., description="The starting URL to crawl")
     max_pages: int = Field(default=100, ge=0, description="Maximum number of pages to crawl (0 = unlimited)")
     output_dir: str = Field(default="output", description="Directory to store crawled data")
