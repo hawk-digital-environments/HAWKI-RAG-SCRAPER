@@ -223,6 +223,7 @@ class RedisCommunicationService(CommunicationInterface):
 
         Args:
             progress_data: Progress information from ProgressTracker
+                          (includes completed_urls, failed_urls, stats, and optionally url_completion)
 
         Returns:
             bool: True if sent successfully
@@ -230,7 +231,7 @@ class RedisCommunicationService(CommunicationInterface):
         data = {
             "report_type": ReportType.PROGRESS.value,
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "progress": progress_data
+            **progress_data  # Merge progress_data directly into the data dict
         }
         return await self._publish("report", data)
 

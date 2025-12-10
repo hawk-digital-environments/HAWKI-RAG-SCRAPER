@@ -947,27 +947,18 @@ class CrawlerService:
 
                 await self.save_page_data(page_data, current_page_number, url_hash)
 
-                # Send URL completion report
-                if self.event_emitter:
-                    processing_time = time.time() - processing_start_time
+                # Track URL completion in ProgressTracker (will be included in next progress report)
+                if self.progress_tracker:
+                    completed_at = datetime.now().isoformat() + "Z"
+                    started_at = datetime.fromtimestamp(processing_start_time).isoformat() + "Z"
 
-                    # Construct relative paths for orchestrator
-                    hash_path_prefix = f"{url_hash[0]}/{url_hash[1]}/{url_hash[2]}/{url_hash[3]}/{url_hash}"
-
-                    files_created = {
-                        "data_json": f"{hash_path_prefix}/data.json",
-                        "content_md": f"{hash_path_prefix}/content.md",
-                        "images": [os.path.basename(img) for img in page_data['data'].get('images', [])],
-                        "pdfs": [os.path.basename(pdf.get('local_path', '')) for pdf in page_data['data'].get('pdfs', [])]
-                    }
-
-                    await self.event_emitter.send_report_url_completion(
+                    await self.progress_tracker.set_url_completion(
                         url=url,
                         url_hash=url_hash,
                         status="success",
                         page_number=current_page_number,
-                        files_created=files_created,
-                        processing_time=processing_time
+                        started_at=started_at,
+                        completed_at=completed_at
                     )
 
                 # Extract header dates for URLTrackingManager
@@ -1008,18 +999,18 @@ class CrawlerService:
                 # URL extraction failed
                 error_msg = "Extraction failed"
 
-                # Send URL completion report for failure
-                if self.event_emitter:
-                    processing_time = time.time() - processing_start_time
+                # Track URL completion in ProgressTracker (will be included in next progress report)
+                if self.progress_tracker:
+                    completed_at = datetime.now().isoformat() + "Z"
+                    started_at = datetime.fromtimestamp(processing_start_time).isoformat() + "Z"
 
-                    await self.event_emitter.send_report_url_completion(
+                    await self.progress_tracker.set_url_completion(
                         url=url,
                         url_hash=url_hash,
                         status="failed",
                         page_number=current_page_number,
-                        files_created={},
-                        error=error_msg,
-                        processing_time=processing_time
+                        started_at=started_at,
+                        completed_at=completed_at
                     )
 
                 # Update tracking systems with failure

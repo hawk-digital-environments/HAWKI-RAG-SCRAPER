@@ -55,6 +55,9 @@ class ProgressTracker:
         self.failed_urls = 0
         self.current_url = None
 
+        # Last URL completion details
+        self.last_url_completion = None  # Will store {url, url_hash, status, page_number, started_at, completed_at}
+
         # Statistics
         self.stats = {
             "sessions": 0,
@@ -103,8 +106,18 @@ class ProgressTracker:
             if stage in ["completed", "failed"]:
                 self.completed_at = datetime.utcnow().isoformat() + "Z"
 
-        # Emit immediately on stage change (outside the lock to avoid deadlock)
-        await self._emit_progress(force=True)
+        # Emit stage event (outside the lock to avoid deadlock)
+        if self.event_emitter and hasattr(self.event_emitter, 'send_stage'):
+            from .communication.interface import Stage
+            # Map string stages to Stage enum
+            stage_map = {
+                "initialization": Stage.INITIALIZATION,
+                "scraping": Stage.SCRAPING,
+                "completed": Stage.COMPLETED,
+                "failed": Stage.FAILED
+            }
+            if stage in stage_map:
+                await self.event_emitter.send_stage(stage_map[stage])
 
     async def set_total_urls(self, total: int):
         """Set total number of URLs to process."""
@@ -116,6 +129,29 @@ class ProgressTracker:
         """Set the URL currently being processed."""
         async with self.lock:
             self.current_url = url
+            self._should_emit = True
+
+    async def set_url_completion(self, url: str, url_hash: str, status: str, page_number: int, started_at: str, completed_at: str):
+        """
+        Set the last completed URL details.
+
+        Args:
+            url: Completed URL
+            url_hash: SHA256 hash of the URL
+            status: "success" or "failed"
+            page_number: Page number
+            started_at: ISO timestamp when processing started
+            completed_at: ISO timestamp when processing completed
+        """
+        async with self.lock:
+            self.last_url_completion = {
+                "url": url,
+                "url_hash": url_hash,
+                "status": status,
+                "page_number": page_number,
+                "started_at": started_at,
+                "completed_at": completed_at
+            }
             self._should_emit = True
 
     async def increment_completed(self):
@@ -171,21 +207,21 @@ class ProgressTracker:
         Get current progress state.
 
         Returns:
-            Dictionary with progress information
+            Dictionary with progress information including url_completion and stats
         """
         async with self.lock:
+            # Build stats with completed/failed counts included
+            stats = self.stats.copy()
+            stats["completed_urls"] = self.completed_urls
+            stats["failed_urls"] = self.failed_urls
+
             progress = {
-                "stage": self.stage,
-                "total_urls": self.total_urls,
-                "completed_urls": self.completed_urls,
-                "failed_urls": self.failed_urls,
-                "processing_urls": max(0, self.total_urls - self.completed_urls - self.failed_urls),
-                "current_url": self.current_url,
-                "progress_percentage": self._calculate_percentage(),
-                "stats": self.stats.copy(),
-                "started_at": self.started_at,
-                "completed_at": self.completed_at
+                "stats": stats
             }
+
+            # Add url_completion if available
+            if self.last_url_completion:
+                progress["url_completion"] = self.last_url_completion.copy()
 
             return progress
 
