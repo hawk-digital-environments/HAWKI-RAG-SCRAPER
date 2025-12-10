@@ -167,6 +167,9 @@ class CrawlerService:
         self.storage_manager = storage_manager
         self.job_id = job_id
 
+        # Shared HTTP session (created in crawl(), reused for all requests)
+        self.http_session: Optional[aiohttp.ClientSession] = None
+
         # Initialize new tracking systems (only if job_id is provided)
         self.progress_tracker = None
         self.url_tracking_manager = None
@@ -252,8 +255,8 @@ class CrawlerService:
             return True
 
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if self.http_session:
+                async with self.http_session.head(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     content_type = response.headers.get('Content-Type', '')
                     if 'xml' in content_type.lower():
                         return True
@@ -268,11 +271,9 @@ class CrawlerService:
         urls_with_dates = []  # List of (url, date) tuples to preserve duplicates for URLTrackingManager
 
         try:
-            # Create session with increased max response size for large sitemaps
-            connector = aiohttp.TCPConnector(limit=100)
-            async with aiohttp.ClientSession(headers=self.headers, connector=connector) as session:
-                async with session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30),
-                                       max_line_size=16*1024, max_field_size=16*1024) as response:
+            # Use shared session for sitemap parsing
+            if self.http_session:
+                async with self.http_session.get(sitemap_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     if response.status != 200:
                         print(f"Error fetching sitemap {sitemap_url}: HTTP {response.status}")
                         return urls
@@ -407,8 +408,8 @@ class CrawlerService:
         headers: Dict[str, str] = {}
         status_code: Optional[int] = None
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
+            if self.http_session:
+                async with self.http_session.head(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as response:
                     status_code = response.status
                     headers = {k.lower(): v for k, v in response.headers.items()}
 
@@ -436,10 +437,9 @@ class CrawlerService:
         """Download a PDF and save it to the files directory"""
         await self.rate_limiter.acquire()
 
-        cleanup_session = False
+        # Use provided session or shared session
         if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
-            cleanup_session = True
+            session = self.http_session
 
         try:
             async with session.get(pdf_url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=60)) as response:
@@ -492,9 +492,6 @@ class CrawlerService:
         except Exception as e:
             print(f"Error downloading PDF {pdf_url}: {e}")
             return None
-        finally:
-            if cleanup_session:
-                await session.close()
 
     def parse_date_string(self, date_str: str) -> Optional[str]:
         """Parse a date string into ISO format if plausible."""
@@ -785,9 +782,10 @@ class CrawlerService:
                     page_dir = await self.create_page_directory(page_number)
                     images_dir = page_dir / "images"
 
-                async with aiohttp.ClientSession(headers=self.headers) as session:
+                # Use shared session for image downloads
+                if self.http_session:
                     for img_url in images:
-                        filename = await self.download_image(img_url, session, images_dir)
+                        filename = await self.download_image(img_url, self.http_session, images_dir)
                         if filename:
                             downloaded_images.append(filename)
 
@@ -937,11 +935,11 @@ class CrawlerService:
                 if page_data.get('html_content'):
                     pdf_links = self.extract_pdf_links(page_data['html_content'], url)
                     if pdf_links:
-                        async with aiohttp.ClientSession(headers=self.headers) as pdf_session:
-                            for pdf_url in pdf_links:
-                                pdf_entry = await self.fetch_and_save_pdf(pdf_url, current_page_number, session=pdf_session, url_hash=url_hash)
-                                if pdf_entry:
-                                    pdf_entries.append(pdf_entry)
+                        # Use shared session for PDF downloads
+                        for pdf_url in pdf_links:
+                            pdf_entry = await self.fetch_and_save_pdf(pdf_url, current_page_number, session=self.http_session, url_hash=url_hash)
+                            if pdf_entry:
+                                pdf_entries.append(pdf_entry)
 
                 page_data['data']['pdfs'] = pdf_entries
 
@@ -1031,6 +1029,19 @@ class CrawlerService:
         try:
             await self.setup_directories()
 
+            # Create shared HTTP session for all HTTP requests (connection pooling, performance, safety)
+            # This prevents creating hundreds of sessions which could overwhelm the target server
+            connector = aiohttp.TCPConnector(limit=self.config.max_concurrency, limit_per_host=self.config.max_concurrency)
+            self.http_session = aiohttp.ClientSession(
+                headers=self.headers,
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=120)
+            )
+
+            # Track session creation
+            if self.progress_tracker:
+                await self.progress_tracker.increment_sessions()
+
             # Initialize tracking systems
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
@@ -1106,6 +1117,10 @@ class CrawlerService:
                 verbose=False
             )
 
+            # Track browser session creation
+            if self.progress_tracker:
+                await self.progress_tracker.increment_sessions()
+
             async with AsyncWebCrawler(config=browser_config) as crawler:
                 # Continue while there are URLs to visit and we haven't reached max_pages (or max_pages is 0)
                 while self.to_visit and (self.config.max_pages == 0 or self.page_counter < self.config.max_pages):
@@ -1143,6 +1158,11 @@ class CrawlerService:
             if self.job_state_manager:
                 await self.job_state_manager.set_status("completed")
 
+            # Close shared session
+            if self.http_session:
+                await self.http_session.close()
+                self.http_session = None
+
             return {
                 'pages_crawled': self.page_counter,
                 'output_directory': str(self.output_dir),
@@ -1178,5 +1198,10 @@ class CrawlerService:
                     print("\n" + SummaryManager.format_text_summary(formatted_summary))
             if self.job_state_manager:
                 await self.job_state_manager.set_error(error_msg)
+
+            # Close shared session
+            if self.http_session:
+                await self.http_session.close()
+                self.http_session = None
 
             raise
