@@ -308,6 +308,111 @@ class CrawlerService:
             return None
         return None
 
+    def parse_date_string(self, date_str: str) -> Optional[str]:
+        """Parse a date string into ISO format if plausible."""
+        if not date_str:
+            return None
+        cleaned = date_str.strip()
+        if not cleaned:
+            return None
+
+        # Try ISO-like
+        try:
+            dt = datetime.fromisoformat(cleaned.replace('Z', '+00:00'))
+            if 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        # Try RFC822/HTTP style
+        try:
+            dt = parsedate_to_datetime(cleaned)
+            if dt and 1990 <= dt.year <= datetime.now().year + 1:
+                return dt.isoformat()
+        except Exception:
+            pass
+
+        return None
+
+    def extract_dates(self, html_content: str, soup: BeautifulSoup) -> Dict[str, Optional[str]]:
+        """
+        Collect dates in a deterministic order: JSON-LD (datePublished/dateModified),
+        meta tags (og/article/date/lastmod variants), <time> tags, then elements with
+        date-ish class names. Each candidate is normalized to ISO when plausible.
+        """
+        published = None
+        updated = None
+
+        def pick(first: Optional[str], second: Optional[str]) -> Optional[str]:
+            return first or second
+
+        # JSON-LD
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string or '')
+            except Exception:
+                continue
+
+            candidates = []
+            if isinstance(data, list):
+                candidates.extend(data)
+            elif isinstance(data, dict):
+                candidates.append(data)
+
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                pub = self.parse_date_string(str(item.get('datePublished', '')).strip()) if item.get('datePublished') else None
+                mod = self.parse_date_string(str(item.get('dateModified', '')).strip()) if item.get('dateModified') else None
+                published = pick(published, pub)
+                updated = pick(updated, mod)
+                if published and updated:
+                    break
+
+        # Meta tags
+        meta_map = {
+            'article:published_time': 'published',
+            'article:modified_time': 'updated',
+            'og:updated_time': 'updated',
+            'og:published_time': 'published',
+            'date': 'published',
+            'lastmod': 'updated'
+        }
+        for prop, target in meta_map.items():
+            meta_tag = soup.find('meta', attrs={'property': prop}) or soup.find('meta', attrs={'name': prop})
+            if meta_tag and meta_tag.get('content'):
+                parsed = self.parse_date_string(meta_tag['content'])
+                if target == 'published':
+                    published = pick(published, parsed)
+                else:
+                    updated = pick(updated, parsed)
+
+        # <time> tags
+        for time_tag in soup.find_all('time'):
+            dt_attr = time_tag.get('datetime') or time_tag.get('content')
+            parsed = self.parse_date_string(dt_attr or time_tag.text)
+            if parsed:
+                published = pick(published, parsed)
+                break
+
+        # Class/id heuristics
+        class_keywords = ('date', 'time', 'publish', 'posted', 'update', 'modified')
+        for elem in soup.find_all(True, class_=True):
+            class_str = ' '.join(elem.get('class', [])).lower()
+            if any(k in class_str for k in class_keywords):
+                parsed = self.parse_date_string(elem.get('content') or elem.get('datetime') or elem.text)
+                if parsed:
+                    if not published:
+                        published = parsed
+                    elif not updated and parsed != published:
+                        updated = parsed
+                    break
+
+        return {
+            'published_at': published,
+            'updated_at': updated
+        }
+
     async def _run_sitemap_scrape(self):
         """Optionally scrape the sitemap JSON before crawling."""
         if not getattr(self.config, "sitemap", False):
@@ -700,6 +805,7 @@ class CrawlerService:
 
             lang = self.detect_language(result.html, head_headers, url=final_url or url, sitemap_entry=entry)
             updated_at = entry.get("last_modified") if entry else None
+            published_at = None
             if not entry and head_headers:
                 updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
                 if updated_at and isinstance(updated_at, str) and " " in updated_at:
@@ -709,6 +815,10 @@ class CrawlerService:
                         updated_at = dt.isoformat() if dt else updated_at
                     except Exception:
                         pass
+            if not entry and not updated_at:
+                date_info = self.extract_dates(result.html, soup)
+                published_at = date_info.get('published_at')
+                updated_at = date_info.get('updated_at') or published_at
 
             # Extract images - use both crawl4ai and BeautifulSoup
             images = []
@@ -788,6 +898,7 @@ class CrawlerService:
                 'meta_img_url': meta_img_url,
                 'images': downloaded_images if not self.config.skip_images else images,
                 'lang': lang,
+                'published_at': published_at,
                 'updated_at': updated_at,
                 'http_status': head_status,
                 'content_length': content_length,
@@ -869,6 +980,8 @@ class CrawlerService:
                     updated_at = (self._lookup_sitemap_entry(url) or {}).get("last_modified")
                     if not self._lookup_sitemap_entry(url) and head_headers:
                         updated_at = self._parse_http_date(head_headers.get("last-modified") or head_headers.get("date"))
+                    if not updated_at and head_headers:
+                        updated_at = self.parse_date_string(head_headers.get("date") or head_headers.get("last-modified") or "")
                     page_data = {
                         'data': {
                             'title': [],
