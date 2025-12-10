@@ -10,3 +10,4 @@ python-multipart>=0.0.12
 html2text>=2020.1.16
 redis>=5.0.0
 python-dotenv>=1.0.0
+aio-pika>=9.0.0

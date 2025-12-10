@@ -18,8 +18,8 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from src.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
 from src.crawler.core.service import CrawlerService
-from src.crawler.events.redis_event_emitter import RedisEventEmitter
-from src.crawler.jobs.job_state_manager import JobStateManager
+from src.crawler.communication.factory import CommunicationFactory
+from src.crawler.state.job_state import JobState
 from src.crawler.storage.storage_manager import StorageManager
 
 # Configure logging
@@ -176,59 +176,36 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     """
     Background task to run crawl job.
 
-    This function integrates the service layer components:
-    - RedisEventEmitter: For real-time progress updates via Redis Pub/Sub
-    - JobStateManager: For persistent state tracking
-    - StorageManager: For consistent file I/O operations
+    Integrates the service layer components:
+    - CommunicationFactory: Redis/RabbitMQ events
+    - JobState: Persistent state tracking
+    - StorageManager: File I/O operations
     """
-    # Initialize service layer components
-    redis_host = os.getenv("REDIS_HOST", "").strip()
-    redis_enabled_flag = os.getenv("REDIS_ENABLED", "true").strip().lower()
-    redis_enabled = redis_enabled_flag not in ("0", "false", "no", "off", "")
-    redis_port_raw = (os.getenv("REDIS_PORT", "") or "").strip()
-    redis_db_raw = (os.getenv("REDIS_DB", "") or "").strip()
-    redis_password = os.getenv("REDIS_PASSWORD", None)
-    redis_channel = "scrape-events"
-    redis_port = None
-    redis_db = None
-    if redis_enabled and redis_host:
-        redis_port = int(redis_port_raw or "6379")
-        redis_db = int(redis_db_raw or "0")
-        redis_channel = (os.getenv("REDIS_CHANNEL", "scrape-events") or "scrape-events").strip()
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
 
-    event_emitter = None
-    if redis_enabled and redis_host:
-        event_emitter = RedisEventEmitter(
-            job_id,
-            redis_host=redis_host,
-            redis_port=redis_port,
-            redis_db=redis_db,
-            redis_password=redis_password,
-            channel=redis_channel
-        )
-    job_state_manager = JobStateManager(job_id, base_path=base_path)
+    communication_service = CommunicationFactory.create(job_id)
+    job_state = JobState(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     try:
         print(
-            f"[run_crawl_job] starting job {job_id} "
-            f"(redis_enabled={redis_enabled}, redis_host='{redis_host}', redis_port={redis_port}, redis_db={redis_db})",
+            f"[run_crawl_job] starting job {job_id}",
             flush=True
         )
         # Initialize state manager (creates job directory and initial state file)
-        await job_state_manager.initialize()
+        await job_state.initialize()
 
-        # Connect to Redis (optional - scraping will continue even if this fails)
-        try:
-            logger.info(f"[{job_id}] Attempting to connect to Redis...")
-            redis_connected = await event_emitter.connect()
-            if not redis_connected:
-                logger.warning(f"[{job_id}] Redis connection failed. Continuing without real-time event updates.")
-        except Exception as redis_error:
-            logger.warning(f"[{job_id}] Redis connection error: {redis_error}. Continuing without real-time event updates.")
+        # Connect to communication service (optional)
+        if communication_service:
+            try:
+                logger.info(f"[{job_id}] Attempting to connect to communication service...")
+                connected = await communication_service.connect()
+                if not connected:
+                    logger.warning(f"[{job_id}] Communication connection failed. Continuing without real-time events.")
+            except Exception as comm_error:
+                logger.warning(f"[{job_id}] Communication connection error: {comm_error}. Continuing without real-time events.")
 
-        logger.info(f"[{job_id}] Redis connection check complete. Starting crawler...")
+        logger.info(f"[{job_id}] Communication check complete. Starting crawler...")
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -238,8 +215,8 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         crawler = CrawlerService(
             config,
             job_id=job_id,
-            event_emitter=event_emitter,
-            job_state_manager=job_state_manager,
+            communication_service=communication_service,
+            job_state=job_state,
             storage_manager=storage_manager
         )
 
@@ -269,9 +246,12 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].completed_at = datetime.now()
 
     finally:
-        # Close event emitter connection
-        if event_emitter:
-            await event_emitter.close()
+        # Close communication connection
+        if communication_service and hasattr(communication_service, "disconnect"):
+            try:
+                await communication_service.disconnect()
+            except Exception:
+                pass
         tasks.pop(job_id, None)
 
 
@@ -311,7 +291,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - request_delay: Delay between requests in milliseconds (overrides RPM)
     - discovery_mode: Discover URLs inside the given page (default: False)
 
-    Returns (matches event_emitter structure):
+    Returns:
     - job_id: Unique identifier for the crawl job
     - event: Event type (e.g., "job_submitted")
     - data: Object with status and message

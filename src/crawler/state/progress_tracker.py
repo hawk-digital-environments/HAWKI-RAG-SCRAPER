@@ -270,7 +270,7 @@ class ProgressTracker:
         progress = await self.get_progress()
 
         # Emit the event
-        await self.event_emitter.progress_update(progress)
+        await self.event_emitter.send_report_progress(progress)
 
         # Update last emit time
         self.last_emit_time = current_time

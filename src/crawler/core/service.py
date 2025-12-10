@@ -17,7 +17,9 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from src.crawler.models import CrawlConfig
-from src.crawler.jobs.progress_tracker import ProgressTracker
+from src.crawler.state.progress_tracker import ProgressTracker
+from src.crawler.state.job_state import JobState
+from src.crawler.communication.interface import Stage
 from src.crawler.storage.url_tracking_manager import URLTrackingManager, generate_url_hash
 from src.crawler.storage.summary_manager import SummaryManager
 from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BASE
@@ -136,8 +138,8 @@ class CrawlerService:
     def __init__(self,
                  config: CrawlConfig,
                  job_id: Optional[str] = None,
-                 event_emitter: Optional[Any] = None,
-                 job_state_manager: Optional[Any] = None,
+                 communication_service: Optional[Any] = None,
+                 job_state: Optional[JobState] = None,
                  storage_manager: Optional[Any] = None):
         """
         Initialize crawler service.
@@ -145,8 +147,8 @@ class CrawlerService:
         Args:
             config: Crawl configuration
             job_id: Unique job identifier (generated if not provided)
-            event_emitter: Optional EventEmitter for real-time updates
-            job_state_manager: Optional JobStateManager for state tracking
+            communication_service: Optional communication service (Redis/RabbitMQ)
+            job_state: Optional JobState for state tracking
             storage_manager: Optional StorageManager for file operations
         """
         self.config = config
@@ -162,8 +164,8 @@ class CrawlerService:
         self.counter_lock = asyncio.Lock()  # Lock for thread-safe counter operations
 
         # Service layer components (optional - for event tracking and state management)
-        self.event_emitter = event_emitter
-        self.job_state_manager = job_state_manager
+        self.communication_service = communication_service
+        self.job_state = job_state
         self.storage_manager = storage_manager
         self.job_id = job_id
 
@@ -176,7 +178,7 @@ class CrawlerService:
         if self.job_id and self.storage_manager:
             # Use storage_manager's base path
             base_path = str(self.storage_manager.base_path)
-            self.progress_tracker = ProgressTracker(event_emitter=event_emitter)
+            self.progress_tracker = ProgressTracker(event_emitter=self.communication_service)
             self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
 
@@ -307,6 +309,51 @@ class CrawlerService:
         except Exception:
             return None
         return None
+
+    async def _send_stage(self, stage: Stage, details: Optional[Dict[str, Any]] = None):
+        """Wrapper to send stage events if communication service is available."""
+        if not self.communication_service or not hasattr(self.communication_service, "send_stage"):
+            return
+        try:
+            await self.communication_service.send_stage(stage, details or {})
+        except Exception:
+            pass
+
+    async def _send_report_progress(self, progress_data: Dict[str, Any]):
+        """Send progress report through communication service if available."""
+        if not self.communication_service or not hasattr(self.communication_service, "send_report_progress"):
+            return
+        try:
+            await self.communication_service.send_report_progress(progress_data)
+        except Exception:
+            pass
+
+    async def _send_summary(self, summary_data: Dict[str, Any]):
+        """Send summary through communication service if available."""
+        if not self.communication_service or not hasattr(self.communication_service, "send_summary"):
+            return
+        try:
+            await self.communication_service.send_summary(summary_data)
+        except Exception:
+            pass
+
+    async def _send_url_completion(self, url: str, url_hash: str, status: str, page_number: int,
+                                   files_created: Dict[str, Any], error: Optional[str], processing_time: float):
+        """Send URL completion report if supported."""
+        if not self.communication_service or not hasattr(self.communication_service, "send_report_url_completion"):
+            return
+        try:
+            await self.communication_service.send_report_url_completion(
+                url=url,
+                url_hash=url_hash,
+                status=status,
+                page_number=page_number,
+                files_created=files_created,
+                error=error,
+                processing_time=processing_time
+            )
+        except Exception:
+            pass
 
     def parse_date_string(self, date_str: str) -> Optional[str]:
         """Parse a date string into ISO format if plausible."""
@@ -966,8 +1013,8 @@ class CrawlerService:
                 await self.url_tracking_manager.set_processing(url, current_page_number)
             if self.progress_tracker:
                 await self.progress_tracker.set_current_url(url)
-            if self.job_state_manager:
-                await self.job_state_manager.set_current_url(url)
+            if self.job_state:
+                await self.job_state.set_current_url(url)
 
             head_status, head_headers = await self.fetch_head(url)
 
@@ -1044,8 +1091,9 @@ class CrawlerService:
                         await self.progress_tracker.increment_pdfs(len(pdf_entries))
                     if not self.config.skip_images and page_data['data'].get('images'):
                         await self.progress_tracker.increment_images(len(page_data['data']['images']))
-                if self.job_state_manager:
-                    await self.job_state_manager.increment_completed()
+                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                if self.job_state:
+                    await self.job_state.increment_completed()
 
                 # Discover new URLs if in discovery mode
                 if self.config.discovery_mode:
@@ -1071,8 +1119,9 @@ class CrawlerService:
                 if self.progress_tracker:
                     await self.progress_tracker.increment_failed()
                     await self.progress_tracker.increment_errors()
-                if self.job_state_manager:
-                    await self.job_state_manager.increment_failed()
+                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                if self.job_state:
+                    await self.job_state.increment_failed()
 
                 # Decrement if extraction failed
                 async with self.counter_lock:
@@ -1091,12 +1140,13 @@ class CrawlerService:
                 await self.progress_tracker.start()
 
             # Update state: Job is now running
-            if self.job_state_manager:
-                await self.job_state_manager.set_status("running")
+            if self.job_state:
+                await self.job_state.set_status("running")
 
             # Emit stage: initialization
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("initialization")
+            await self._send_stage(Stage.INITIALIZATION)
 
             start_url = str(self.config.url)
             print(f"Crawl for {start_url}")
@@ -1106,8 +1156,7 @@ class CrawlerService:
                 urls = await self.parse_sitemap(start_url)
 
                 # Event: Sitemap detected
-                if self.event_emitter:
-                    await self.event_emitter.sitemap_detected(start_url, len(urls))
+                await self._send_stage(Stage.SITEMAP_DETECTED, {"sitemap_url": start_url, "total_urls": len(urls)})
 
                 urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
                 self.to_visit = urls_to_crawl
@@ -1117,10 +1166,9 @@ class CrawlerService:
                 print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
 
                 # Event: URLs discovered
-                if self.event_emitter:
-                    await self.event_emitter.urls_discovered(len(urls), len(self.to_visit))
-                if self.job_state_manager:
-                    await self.job_state_manager.set_total_urls(len(self.to_visit))
+                await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(urls), "total_to_crawl": len(self.to_visit)})
+                if self.job_state:
+                    await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(len(self.to_visit))
             else:
@@ -1131,19 +1179,19 @@ class CrawlerService:
                 # Add seed URL to tracking
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.add_url(start_url, source="seed")
-                if self.job_state_manager:
-                    await self.job_state_manager.set_total_urls(1)
+                if self.job_state:
+                    await self.job_state.set_total_urls(1)
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(1)
 
             # Event: Crawling started
             total_to_crawl = len(self.to_visit) if not self.config.discovery_mode else self.config.max_pages
-            if self.event_emitter:
-                await self.event_emitter.crawling_started(total_to_crawl if total_to_crawl > 0 else 0)
+            await self._send_stage(Stage.CRAWLING_STARTED, {"total_to_crawl": total_to_crawl})
 
             # Emit stage: scraping
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("scraping")
+            await self._send_stage(Stage.CRAWLING_STARTED)
 
             browser_config = BrowserConfig(
                 headless=True,
@@ -1164,6 +1212,8 @@ class CrawlerService:
             # Job completed successfully
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("completed")
+            await self._send_stage(Stage.COMPLETED)
+            if self.progress_tracker:
                 await self.progress_tracker.stop()
 
                 # Generate and save summary
@@ -1177,23 +1227,12 @@ class CrawlerService:
                         error=None
                     )
                     await self.summary_manager.save_summary(formatted_summary)
-
-                    # Emit summary event
-                    if self.event_emitter:
-                        await self.event_emitter.job_summary(formatted_summary)
+                    await self._send_summary(formatted_summary)
 
                     # Print text summary
                     print("\n" + SummaryManager.format_text_summary(formatted_summary))
-
-            # Legacy event for backwards compatibility
-            if self.event_emitter:
-                await self.event_emitter.job_completed(
-                    self.page_counter,
-                    str(self.output_dir),
-                    success=True
-                )
-            if self.job_state_manager:
-                await self.job_state_manager.set_status("completed")
+            if self.job_state:
+                await self.job_state.set_status("completed")
 
             return {
                 'pages_crawled': self.page_counter,
@@ -1208,6 +1247,8 @@ class CrawlerService:
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("failed")
+            await self._send_stage(Stage.FAILED)
+            if self.progress_tracker:
                 await self.progress_tracker.stop()
 
                 # Generate and save summary for failed job
@@ -1221,23 +1262,12 @@ class CrawlerService:
                         error=error_msg
                     )
                     await self.summary_manager.save_summary(formatted_summary)
-
-                    # Emit summary event
-                    if self.event_emitter:
-                        await self.event_emitter.job_summary(formatted_summary)
+                    await self._send_summary(formatted_summary)
 
                     # Print text summary
                     print("\n" + SummaryManager.format_text_summary(formatted_summary))
 
-            # Legacy event for backwards compatibility
-            if self.event_emitter:
-                await self.event_emitter.job_completed(
-                    self.page_counter,
-                    str(self.output_dir),
-                    success=False,
-                    error=error_msg
-                )
-            if self.job_state_manager:
-                await self.job_state_manager.set_error(error_msg)
+            if self.job_state:
+                await self.job_state.set_error(error_msg)
 
             raise

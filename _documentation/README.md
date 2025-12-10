@@ -44,11 +44,15 @@ Contributing and extending the service:
 - Testing guidelines
 - Best practices
 
+### Refactoring Notes
+- [Refactoring Guide](./REFACTORING_GUIDE.md): Migration steps and rationale
+- [Refactoring Summary](./REFACTORING_SUMMARY.md): High-level overview of changes
+
 ## Quick Links
 
 - [Main README](../README.md)
 - [Quick Start Guide](../QUICKSTART.md)
-- [Example Client](../example_client.py)
+- [Examples](../examples/)
 
 ## Getting Help
 
