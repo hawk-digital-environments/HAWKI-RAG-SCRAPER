@@ -1,0 +1,252 @@
+"""
+JobState - Unified Job State Management
+========================================
+This class provides a centralized, observable job state object that:
+- Represents the job_state.json structure
+- Automatically persists changes to disk
+- Notifies observers (like communication services) when state changes
+- Thread-safe with asyncio locks
+
+This replaces the old JobStateManager with a more object-oriented approach
+where the state itself is the primary object, not just a manager.
+"""
+
+import json
+import asyncio
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Callable
+from datetime import datetime
+import aiofiles
+from dataclasses import dataclass, asdict, field
+
+
+@dataclass
+class JobStateData:
+    """
+    Data structure representing the job state.
+    This matches the job_state.json schema.
+    """
+    job_id: str
+    status: str = "pending"
+    total_urls: int = 0
+    completed_urls: int = 0
+    failed_urls: int = 0
+    started_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    current_url: Optional[str] = None
+    output_directory: str = ""
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+class JobState:
+    """
+    Observable job state object with automatic persistence and notification.
+
+    This class uses the observer pattern to notify listeners when state changes.
+    Listeners can be communication services (Redis, RabbitMQ, etc.) that need
+    to broadcast state updates.
+
+    Usage:
+        job_state = JobState(job_id="123", base_path="/app/data/jobs")
+        await job_state.initialize()
+
+        # Register observer
+        job_state.add_observer(lambda state: print(f"State changed: {state}"))
+
+        # Update state (automatically persists and notifies observers)
+        await job_state.set_status("running")
+        await job_state.increment_completed()
+    """
+
+    def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
+        """
+        Initialize job state.
+
+        Args:
+            job_id: Unique identifier for the job
+            base_path: Base directory for job data (default: /app/data/jobs)
+        """
+        self.base_path = Path(base_path)
+        self.job_dir = self.base_path / job_id
+        self.state_file = self.job_dir / "job_state.json"
+        self._lock = asyncio.Lock()
+        self._observers: List[Callable[[JobStateData], Any]] = []
+
+        # Initialize state data
+        self._data = JobStateData(
+            job_id=job_id,
+            output_directory=str(self.job_dir)
+        )
+
+    def add_observer(self, observer: Callable[[JobStateData], Any]):
+        """
+        Add an observer that will be notified when state changes.
+
+        Args:
+            observer: Callable that receives JobStateData when state changes
+        """
+        self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[JobStateData], Any]):
+        """Remove an observer."""
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    async def _notify_observers(self):
+        """Notify all observers of state change."""
+        for observer in self._observers:
+            try:
+                # Support both sync and async observers
+                result = observer(self._data)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                print(f"Warning: Observer notification failed: {e}")
+
+    async def initialize(self):
+        """
+        Initialize the job directory and create initial state file.
+        Must be called before using the job state.
+        """
+        async with self._lock:
+            # Create job directory
+            self.job_dir.mkdir(parents=True, exist_ok=True)
+
+            # Set initial timestamps
+            now = datetime.utcnow().isoformat() + "Z"
+            self._data.started_at = now
+            self._data.updated_at = now
+
+            # Write initial state
+            await self._write_state()
+
+    async def _write_state(self):
+        """Write current state to disk."""
+        try:
+            async with aiofiles.open(self.state_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(self._data.to_dict(), indent=2, ensure_ascii=False))
+        except Exception as e:
+            print(f"Warning: Failed to write job state for {self._data.job_id}: {e}")
+
+    async def _update_timestamp_and_persist(self):
+        """Update timestamp, persist to disk, and notify observers."""
+        self._data.updated_at = datetime.utcnow().isoformat() + "Z"
+        await self._write_state()
+        await self._notify_observers()
+
+    # Property accessors
+    @property
+    def job_id(self) -> str:
+        """Get job ID."""
+        return self._data.job_id
+
+    @property
+    def status(self) -> str:
+        """Get current status."""
+        return self._data.status
+
+    @property
+    def total_urls(self) -> int:
+        """Get total URLs."""
+        return self._data.total_urls
+
+    @property
+    def completed_urls(self) -> int:
+        """Get completed URLs count."""
+        return self._data.completed_urls
+
+    @property
+    def failed_urls(self) -> int:
+        """Get failed URLs count."""
+        return self._data.failed_urls
+
+    @property
+    def current_url(self) -> Optional[str]:
+        """Get current URL being processed."""
+        return self._data.current_url
+
+    @property
+    def error(self) -> Optional[str]:
+        """Get error message if any."""
+        return self._data.error
+
+    # State modification methods
+    async def set_status(self, status: str):
+        """
+        Set job status.
+
+        Args:
+            status: One of "pending", "running", "completed", "failed"
+        """
+        async with self._lock:
+            self._data.status = status
+
+            if status in ["completed", "failed"]:
+                self._data.completed_at = datetime.utcnow().isoformat() + "Z"
+
+            await self._update_timestamp_and_persist()
+
+    async def set_total_urls(self, total: int):
+        """Set the total number of URLs to crawl."""
+        async with self._lock:
+            self._data.total_urls = total
+            await self._update_timestamp_and_persist()
+
+    async def set_current_url(self, url: str):
+        """Set the URL currently being processed."""
+        async with self._lock:
+            self._data.current_url = url
+            await self._update_timestamp_and_persist()
+
+    async def increment_completed(self):
+        """Increment the count of completed URLs."""
+        async with self._lock:
+            self._data.completed_urls += 1
+            await self._update_timestamp_and_persist()
+
+    async def increment_failed(self):
+        """Increment the count of failed URLs."""
+        async with self._lock:
+            self._data.failed_urls += 1
+            await self._update_timestamp_and_persist()
+
+    async def set_error(self, error: str):
+        """Set error message and mark job as failed."""
+        async with self._lock:
+            self._data.error = error
+            self._data.status = "failed"
+            self._data.completed_at = datetime.utcnow().isoformat() + "Z"
+            self._data.updated_at = self._data.completed_at
+            await self._write_state()
+            await self._notify_observers()
+
+    async def get_snapshot(self) -> JobStateData:
+        """Get a snapshot of the current state."""
+        async with self._lock:
+            # Return a copy to prevent external modification
+            return JobStateData(**self._data.to_dict())
+
+    async def get_dict(self) -> Dict[str, Any]:
+        """Get state as dictionary."""
+        async with self._lock:
+            return self._data.to_dict()
+
+    async def read_from_disk(self) -> Dict[str, Any]:
+        """
+        Read state from disk.
+        Useful for recovery or external monitoring.
+        """
+        try:
+            if self.state_file.exists():
+                async with aiofiles.open(self.state_file, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    return json.loads(content)
+        except Exception as e:
+            print(f"Warning: Failed to read job state for {self._data.job_id}: {e}")
+
+        return self._data.to_dict()

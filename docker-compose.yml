@@ -1,0 +1,75 @@
+services:
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crawl4ai-fastapi:latest
+    container_name: crawl4ai-service
+    ports:
+      - "8004:8000"
+    environment:
+      # Communication layer (redis, rabbitmq, or none)
+      - COMMUNICATION_ENABLED=${COMMUNICATION_ENABLED:-true}
+      - COMMUNICATION_METHOD=${COMMUNICATION_METHOD:-redis}
+      # Optional API security token
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
+      # Maximum concurrent crawl tasks
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
+      # Server configuration
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      # Optional LLM Provider Keys (for advanced crawl4ai features)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Redis Pub/Sub Configuration
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_CHANNEL=scrape-events
+      # RabbitMQ Configuration (requires broker + COMMUNICATION_METHOD=rabbitmq)
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-guest}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE:-scrape-events}
+      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE:-}
+      # WebSocket URL for real-time events (legacy, deprecated)
+      # Example: ws://laravel-app:6001 for Laravel WebSocket
+      - WEBSOCKET_URL=${WEBSOCKET_URL:-}
+      # Data storage path for job files
+      - DATA_PATH=${DATA_PATH:-/app/shared}
+    volumes:
+      # Mount data directory for job-specific storage (new structure)
+      - ./data:/app/data
+      # Mount output directory for backwards compatibility
+      - ./output:/app/output
+      # Shared memory for Playwright (prevents crashes)
+      - /dev/shm:/dev/shm
+      - rawki_shared_storage:/app/shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+volumes:
+  rawki_shared_storage:
+    external: true
+
+networks:
+  default:
+    name: rawki-network
+    external: true
