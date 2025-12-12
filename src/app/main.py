@@ -511,7 +511,10 @@ async def cancel_job(job_id: str):
         raise HTTPException(status_code=400, detail="Job is not running or already finished")
 
     task.cancel()
-    return {"message": f"Cancel requested for job {job_id}"}
+    return {
+        "success": True,
+        "message": f"Cancel requested for job {job_id}"
+    }
 
 
 @app.get("/jobs/{job_id}/files")
