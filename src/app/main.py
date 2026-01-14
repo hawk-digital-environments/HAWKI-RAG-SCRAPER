@@ -101,14 +101,17 @@ async def extract_page_content(url: str, skip_images: bool = False, date_selecto
         verbose=False
     )
 
+    wait_until = os.getenv("CRAWL_WAIT_UNTIL", "domcontentloaded")
+    page_timeout_ms = int(os.getenv("CRAWL_PAGE_TIMEOUT_MS", "90000"))
+
     run_config = CrawlerRunConfig(
         word_count_threshold=0,  # No threshold - capture all content
         exclude_external_links=False,
         process_iframes=False,
         remove_overlay_elements=False,
         cache_mode=CacheMode.BYPASS,
-        wait_until="networkidle",
-        page_timeout=90000,
+        wait_until=wait_until,
+        page_timeout=page_timeout_ms,
         delay_before_return_html=5.0
     )
 
@@ -174,7 +177,7 @@ async def extract_page_content(url: str, skip_images: bool = False, date_selecto
         images = []
         if not skip_images:
             # Try crawl4ai's media extraction
-            for img in result.media.get('images', []):
+            for img in (result.media or {}).get('images', []):
                 img_src = img.get('src', '')
                 if img_src:
                     absolute_img_url = urljoin(url, img_src)

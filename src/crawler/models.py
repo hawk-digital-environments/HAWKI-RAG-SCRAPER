@@ -22,6 +22,8 @@ class CrawlConfig(BaseModel):
     sitemap_output: Optional[str] = Field(default=None, description="Output path for the scraped sitemap JSON")
     sitemap_start_page: Optional[int] = Field(default=None, description="Starting page for sitemap pagination")
     sitemap_pages: Optional[int] = Field(default=None, description="Number of sitemap pages to scrape")
+    wait_until: str = Field(default="domcontentloaded", description="Playwright waitUntil condition")
+    page_timeout_ms: int = Field(default=90000, ge=1, description="Page timeout in milliseconds")
 
     class Config:
         allow_population_by_field_name = True

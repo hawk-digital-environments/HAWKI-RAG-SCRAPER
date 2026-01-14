@@ -257,6 +257,14 @@ class CrawlerService:
         return normalized
 
     @staticmethod
+    def _is_video_url(url: str) -> bool:
+        if not url:
+            return False
+        video_exts = (".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv", ".m4v", ".mpeg", ".mpg", ".ogv", ".3gp")
+        path = urlparse(url).path.lower()
+        return path.endswith(video_exts)
+
+    @staticmethod
     def _normalize_url_key(url: str) -> Optional[str]:
         """Create a normalized key for quick sitemap map lookup."""
         if not url:
@@ -547,6 +555,8 @@ class CrawlerService:
                         url = loc.text
                         if urlparse(url).path.lower().endswith("piwik.php"):
                             continue
+                        if self._is_video_url(url):
+                            continue
                         urls.append(url)
 
                         # Extract lastmod if available
@@ -571,6 +581,8 @@ class CrawlerService:
                         if url_pattern.match(line):
                             # Skip piwik.php tracking pixels
                             if urlparse(line).path.lower().endswith("piwik.php"):
+                                continue
+                            if self._is_video_url(line):
                                 continue
                             urls.append(line)
                             urls_with_dates.append((line, None))  # Preserve duplicates
@@ -605,6 +617,8 @@ class CrawlerService:
             if parsed.netloc == base_domain and parsed.scheme in ['http', 'https']:
                 normalized = self.normalize_url(absolute_url)
                 if not urlparse(normalized).path.lower().endswith("piwik.php"):
+                    if self._is_video_url(normalized):
+                        continue
                     urls.append(normalized)
 
         return urls
@@ -726,7 +740,11 @@ class CrawlerService:
                 # Use hash-based or page number-based storage
                 if url_hash and self.storage_manager:
                     # Hash-based storage
-                    self.storage_manager.create_hash_directory(url_hash, create_files_dir=True)
+                    self.storage_manager.create_hash_directory(
+                        url_hash,
+                        create_images_dir=not self.config.skip_images,
+                        create_files_dir=True
+                    )
                     await self.storage_manager.save_hash_pdf(url_hash, filename, pdf_bytes)
                     files_dir = self.storage_manager.get_hash_files_directory(url_hash)
                     filepath = files_dir / filename
@@ -811,8 +829,8 @@ class CrawlerService:
                 remove_overlay_elements=False,  # Don't remove any elements
                 cache_mode=CacheMode.BYPASS,
                 # Wait for JavaScript to render content - increased delays for heavy JS sites
-                wait_until="networkidle",  # Wait until network is idle
-                page_timeout=90000,  # 90 second timeout
+                wait_until=self.config.wait_until,
+                page_timeout=self.config.page_timeout_ms,
                 delay_before_return_html=5.0  # Wait 5 seconds after page load
             )
 
@@ -900,7 +918,7 @@ class CrawlerService:
                     image_exceptions = [s.strip() for s in self.config.image_exceptions.split(',')]
 
                 # First try crawl4ai's media extraction
-                for img in result.media.get('images', []):
+                for img in (result.media or {}).get('images', []):
                     img_src = img.get('src', '')
                     if img_src:
                         should_exclude = False
@@ -1040,6 +1058,17 @@ class CrawlerService:
                 await self.progress_tracker.set_current_url(url)
             if self.job_state:
                 await self.job_state.set_current_url(url)
+
+            if self._is_video_url(url):
+                print(f"Skipping video URL: {url}")
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.set_completed(url, None)
+                if self.progress_tracker:
+                    await self.progress_tracker.increment_completed()
+                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                if self.job_state:
+                    await self.job_state.increment_completed()
+                return
 
             head_status, head_headers = await self.fetch_head(url)
 
