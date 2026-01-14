@@ -30,7 +30,7 @@ crawl-test:
 crawl-full:
 	curl -s -X POST http://localhost:8004/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"Full_Crawl_HAWK_14JAN", "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
+		-d '{"url": "https://www.hawk.de","job_id":"Full_HAWK_14JAN", "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 40}' \
 		| python -m json.tool
 
 jobs:
