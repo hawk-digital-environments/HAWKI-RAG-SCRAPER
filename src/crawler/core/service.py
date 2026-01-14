@@ -295,7 +295,13 @@ class CrawlerService:
             for raw_url, meta in data.items():
                 key = self._normalize_url_key(raw_url)
                 if key:
-                    mapped[key] = meta if isinstance(meta, dict) else {}
+                    if isinstance(meta, dict):
+                        normalized = dict(meta)
+                        if "last_modified" not in normalized and "date" in normalized:
+                            normalized["last_modified"] = normalized["date"]
+                        mapped[key] = normalized
+                    else:
+                        mapped[key] = {}
             return mapped
         except Exception:
             return {}
@@ -544,6 +550,34 @@ class CrawlerService:
                     return urls
 
                 content = await response.text()
+                content_type = response.headers.get("Content-Type", "").lower()
+                content_stripped = content.lstrip()
+
+                # Handle JSON sitemap (URL -> metadata)
+                if "json" in content_type or sitemap_url.lower().endswith(".json") or content_stripped.startswith("{"):
+                    try:
+                        data = json.loads(content)
+                        if isinstance(data, dict):
+                            for url, meta in data.items():
+                                if not isinstance(url, str):
+                                    continue
+                                if urlparse(url).path.lower().endswith("piwik.php"):
+                                    continue
+                                if self._is_video_url(url):
+                                    continue
+                                urls.append(url)
+                                lastmod_date = None
+                                if isinstance(meta, dict):
+                                    lastmod_date = meta.get("last_modified") or meta.get("lastmod") or meta.get("date")
+                                if lastmod_date:
+                                    self.sitemap_lastmod[url] = lastmod_date
+                                urls_with_dates.append((url, lastmod_date))
+                            if urls:
+                                print(f"Detected JSON sitemap with {len(urls)} URLs")
+                                return urls
+                    except Exception:
+                        pass
+
                 soup = BeautifulSoup(content, 'xml')
 
                 # Handle sitemap index
