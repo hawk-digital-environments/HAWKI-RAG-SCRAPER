@@ -1213,6 +1213,26 @@ class CrawlerService:
             if self.progress_tracker:
                 await self.progress_tracker.start()
 
+            resume_urls: List[str] = []
+            resume_current_url: Optional[str] = None
+            completed_count = 0
+            if self.url_tracking_manager:
+                tracked = await self.url_tracking_manager.get_all_urls()
+                if tracked:
+                    for url, meta in tracked.items():
+                        status = (meta or {}).get("status")
+                        if status in ("pending", "failed", "processing"):
+                            resume_urls.append(url)
+                        elif status in ("completed",):
+                            self.visited_urls.add(url)
+                            completed_count += 1
+                    if self.job_state:
+                        snapshot = await self.job_state.get_snapshot()
+                        resume_current_url = snapshot.current_url
+                    if resume_current_url in resume_urls:
+                        resume_urls.remove(resume_current_url)
+                        resume_urls.insert(0, resume_current_url)
+
             # Update state: Job is now running
             if self.job_state:
                 await self.job_state.set_status("running")
@@ -1224,8 +1244,22 @@ class CrawlerService:
 
             start_url = str(self.config.url)
             print(f"Crawl for {start_url}")
+            if resume_urls:
+                self.to_visit = resume_urls
+                for u in self.to_visit:
+                    self.url_depth[u] = 0
+                    self.url_source[u] = "resume"
+                if completed_count:
+                    self.page_counter = completed_count
+
+                if self.job_state:
+                    await self.job_state.set_total_urls(len(self.to_visit))
+                if self.progress_tracker:
+                    await self.progress_tracker.set_total_urls(len(self.to_visit))
+
+                print(f"Resuming job {self.job_id}: {len(self.to_visit)} URLs remaining")
             # Check if URL is a sitemap
-            if await self.is_sitemap(start_url):
+            if not resume_urls and await self.is_sitemap(start_url):
                 print(f"Detected sitemap: {start_url}")
                 urls = await self.parse_sitemap(start_url)
 
@@ -1245,7 +1279,7 @@ class CrawlerService:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(len(self.to_visit))
-            else:
+            elif not resume_urls:
                 self.to_visit = [start_url]
                 self.url_depth[start_url] = 0
                 self.url_source[start_url] = "seed"

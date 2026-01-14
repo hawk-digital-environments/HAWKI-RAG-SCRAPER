@@ -97,6 +97,11 @@ class URLTrackingManager:
         Initialize the tracking system.
         Must be called before using the manager.
         """
+        # Resume from existing state if present
+        if self.index_file.exists() and self.chunks_dir.exists():
+            await self.read_state()
+            return
+
         # Create job directory and chunks directory if needed
         self.job_dir.mkdir(parents=True, exist_ok=True)
         self.chunks_dir.mkdir(exist_ok=True)

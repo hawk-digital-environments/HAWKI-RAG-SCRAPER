@@ -113,6 +113,18 @@ class JobState:
         Must be called before using the job state.
         """
         async with self._lock:
+            if self.state_file.exists():
+                try:
+                    async with aiofiles.open(self.state_file, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                        data = json.loads(content)
+                        self._data = JobStateData(**data)
+                        if not self._data.output_directory:
+                            self._data.output_directory = str(self.job_dir)
+                        return
+                except Exception as e:
+                    print(f"Warning: Failed to read job state for {self._data.job_id}: {e}")
+
             # Create job directory
             self.job_dir.mkdir(parents=True, exist_ok=True)
 
