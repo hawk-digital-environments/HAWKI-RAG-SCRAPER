@@ -17,16 +17,12 @@ class CommunicationFactory:
     method to use and instantiates the appropriate implementation.
 
     Supported methods:
-    - redis: Redis Pub/Sub (default)
     - rabbitmq: RabbitMQ with queue system
     - none: No communication (silent mode)
 
     Environment variables:
-    - COMMUNICATION_METHOD: "redis", "rabbitmq", or "none" (default: "redis")
+    - COMMUNICATION_METHOD: "rabbitmq" or "none" (default: "none")
     - COMMUNICATION_ENABLED: "true" or "false" (default: "true")
-
-    For Redis:
-    - REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD, REDIS_CHANNEL
 
     For RabbitMQ:
     - RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USER, RABBITMQ_PASSWORD
@@ -51,50 +47,16 @@ class CommunicationFactory:
             return None
 
         # Get communication method
-        method = os.getenv("COMMUNICATION_METHOD", "redis").lower()
+        method = os.getenv("COMMUNICATION_METHOD", "none").lower()
         print(f"[CommunicationFactory] Creating {method} communication service for job {job_id}", flush=True)
 
-        if method == "redis":
-            return CommunicationFactory._create_redis(job_id)
-        elif method == "rabbitmq":
+        if method == "rabbitmq":
             return CommunicationFactory._create_rabbitmq(job_id)
         elif method == "none":
             print(f"[CommunicationFactory] Communication method set to 'none' for job {job_id}", flush=True)
             return None
         else:
-            print(f"[CommunicationFactory] Unknown communication method '{method}', falling back to Redis", flush=True)
-            return CommunicationFactory._create_redis(job_id)
-
-    @staticmethod
-    def _create_redis(job_id: str) -> Optional[CommunicationInterface]:
-        """Create Redis communication service."""
-        try:
-            from .redis_service import RedisCommunicationService
-
-            redis_host = os.getenv("REDIS_HOST")
-            if not redis_host:
-                print(f"[CommunicationFactory] REDIS_HOST not configured, communication disabled for job {job_id}")
-                return None
-
-            redis_port = int(os.getenv("REDIS_PORT", "6379"))
-            redis_db = int(os.getenv("REDIS_DB", "0"))
-            redis_password = os.getenv("REDIS_PASSWORD")
-            redis_channel = os.getenv("REDIS_CHANNEL", "scrape-events")
-
-            print(f"[CommunicationFactory] Creating Redis communication service for job {job_id}")
-            return RedisCommunicationService(
-                job_id=job_id,
-                redis_host=redis_host,
-                redis_port=redis_port,
-                redis_db=redis_db,
-                redis_password=redis_password,
-                channel=redis_channel
-            )
-        except ImportError as e:
-            print(f"[CommunicationFactory] Failed to import Redis service: {e}")
-            return None
-        except Exception as e:
-            print(f"[CommunicationFactory] Failed to create Redis service: {e}")
+            print(f"[CommunicationFactory] Unknown communication method '{method}', defaulting to 'none'", flush=True)
             return None
 
     @staticmethod

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The communication layer has been refactored to be more modular, scalable, and maintainable. The new architecture separates concerns and allows easy switching between different communication methods (Redis, RabbitMQ, etc.).
+The communication layer has been refactored to be more modular, scalable, and maintainable. The new architecture separates concerns and allows easy switching between different communication methods (RabbitMQ or none).
 
 ## Key Changes
 
@@ -38,24 +38,7 @@ state = await job_state.get_snapshot()
 
 ### 2. **Communication Factory Pattern**
 
-Instead of manually instantiating Redis/RabbitMQ clients, use the factory:
-
-**Old Way:**
-```python
-from services import RedisEventEmitter
-
-event_emitter = None
-if redis_enabled and redis_host:
-    event_emitter = RedisEventEmitter(
-        job_id,
-        redis_host=redis_host,
-        redis_port=redis_port,
-        redis_db=redis_db,
-        redis_password=redis_password,
-        channel=redis_channel
-    )
-    await event_emitter.connect()
-```
+Instead of manually instantiating clients, use the factory:
 
 **New Way:**
 ```python
@@ -127,7 +110,6 @@ services/
 │   ├── __init__.py
 │   ├── interface.py                 # Abstract base class
 │   ├── factory.py                   # Factory pattern
-│   ├── redis_service.py             # Redis implementation
 │   └── rabbitmq_service.py          # RabbitMQ implementation
 ├── state/                           # State management
 │   ├── __init__.py
@@ -138,7 +120,6 @@ services/
 │   ├── storage_manager.py           # File I/O
 │   ├── url_tracking_manager.py      # URL tracking
 │   └── summary_manager.py           # Job summaries
-├── redis_event_emitter.py           # Legacy (backward compat)
 └── job_state_manager.py             # Legacy (backward compat)
 ```
 
@@ -147,18 +128,11 @@ services/
 ### Environment Variables
 
 ```bash
-# Communication method: "redis", "rabbitmq", or "none"
-COMMUNICATION_METHOD=redis
+# Communication method: "rabbitmq" or "none"
+COMMUNICATION_METHOD=rabbitmq
 
 # Enable/disable communication
 COMMUNICATION_ENABLED=true
-
-# Redis Configuration
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_CHANNEL=scrape-events
 
 # RabbitMQ Configuration (requires: pip install aio-pika)
 RABBITMQ_HOST=rabbitmq
@@ -241,7 +215,7 @@ if comm_service:
 
 The old imports still work:
 ```python
-from services import RedisEventEmitter, JobStateManager
+from services import JobStateManager
 ```
 
 But you can also use new imports:
@@ -255,11 +229,10 @@ from services import CommunicationFactory, JobState
 2. Replace with `JobState`
 3. Update method calls (API is mostly the same)
 
-### Step 3: Replace RedisEventEmitter with CommunicationFactory
+### Step 3: Use CommunicationFactory
 
-1. Find all `RedisEventEmitter` instantiations
-2. Replace with `CommunicationFactory.create(job_id)`
-3. Remove manual Redis configuration (now in .env)
+1. Create services with `CommunicationFactory.create(job_id)`
+2. Remove manual messaging configuration (now in .env)
 
 ### Step 4: Add Observer Pattern (Optional)
 
@@ -313,11 +286,6 @@ RABBITMQ_PASSWORD=guest
 
 ## Testing
 
-### Test Redis
-```bash
-python test_redis_publisher.py
-```
-
 ### Test RabbitMQ
 ```python
 from services import CommunicationFactory
@@ -339,7 +307,7 @@ asyncio.run(test())
 - Check `COMMUNICATION_METHOD` in .env
 
 ### Connection Failures
-- Verify service is running (Redis/RabbitMQ)
+- Verify service is running (RabbitMQ)
 - Check host/port configuration
 - Review logs for connection errors
 
@@ -352,5 +320,5 @@ asyncio.run(test())
 
 1. Update `main.py` to use new architecture
 2. Update `crawler_service.py` to use JobState observer pattern
-3. Test with both Redis and RabbitMQ
+3. Test with RabbitMQ
 4. Remove legacy code after migration is complete

@@ -5,7 +5,7 @@ This class manages progress tracking with rate-limited event emissions.
 It aggregates rapid updates and emits them at a controlled rate (1 per second).
 
 Why this exists:
-- Prevents flooding Redis/WebSocket with too many progress updates
+- Prevents flooding message channels with too many progress updates
 - Aggregates progress information efficiently
 - Ensures consistent progress reporting even under high load
 - Tracks scrape statistics (sessions, requests, errors, warnings)

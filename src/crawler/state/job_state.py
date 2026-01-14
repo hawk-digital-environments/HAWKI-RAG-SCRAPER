@@ -48,8 +48,7 @@ class JobState:
     Observable job state object with automatic persistence and notification.
 
     This class uses the observer pattern to notify listeners when state changes.
-    Listeners can be communication services (Redis, RabbitMQ, etc.) that need
-    to broadcast state updates.
+    Listeners can be communication services that need to broadcast state updates.
 
     Usage:
         job_state = JobState(job_id="123", base_path="/app/data/jobs")

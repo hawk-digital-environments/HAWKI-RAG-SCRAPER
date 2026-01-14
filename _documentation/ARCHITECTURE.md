@@ -347,7 +347,7 @@ Load Balancer (Nginx)
 │ API 1   │ API 2   │ API 3   │
 └─────────┴─────────┴─────────┘
     ↓
-Shared Redis (Job Queue & Status)
+Shared job store (queue & status)
     ↓
 ┌─────────┬─────────┬─────────┐
 │Worker 1 │Worker 2 │Worker 3 │
@@ -364,17 +364,17 @@ Shared Storage (S3, NFS)
 ### Future Improvements
 
 1. **Job Persistence**
-   - Store jobs in Redis/PostgreSQL
+   - Store jobs in a database
    - Resume interrupted crawls
    - Job history and analytics
 
 2. **Distributed Crawling**
-   - Celery for distributed task queue
-   - Redis for job coordination
+   - Task queue for distributed crawling
+   - Shared coordination store
    - Multiple worker nodes
 
 3. **Result Caching**
-   - Cache crawled pages (Redis)
+   - Cache crawled pages
    - ETags for change detection
    - Incremental crawls
 

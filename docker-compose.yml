@@ -8,9 +8,9 @@ services:
     ports:
       - "8004:8000"
     environment:
-      # Communication layer (redis, rabbitmq, or none)
+      # Communication layer (rabbitmq or none)
       - COMMUNICATION_ENABLED=${COMMUNICATION_ENABLED:-true}
-      - COMMUNICATION_METHOD=${COMMUNICATION_METHOD:-redis}
+      - COMMUNICATION_METHOD=${COMMUNICATION_METHOD:-none}
       # Optional API security token
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
       # Maximum concurrent crawl tasks
@@ -21,13 +21,6 @@ services:
       # Optional LLM Provider Keys (for advanced crawl4ai features)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # Redis Pub/Sub Configuration
-      - REDIS_ENABLED=true
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - REDIS_CHANNEL=scrape-events
       # RabbitMQ Configuration (requires broker + COMMUNICATION_METHOD=rabbitmq)
       - RABBITMQ_HOST=${RABBITMQ_HOST:-}
       - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}

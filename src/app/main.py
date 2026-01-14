@@ -56,19 +56,15 @@ async def startup_event():
     logger.info("=" * 60)
     logger.info("Crawl4AI Service Starting...")
     logger.info("=" * 60)
-    logger.info(f"Communication Method: {os.getenv('COMMUNICATION_METHOD', 'redis')}")
+    logger.info(f"Communication Method: {os.getenv('COMMUNICATION_METHOD', 'none')}")
     logger.info(f"Communication Enabled: {os.getenv('COMMUNICATION_ENABLED', 'true')}")
 
-    comm_method = os.getenv('COMMUNICATION_METHOD', 'redis').lower()
+    comm_method = os.getenv('COMMUNICATION_METHOD', 'none').lower()
     if comm_method == 'rabbitmq':
         logger.info(f"RabbitMQ Host: {os.getenv('RABBITMQ_HOST', 'localhost')}")
         logger.info(f"RabbitMQ Port: {os.getenv('RABBITMQ_PORT', '5672')}")
         logger.info(f"RabbitMQ User: {os.getenv('RABBITMQ_USER', 'guest')}")
         logger.info(f"RabbitMQ Exchange: {os.getenv('RABBITMQ_EXCHANGE', 'scrape-events')}")
-    elif comm_method == 'redis':
-        logger.info(f"Redis Host: {os.getenv('REDIS_HOST', 'localhost')}")
-        logger.info(f"Redis Port: {os.getenv('REDIS_PORT', '6379')}")
-        logger.info(f"Redis Channel: {os.getenv('REDIS_CHANNEL', 'scrape-events')}")
 
     logger.info(f"Data Path: {os.getenv('DATA_PATH', '/app/data/jobs')}")
     logger.info("=" * 60)
@@ -208,12 +204,12 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     Background task to run crawl job.
 
     Integrates the service layer components:
-    - CommunicationFactory: Redis/RabbitMQ events
+    - CommunicationFactory: optional message queue events
     - JobState: Persistent state tracking
     - StorageManager: File I/O operations
     """
     base_path = os.getenv("DATA_PATH", "/app/data/jobs")
-    communication_method = os.getenv("COMMUNICATION_METHOD", "redis")
+    communication_method = os.getenv("COMMUNICATION_METHOD", "none")
 
     logger.info("=" * 60)
     logger.info(f"[Job {job_id}] Starting crawl job")

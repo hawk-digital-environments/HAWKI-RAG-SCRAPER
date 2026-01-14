@@ -36,7 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
-    redis-tools \
     # Additional dependencies
     fonts-liberation \
     libappindicator3-1 \

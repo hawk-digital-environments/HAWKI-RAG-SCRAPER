@@ -681,8 +681,6 @@ Schedule with cron:
 # PostgreSQL backup
 pg_dump crawler_db > /backups/crawler_db_$(date +%Y%m%d).sql
 
-# Redis backup
-redis-cli --rdb /backups/redis_$(date +%Y%m%d).rdb
 ```
 
 ---
