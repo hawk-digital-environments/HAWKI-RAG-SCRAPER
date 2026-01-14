@@ -2,7 +2,7 @@
 Communication Interface - Abstract Base for Communication Services
 ===================================================================
 Defines the interface that all communication implementations must follow.
-This allows for easy swapping between Redis, RabbitMQ, or other messaging systems.
+This allows for easy swapping between RabbitMQ or other messaging systems.
 """
 
 from abc import ABC, abstractmethod
@@ -33,7 +33,7 @@ class CommunicationInterface(ABC):
     """
     Abstract base class for communication services.
 
-    All communication implementations (Redis, RabbitMQ, etc.) must implement this interface.
+    All communication implementations must implement this interface.
     This ensures consistent behavior and makes it easy to swap communication methods.
     """
 

@@ -8,10 +8,9 @@ The services layer provides modular, scalable components for the crawler applica
 
 ```
 src/crawler/
-├── communication/          # Communication layer (Redis, RabbitMQ, etc.)
+├── communication/          # Communication layer (RabbitMQ or none)
 │   ├── interface.py        # CommunicationInterface (ABC)
 │   ├── factory.py          # CommunicationFactory
-│   ├── redis_service.py    # Redis Pub/Sub implementation
 │   └── rabbitmq_service.py # RabbitMQ queue implementation
 │
 ├── state/                  # State management
@@ -63,21 +62,8 @@ if comm:
 
 **Configuration** (`.env`):
 ```bash
-COMMUNICATION_METHOD=redis      # Options: redis, rabbitmq, none
+COMMUNICATION_METHOD=rabbitmq   # Options: rabbitmq, none
 COMMUNICATION_ENABLED=true
-```
-
-#### **RedisCommunicationService** (`redis_service.py`)
-
-Redis Pub/Sub implementation for real-time event broadcasting.
-
-**Configuration:**
-```bash
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_CHANNEL=scrape-events
 ```
 
 #### **RabbitMQCommunicationService** (`rabbitmq_service.py`)

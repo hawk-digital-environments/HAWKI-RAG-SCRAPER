@@ -31,7 +31,7 @@ async def example_basic_usage():
     print(f"✓ JobState initialized for job: {job_id}")
 
     # 2. Create communication service using factory
-    # (automatically selects Redis, RabbitMQ, or None based on .env)
+    # (automatically selects RabbitMQ or None based on .env)
     comm_service = CommunicationFactory.create(job_id)
 
     if comm_service:
@@ -295,17 +295,14 @@ async def main():
     print("=" * 60)
 
     # Check configuration
-    comm_method = os.getenv("COMMUNICATION_METHOD", "redis")
+    comm_method = os.getenv("COMMUNICATION_METHOD", "none")
     comm_enabled = os.getenv("COMMUNICATION_ENABLED", "true").lower() == "true"
 
     print(f"\nConfiguration:")
     print(f"  COMMUNICATION_METHOD: {comm_method}")
     print(f"  COMMUNICATION_ENABLED: {comm_enabled}")
 
-    if comm_method == "redis":
-        redis_host = os.getenv("REDIS_HOST")
-        print(f"  REDIS_HOST: {redis_host}")
-    elif comm_method == "rabbitmq":
+    if comm_method == "rabbitmq":
         rabbitmq_host = os.getenv("RABBITMQ_HOST")
         print(f"  RABBITMQ_HOST: {rabbitmq_host}")
 

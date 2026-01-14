@@ -7,7 +7,6 @@
 ✅ **Factory Pattern** - Dynamic communication service creation based on .env
 ✅ **RabbitMQ Support** - Queue-based reliable messaging with no packet loss
 ✅ **Modular Architecture** - Clean separation into subdirectories
-✅ **Backward Compatibility** - Legacy imports still work
 ✅ **Comprehensive Documentation** - Examples, migration guide, and API docs
 
 ---
@@ -19,7 +18,6 @@ services/
 ├── communication/              # Communication layer
 │   ├── interface.py            # Abstract base class
 │   ├── factory.py              # Factory pattern
-│   ├── redis_service.py        # Redis Pub/Sub implementation
 │   └── rabbitmq_service.py     # RabbitMQ queue implementation
 │
 ├── state/                      # State management
@@ -31,7 +29,6 @@ services/
 │   ├── url_tracking_manager.py # URL tracking
 │   └── summary_manager.py      # Job summaries
 │
-├── redis_event_emitter.py      # Legacy (backward compat)
 └── job_state_manager.py        # Legacy (backward compat)
 ```
 
@@ -68,7 +65,7 @@ Dynamically creates communication services based on environment configuration:
 ```python
 from services import CommunicationFactory
 
-# Creates Redis, RabbitMQ, or None based on .env
+# Creates RabbitMQ or None based on .env
 comm = CommunicationFactory.create(job_id)
 if comm:
     await comm.connect()
@@ -80,7 +77,6 @@ if comm:
 
 | Method | Description | Use Case |
 |--------|-------------|----------|
-| **Redis** | Pub/Sub messaging | Fast, lightweight, real-time events |
 | **RabbitMQ** | Queue-based messaging | Reliable, no packet loss, enterprise |
 | **None** | Disabled | Testing, silent mode |
 
@@ -112,15 +108,8 @@ All events now send consistent `JobStateData` structures:
 
 ```bash
 # Communication Method
-COMMUNICATION_METHOD=redis          # Options: redis, rabbitmq, none
+COMMUNICATION_METHOD=rabbitmq       # Options: rabbitmq, none
 COMMUNICATION_ENABLED=true          # Enable/disable communication
-
-# Redis Configuration
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_CHANNEL=scrape-events
 
 # RabbitMQ Configuration (requires: pip install aio-pika)
 RABBITMQ_HOST=rabbitmq
@@ -140,23 +129,20 @@ RABBITMQ_QUEUE=                     # Optional, defaults to job-{job_id}
 1. **Update .env** - Add communication configuration
 2. **Update imports** - Replace old imports with new ones
 3. **Replace JobStateManager** - Use `JobState` instead
-4. **Replace RedisEventEmitter** - Use `CommunicationFactory` instead
+4. **Replace event emitter** - Use `CommunicationFactory` instead
 5. **Add observer** - For automatic broadcasting
 
 ### Code Changes
 
 **Before:**
 ```python
-from services import JobStateManager, RedisEventEmitter
+from services import JobStateManager
 
 job_state_manager = JobStateManager(job_id)
 await job_state_manager.initialize()
 
-event_emitter = RedisEventEmitter(job_id, redis_host="redis")
-await event_emitter.connect()
 
 await job_state_manager.set_status("running")
-await event_emitter.emit("status_changed", {"status": "running"})
 ```
 
 **After:**
@@ -196,7 +182,7 @@ await job_state.set_status("running")
 # In Docker (recommended - has all dependencies)
 docker-compose run web python test_new_architecture.py
 
-# Or locally (requires aiofiles, redis, aio-pika)
+# Or locally (requires aiofiles, aio-pika)
 python3 test_new_architecture.py
 ```
 
@@ -277,28 +263,12 @@ http://localhost:15672  (guest/guest)
 
 ### 5. **Reliability**
 - RabbitMQ: Persistent messages, publisher confirms
-- Redis: Fast, lightweight pub/sub
 - Graceful degradation if communication fails
 
 ### 6. **Backward Compatibility**
 - Old code continues to work
 - Gradual migration path
 - No breaking changes
-
----
-
-## 📊 Comparison: Redis vs RabbitMQ
-
-| Feature | Redis | RabbitMQ |
-|---------|-------|----------|
-| **Speed** | Very Fast | Fast |
-| **Message Persistence** | No | Yes (durable) |
-| **Queue System** | No | Yes |
-| **Message Loss** | Possible | No (with confirms) |
-| **Complexity** | Simple | Moderate |
-| **Use Case** | Real-time events | Enterprise messaging |
-| **Setup** | Easy | Moderate |
-| **Dependencies** | redis | aio-pika |
 
 ---
 
@@ -352,7 +322,7 @@ await comm.send_event("url_completed", {
 - Check Python path includes services directory
 
 ### Connection Failures
-- Verify service is running (Redis/RabbitMQ)
+- Verify service is running (RabbitMQ)
 - Check firewall/network settings
 - Review logs for connection errors
 
@@ -362,7 +332,7 @@ await comm.send_event("url_completed", {
 - Ensure routing keys match
 
 ### Tests Failing Locally
-- Tests require aiofiles, redis, aio-pika
+- Tests require aiofiles, aio-pika
 - Run in Docker: `docker-compose run web python test_new_architecture.py`
 
 ---
@@ -372,7 +342,6 @@ await comm.send_event("url_completed", {
 - [x] Created JobState class with observer pattern
 - [x] Created CommunicationInterface abstract base class
 - [x] Implemented CommunicationFactory
-- [x] Implemented Redis service
 - [x] Implemented RabbitMQ service
 - [x] Reorganized services into subdirectories
 - [x] Updated .env.example

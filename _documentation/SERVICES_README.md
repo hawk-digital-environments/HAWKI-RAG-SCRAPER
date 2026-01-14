@@ -4,14 +4,13 @@ This document explains the service layer architecture of the crawler project.
 
 ## Overview
 
-The crawler includes a clean, maintainable service layer with six core components:
+The crawler includes a clean, maintainable service layer with five core components:
 
-1. **RedisEventEmitter** - Real-time event communication via Redis Pub/Sub
-2. **JobStateManager** - Persistent job state tracking
-3. **StorageManager** - Centralized file I/O operations
-4. **URLTrackingManager** - URL discovery and tracking with dates
-5. **ProgressTracker** - Rate-limited progress broadcasting
-6. **SummaryManager** - Job summary creation and export
+1. **JobStateManager** - Persistent job state tracking
+2. **StorageManager** - Centralized file I/O operations
+3. **URLTrackingManager** - URL discovery and tracking with dates
+4. **ProgressTracker** - Rate-limited progress broadcasting
+5. **SummaryManager** - Job summary creation and export
 
 These services are **completely optional** and the crawler maintains full backwards compatibility with the original implementation.
 
@@ -20,7 +19,6 @@ These services are **completely optional** and the crawler maintains full backwa
 ```
 /services/
   ├── __init__.py                  # Package exports
-  ├── redis_event_emitter.py       # Redis Pub/Sub event communication
   ├── job_state_manager.py         # Persistent state tracking
   ├── storage_manager.py           # File I/O operations
   ├── url_tracking_manager.py      # URL tracking with dates
@@ -41,47 +39,7 @@ These services are **completely optional** and the crawler maintains full backwa
 
 ## Service Components
 
-### 1. RedisEventEmitter
-
-**Purpose**: Sends structured real-time events through Redis Pub/Sub channels.
-
-**Events Emitted**:
-- `stage_changed` - When job stage changes (initialization, scraping, completed, failed)
-- `progress_update` - Rate-limited progress updates (max 1 per second)
-- `sitemap_detected` - When a sitemap is discovered
-- `urls_discovered` - After parsing sitemap URLs
-- `crawling_started` - When crawling begins
-- `url_completed` - After saving page data
-- `job_completed` - When entire job finishes
-- `job_summary` - Final summary with statistics
-
-**Event Format**:
-```json
-{
-  "job_id": "unique-job-id",
-  "event": "event_name",
-  "data": {
-    "url": "https://example.com",
-    "page_number": 1,
-    "success": true
-  },
-  "timestamp": "2025-11-21T17:32:51.477731Z"
-}
-```
-
-**Configuration**:
-Configure Redis connection via environment variables:
-```bash
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=your_password  # Optional
-REDIS_CHANNEL=scrape-events
-```
-
-If Redis is not available, events are only logged locally.
-
-### 2. JobStateManager
+### 1. JobStateManager
 
 **Purpose**: Maintains persistent job state that survives container restarts.
 
@@ -102,9 +60,9 @@ If Redis is not available, events are only logged locally.
 }
 ```
 
-**Use Case**: Laravel or other clients can read this file to monitor job progress without subscribing to Redis channels.
+**Use Case**: Laravel or other clients can read this file to monitor job progress without external message queues.
 
-### 3. StorageManager
+### 2. StorageManager
 
 **Purpose**: Centralizes all file I/O operations with security and consistency.
 
@@ -217,30 +175,16 @@ if self.job_state_manager:
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `REDIS_HOST` | Redis server hostname | `redis` | `redis` or `host.docker.internal` |
-| `REDIS_PORT` | Redis server port | `6379` | `6379` |
-| `REDIS_DB` | Redis database number | `0` | `0` |
-| `REDIS_PASSWORD` | Redis password (optional) | None | `your_password` |
-| `REDIS_CHANNEL` | Redis Pub/Sub channel name | `scrape-events` | `scrape-events` |
 | `DATA_PATH` | Base path for job storage | `/app/data/jobs` | `/app/data/jobs` |
 
 **Configure in docker-compose.yml**:
 ```yaml
 environment:
-  - REDIS_HOST=${REDIS_HOST:-redis}
-  - REDIS_PORT=${REDIS_PORT:-6379}
-  - REDIS_DB=${REDIS_DB:-0}
-  - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-  - REDIS_CHANNEL=${REDIS_CHANNEL:-scrape-events}
   - DATA_PATH=${DATA_PATH:-/app/data/jobs}
 ```
 
 **Or in .env file**:
 ```bash
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_CHANNEL=scrape-events
 DATA_PATH=/app/data/jobs
 ```
 
@@ -311,20 +255,6 @@ $content = Http::get("http://crawler:8004/jobs/{$jobId}/files/page_00001/content
 
 ## Testing
 
-### Test Event Emissions
-
-```bash
-# Start container with Redis configuration
-REDIS_HOST=redis docker compose up -d
-
-# Check logs for event emissions
-docker compose logs -f crawler | grep "Event"
-
-# Or subscribe to Redis channel directly
-docker exec -it redis-container redis-cli
-SUBSCRIBE scrape-events
-```
-
 ### Test State Persistence
 
 ```bash
@@ -355,7 +285,6 @@ curl http://localhost:8004/jobs/${JOB_ID}/files/page_00001/content.md
 ### 1. Separation of Concerns
 
 Each service has a single, well-defined responsibility:
-- **RedisEventEmitter**: Real-time communication via Redis Pub/Sub
 - **JobStateManager**: State tracking
 - **StorageManager**: File I/O
 - **URLTrackingManager**: URL discovery and date tracking
@@ -382,17 +311,6 @@ Services integrate through hooks without modifying the scraping flow:
 - Type hints for better IDE support
 
 ## Troubleshooting
-
-### Events Not Appearing
-
-**Symptom**: No events in logs or Redis
-
-**Solutions**:
-1. Check Redis connection environment variables (`REDIS_HOST`, `REDIS_PORT`)
-2. Verify Redis server is running: `docker compose ps redis`
-3. Check Redis connectivity: `docker exec crawler redis-cli -h redis ping`
-4. Look for "Failed to connect to Redis" errors in logs
-5. Test subscription: `docker exec redis-container redis-cli SUBSCRIBE scrape-events`
 
 ### State File Not Updating
 

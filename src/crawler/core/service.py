@@ -147,7 +147,7 @@ class CrawlerService:
         Args:
             config: Crawl configuration
             job_id: Unique job identifier (generated if not provided)
-            communication_service: Optional communication service (Redis/RabbitMQ)
+            communication_service: Optional communication service (e.g., RabbitMQ)
             job_state: Optional JobState for state tracking
             storage_manager: Optional StorageManager for file operations
         """
