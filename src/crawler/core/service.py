@@ -186,7 +186,15 @@ class CrawlerService:
         self.http_session: Optional[aiohttp.ClientSession] = None
 
         # Preload sitemap metadata for fast language/date lookups (constant-time via dict)
-        self.sitemap_path = self.config.sitemap_output or os.getenv("SITEMAP_JSON", os.getenv("HAWK_SITEMAP_JSON", "data/sitemap.json"))
+        default_sitemap_path = None
+        if self.job_id and self.storage_manager:
+            default_sitemap_path = str(self.storage_manager.get_job_directory() / "sitemap.json")
+        self.sitemap_path = (
+            self.config.sitemap_output
+            or os.getenv("SITEMAP_JSON")
+            or os.getenv("HAWK_SITEMAP_JSON")
+            or default_sitemap_path
+        )
         self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
         self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", DEFAULT_SITEMAP_BASE)
 
