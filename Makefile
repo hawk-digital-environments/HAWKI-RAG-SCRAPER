@@ -2,6 +2,9 @@ SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
 SITEMAP_OUTPUT ?= /app/data/sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
+PROJEKT_BASE ?= https://projekte.g.hawk.de
+PROJEKT_SITEMAP_JSON ?= https://projekte.g.hawk.de/sitemap.json
+PROJEKT_JOB_ID ?= Projekte_HAWK
 
 # Allow `make cancel <job_id>` as shorthand
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
@@ -11,7 +14,7 @@ ifeq ($(firstword $(MAKECMDGOALS)),cancel)
   endif
 endif
 
-.PHONY: crawl-sitemap crawl-test crawl-full build up down logs
+.PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt build up down logs
 
 crawl-sitemap:
 	docker compose run --rm crawler \
@@ -31,6 +34,14 @@ crawl-full:
 	curl -s -X POST http://localhost:8004/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de","job_id":"Full_HAWK_14JAN", "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 40}' \
+		| python -m json.tool
+
+crawl-projekt:
+	docker compose run --rm crawler \
+		sh -lc 'mkdir -p /app/data/jobs/$(PROJEKT_JOB_ID) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o /app/data/jobs/$(PROJEKT_JOB_ID)/sitemap.json'
+	curl -s -X POST http://localhost:8004/crawl \
+		-H "Content-Type: application/json" \
+		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "max_pages": 12000, "discovery_mode": false, "skip_images": false, "max_concurrency": 3, "max_rpm": 50}' \
 		| python -m json.tool
 
 jobs:
