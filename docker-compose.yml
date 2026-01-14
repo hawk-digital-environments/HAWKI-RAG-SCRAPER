@@ -71,5 +71,5 @@ volumes:
 
 networks:
   default:
-    name: rawki-network
+    name: hawki-network
     external: true
