@@ -25,13 +25,13 @@ crawl-sitemap:
 		--output $(SITEMAP_OUTPUT)
 
 crawl-test:
-	curl -s -X POST http://localhost:8004/crawl \
+	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de", "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100, "discovery_mode": true, "skip_images": true, "max_concurrency": 1, "max_rpm": 20}' \
 		| python -m json.tool
 
 crawl-full:
-	curl -s -X POST http://localhost:8004/crawl \
+	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de","job_id":"Full_HAWK_14JAN", "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 40}' \
 		| python -m json.tool
@@ -39,17 +39,17 @@ crawl-full:
 crawl-projekt:
 	docker compose run --rm crawler \
 		sh -lc 'mkdir -p /app/data/jobs/$(PROJEKT_JOB_ID) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o /app/data/jobs/$(PROJEKT_JOB_ID)/sitemap.json'
-	curl -s -X POST http://localhost:8004/crawl \
+	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "max_pages": 12000, "discovery_mode": false, "skip_images": false, "max_concurrency": 3, "max_rpm": 50}' \
 		| python -m json.tool
 
 jobs:
-	curl -s http://localhost:8004/jobs | python -m json.tool
+	curl -s http://localhost:8040/jobs | python -m json.tool
 
 cancel:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make cancel JOB_ID=<id>  (or make cancel <id>)"; exit 1; fi
-	curl -s -X POST http://localhost:8004/jobs/$(JOB_ID)/cancel | python -m json.tool
+	curl -s -X POST http://localhost:8040/jobs/$(JOB_ID)/cancel | python -m json.tool
 
 build:
 	docker compose build
