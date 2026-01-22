@@ -330,6 +330,10 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - max_rpm: Maximum requests per minute (default: 60)
     - request_delay: Delay between requests in milliseconds (overrides RPM)
     - discovery_mode: Discover URLs inside the given page (default: False)
+    - rescrape_failed: Rescrape only failed URLs from existing job state (default: False)
+    - min_word_count: Minimum word count for content quality (0 disables filter)
+    - max_link_density: Max link density before content is treated as navigation
+    - max_link_density_words: Max words to consider for link density filtering
 
     Returns:
     - job_id: Unique identifier for the crawl job

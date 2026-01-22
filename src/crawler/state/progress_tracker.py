@@ -162,6 +162,13 @@ class ProgressTracker:
             self.failed_urls += 1
             self._should_emit = True
 
+    async def decrement_failed(self):
+        """Decrement failed URL count."""
+        async with self.lock:
+            if self.failed_urls > 0:
+                self.failed_urls -= 1
+                self._should_emit = True
+
     async def increment_requests(self):
         """Increment request count."""
         async with self.lock:

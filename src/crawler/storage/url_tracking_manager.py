@@ -179,6 +179,8 @@ class URLTrackingManager:
             if url in self.urls:
                 self.urls[url]["status"] = "processing"
                 self.urls[url]["page_number"] = page_number
+                self.urls[url]["error"] = None
+                self.urls[url]["completed_at"] = None
                 await self._write_state()
 
     async def set_completed(self, url: str, header_dates: Optional[Dict[str, Optional[str]]] = None):
@@ -194,6 +196,7 @@ class URLTrackingManager:
                 timestamp = datetime.utcnow().isoformat() + "Z"
                 self.urls[url]["status"] = "completed"
                 self.urls[url]["completed_at"] = timestamp
+                self.urls[url]["error"] = None
 
                 # Update header dates if provided
                 if header_dates:
@@ -229,6 +232,14 @@ class URLTrackingManager:
         """Get all tracked URLs."""
         async with self.lock:
             return self.urls.copy()
+
+    async def get_urls_by_status(self, statuses: List[str]) -> List[str]:
+        """Get URLs with a matching status."""
+        async with self.lock:
+            return [
+                url for url, data in self.urls.items()
+                if data.get("status") in statuses
+            ]
 
     async def get_stats(self) -> Dict[str, int]:
         """
