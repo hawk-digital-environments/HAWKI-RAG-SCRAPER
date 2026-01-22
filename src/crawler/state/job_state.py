@@ -226,6 +226,13 @@ class JobState:
             self._data.failed_urls += 1
             await self._update_timestamp_and_persist()
 
+    async def decrement_failed(self):
+        """Decrement the count of failed URLs."""
+        async with self._lock:
+            if self._data.failed_urls > 0:
+                self._data.failed_urls -= 1
+                await self._update_timestamp_and_persist()
+
     async def set_error(self, error: str):
         """Set error message and mark job as failed."""
         async with self._lock:
