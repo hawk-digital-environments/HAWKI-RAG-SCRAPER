@@ -43,14 +43,14 @@ crawl-test:
 	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de", "job_id":"$(CRAWL_TEST_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100, "discovery_mode": true, "skip_images": true, "max_concurrency": 1, "max_rpm": 20}' \
+		-d '{"url": "https://www.hawk.de", "job_id":"$(CRAWL_TEST_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 100, "discovery_mode": true, "skip_images": true, "max_concurrency": 1, "max_rpm": 20}' \
 		| $(PYTHON) -m json.tool
 
 crawl-full:
 	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
+		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-projekt:
