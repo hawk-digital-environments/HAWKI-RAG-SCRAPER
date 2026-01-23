@@ -15,6 +15,14 @@ from src.crawler.storage.summary_manager import SummaryManager
 
 
 class ServiceCrawlMixin:
+    async def _trigger_safe_stop(self, reason: str) -> None:
+        async with self.abort_lock:
+            if self.abort_crawl:
+                return
+            self.abort_crawl = True
+            self.abort_reason = reason
+            self.to_visit.clear()
+
     async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
         """Save page data to JSON and markdown files in hash-based directory"""
         low_quality_content = page_data.get('low_quality_content')
@@ -51,6 +59,9 @@ class ServiceCrawlMixin:
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler):
         """Crawl a single page"""
         async with self.semaphore:
+            if self.abort_crawl:
+                return
+
             was_failed = False
             if self.url_tracking_manager:
                 prior_state = await self.url_tracking_manager.get_url_state(url)
@@ -123,6 +134,40 @@ class ServiceCrawlMixin:
                 return
 
             head_status, head_headers = await self.fetch_head(url)
+            url_host = urlparse(url).hostname
+            if self.crawl_host and (
+                url_host == self.crawl_host or url_host.endswith(f".{self.crawl_host}")
+            ):
+                if head_status is not None and head_status >= 500:
+                    async with self.consecutive_5xx_lock:
+                        self.consecutive_5xx += 1
+                        consecutive_5xx = self.consecutive_5xx
+                else:
+                    async with self.consecutive_5xx_lock:
+                        self.consecutive_5xx = 0
+                        consecutive_5xx = 0
+            else:
+                consecutive_5xx = 0
+
+            if consecutive_5xx >= 3:
+                error_msg = (
+                    f"Aborting crawl: received {consecutive_5xx} consecutive HTTP 5xx responses "
+                    f"(last was {head_status})"
+                )
+                await self._trigger_safe_stop(error_msg)
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.set_failed(url, error_msg)
+                if self.progress_tracker:
+                    if not was_failed:
+                        await self.progress_tracker.increment_failed()
+                    await self.progress_tracker.increment_errors()
+                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                if self.job_state:
+                    if not was_failed:
+                        await self.job_state.increment_failed()
+                async with self.counter_lock:
+                    self.page_counter -= 1
+                return
 
             # Handle direct PDF URLs
             page_data = None
@@ -208,9 +253,11 @@ class ServiceCrawlMixin:
                     await self.job_state.increment_completed()
 
                 # Discover new URLs if in discovery mode
-                if self.config.discovery_mode:
+                if self.config.discovery_mode and not self.abort_crawl:
                     new_urls = await self.discover_urls(page_data['html_content'], url)
                     for new_url in new_urls:
+                        if self.abort_crawl:
+                            break
                         if urlparse(new_url).path.lower().endswith("piwik.php"):
                             continue
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
@@ -239,7 +286,7 @@ class ServiceCrawlMixin:
 
     async def _run_crawl_batches(self, crawler: AsyncWebCrawler):
         """Process crawl batches for the current to_visit list."""
-        while self.to_visit and (
+        while self.to_visit and not self.abort_crawl and (
             self.config.max_pages == 0
             or self.page_counter < self.config.max_pages
             or self.allow_over_max_pages
@@ -250,6 +297,8 @@ class ServiceCrawlMixin:
 
             tasks = [self.crawl_page(url, crawler) for url in batch]
             await asyncio.gather(*tasks, return_exceptions=True)
+            if self.abort_crawl:
+                break
 
     async def crawl(self) -> Dict:
         """Main crawl method"""
@@ -370,6 +419,8 @@ class ServiceCrawlMixin:
 
             async with AsyncWebCrawler(config=browser_config) as crawler:
                 await self._run_crawl_batches(crawler)
+                if self.abort_crawl:
+                    raise RuntimeError(self.abort_reason or "Aborting crawl due to server error")
 
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])

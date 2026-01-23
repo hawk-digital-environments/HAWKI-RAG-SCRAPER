@@ -39,6 +39,11 @@ class ServiceInitMixin:
         self.page_counter = 0
         self.counter_lock = asyncio.Lock()
         self.allow_over_max_pages = False
+        self.abort_crawl = False
+        self.abort_reason: Optional[str] = None
+        self.abort_lock = asyncio.Lock()
+        self.consecutive_5xx = 0
+        self.consecutive_5xx_lock = asyncio.Lock()
 
         self.communication_service = communication_service
         self.job_state = job_state
@@ -69,6 +74,7 @@ class ServiceInitMixin:
         )
         self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
         self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", DEFAULT_SITEMAP_BASE)
+        self.crawl_host = urlparse(str(self.config.url)).hostname
 
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
