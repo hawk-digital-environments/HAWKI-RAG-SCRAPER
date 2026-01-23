@@ -218,12 +218,18 @@ class JobState:
         """Increment the count of completed URLs."""
         async with self._lock:
             self._data.completed_urls += 1
+            processed = self._data.completed_urls + self._data.failed_urls
+            if processed > self._data.total_urls:
+                self._data.total_urls = processed
             await self._update_timestamp_and_persist()
 
     async def increment_failed(self):
         """Increment the count of failed URLs."""
         async with self._lock:
             self._data.failed_urls += 1
+            processed = self._data.completed_urls + self._data.failed_urls
+            if processed > self._data.total_urls:
+                self._data.total_urls = processed
             await self._update_timestamp_and_persist()
 
     async def decrement_failed(self):

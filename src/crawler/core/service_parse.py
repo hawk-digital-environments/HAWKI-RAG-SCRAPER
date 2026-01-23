@@ -65,7 +65,8 @@ class ServiceParseMixin:
 
         try:
             async with self.http_session.head(url, allow_redirects=True) as response:
-                return response.status, dict(response.headers)
+                headers = {k.lower(): v for k, v in response.headers.items()}
+                return response.status, headers
         except Exception:
             return None, {}
 

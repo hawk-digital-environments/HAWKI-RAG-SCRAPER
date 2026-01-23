@@ -29,6 +29,18 @@ class ServiceCrawlMixin:
                 self.restart_urls.append(url)
             self.restart_crawler = True
 
+    async def _update_total_urls(self, new_total: int) -> None:
+        if new_total <= 0:
+            return
+        if self.job_state:
+            snapshot = await self.job_state.get_snapshot()
+            if new_total > snapshot.total_urls:
+                await self.job_state.set_total_urls(new_total)
+        if self.progress_tracker:
+            progress = await self.progress_tracker.get_progress()
+            if new_total > progress["total_urls"]:
+                await self.progress_tracker.set_total_urls(new_total)
+
     async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
         """Save page data to JSON and markdown files in hash-based directory"""
         low_quality_content = page_data.get('low_quality_content')
@@ -285,6 +297,7 @@ class ServiceCrawlMixin:
 
                             if self.url_tracking_manager:
                                 await self.url_tracking_manager.add_url(new_url, source="discovery")
+                            await self._update_total_urls(len(self.visited_urls) + len(self.to_visit))
             else:
                 error_msg = "Extraction failed"
 
@@ -348,16 +361,13 @@ class ServiceCrawlMixin:
             if self.url_tracking_manager:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
-                    if self.config.rescrape_failed:
-                        resume_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
-                    else:
-                        for url, meta in tracked.items():
-                            status = (meta or {}).get("status")
-                            if status in ("pending", "failed", "processing"):
-                                resume_urls.append(url)
-                            elif status in ("completed",):
-                                self.visited_urls.add(url)
-                                completed_count += 1
+                    for url, meta in tracked.items():
+                        status = (meta or {}).get("status")
+                        if status in ("pending", "failed", "processing"):
+                            resume_urls.append(url)
+                        elif status in ("completed",):
+                            self.visited_urls.add(url)
+                            completed_count += 1
                     if self.job_state:
                         snapshot = await self.job_state.get_snapshot()
                         resume_current_url = snapshot.current_url
@@ -382,20 +392,10 @@ class ServiceCrawlMixin:
                 if completed_count:
                     self.page_counter = completed_count
 
-                if self.job_state:
-                    await self.job_state.set_total_urls(len(self.to_visit))
-                if self.progress_tracker:
-                    await self.progress_tracker.set_total_urls(len(self.to_visit))
+                await self._update_total_urls(completed_count + len(self.to_visit))
 
                 print(f"Resuming job {self.job_id}: {len(self.to_visit)} URLs remaining")
-            elif self.config.rescrape_failed:
-                self.to_visit = []
-                if self.job_state:
-                    await self.job_state.set_total_urls(0)
-                if self.progress_tracker:
-                    await self.progress_tracker.set_total_urls(0)
-                print(f"Rescrape requested for job {self.job_id}, but no failed URLs found")
-            if not resume_urls and not self.config.rescrape_failed and await self.is_sitemap(start_url):
+            if not resume_urls and await self.is_sitemap(start_url):
                 print(f"Detected sitemap: {start_url}")
                 urls = await self.parse_sitemap(start_url)
 
