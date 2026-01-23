@@ -109,7 +109,7 @@ class ServiceUtilsMixin:
                 start_page=start_page,
                 max_pages=max_pages
             )
-            await scraper.run()
+            await scraper.scrape()
             self.sitemap_map = self._load_sitemap_map(str(output_path))
         except Exception as e:
             print(f"Error scraping HAWK sitemap: {e}")

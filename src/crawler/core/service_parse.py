@@ -339,5 +339,8 @@ class ServiceParseMixin:
             }
 
         except Exception as e:
+            error_text = str(e)
+            if "Browser.new_context" in error_text and "Target page, context or browser has been closed" in error_text:
+                raise RuntimeError(f"browser_closed:{url}") from e
             print(f"Error extracting data from {url}: {e}")
             return None

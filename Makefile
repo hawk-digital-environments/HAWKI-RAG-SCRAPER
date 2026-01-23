@@ -8,12 +8,20 @@ PROJEKT_SITEMAP_JSON ?= https://projekte.g.hawk.de/sitemap.json
 PROJEKT_SITEMAP_FILE ?= $(SITEMAP_DIR)/projekte_sitemap.json
 PROJEKT_JOB_ID ?= Projekte_HAWK
 CRAWL_TEST_JOB_ID ?= Test_HAWK
-CRAWL_FULL_JOB_ID ?= Full_HAWK_test
-RESCRAPE_FAILED ?= true
+CRAWL_FULL_JOB_ID ?= Full_HAWK_23Jan
+RESCRAPE_FAILED ?= false
 PYTHON ?= python3
 
 # Allow `make cancel <job_id>` as shorthand
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
+  ifneq ($(word 2,$(MAKECMDGOALS)),)
+    override JOB_ID := $(word 2,$(MAKECMDGOALS))
+    $(eval $(word 2,$(MAKECMDGOALS)):=)
+  endif
+endif
+
+# Allow `make clean-shared <job_id>` as shorthand
+ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   ifneq ($(word 2,$(MAKECMDGOALS)),)
     override JOB_ID := $(word 2,$(MAKECMDGOALS))
     $(eval $(word 2,$(MAKECMDGOALS)):=)
@@ -42,7 +50,7 @@ crawl-full:
 	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 2000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 50}' \
+		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-projekt:

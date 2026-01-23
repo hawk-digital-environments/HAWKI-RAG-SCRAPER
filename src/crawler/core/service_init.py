@@ -44,6 +44,11 @@ class ServiceInitMixin:
         self.abort_lock = asyncio.Lock()
         self.consecutive_5xx = 0
         self.consecutive_5xx_lock = asyncio.Lock()
+        self.restart_crawler = False
+        self.restart_urls: List[str] = []
+        self.restart_lock = asyncio.Lock()
+        self.browser_restart_count = 0
+        self.max_browser_restarts = 3
 
         self.communication_service = communication_service
         self.job_state = job_state

@@ -222,11 +222,22 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     job_state = JobState(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
+    async def _sync_job_progress(poll_interval: float = 1.0):
+        while True:
+            snapshot = await job_state.get_snapshot()
+            if job_id in jobs:
+                jobs[job_id].pages_crawled = snapshot.completed_urls
+                jobs[job_id].total_pages = snapshot.completed_urls + snapshot.failed_urls
+                jobs[job_id].output_directory = snapshot.output_directory or jobs[job_id].output_directory
+            await asyncio.sleep(poll_interval)
+
+    sync_task = None
     try:
         logger.info(f"[Job {job_id}] Initializing state manager...")
         # Initialize state manager (creates job directory and initial state file)
         await job_state.initialize()
         logger.info(f"[Job {job_id}] State manager initialized")
+        sync_task = asyncio.create_task(_sync_job_progress())
 
         # Connect to communication service (optional)
         if communication_service:
@@ -265,8 +276,9 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
 
         jobs[job_id].status = "completed"
         jobs[job_id].message = "Crawl completed successfully"
-        jobs[job_id].pages_crawled = result['pages_crawled']
-        jobs[job_id].total_pages = result['pages_crawled']
+        final_snapshot = await job_state.get_snapshot()
+        jobs[job_id].pages_crawled = final_snapshot.completed_urls
+        jobs[job_id].total_pages = final_snapshot.completed_urls + final_snapshot.failed_urls
         jobs[job_id].output_directory = result['output_directory']
         jobs[job_id].completed_at = datetime.now()
 
@@ -285,6 +297,12 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].completed_at = datetime.now()
 
     finally:
+        if sync_task:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
         # Close communication connection
         if communication_service and hasattr(communication_service, "disconnect"):
             try:
