@@ -1,9 +1,11 @@
 SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
-SITEMAP_OUTPUT ?= /app/data/sitemap.json
+SITEMAP_DIR ?= /app/shared/sitemaps
+HAWK_SITEMAP_FILE ?= $(SITEMAP_DIR)/hawk_sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
 PROJEKT_BASE ?= https://projekte.g.hawk.de
 PROJEKT_SITEMAP_JSON ?= https://projekte.g.hawk.de/sitemap.json
+PROJEKT_SITEMAP_FILE ?= $(SITEMAP_DIR)/projekte_sitemap.json
 PROJEKT_JOB_ID ?= Projekte_HAWK
 CRAWL_TEST_JOB_ID ?= Test_HAWK
 CRAWL_FULL_JOB_ID ?= Full_HAWK_test
@@ -18,23 +20,26 @@ ifeq ($(firstword $(MAKECMDGOALS)),cancel)
   endif
 endif
 
-.PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt build up down logs
+.PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt build up down logs clean-shared
 
 crawl-sitemap:
 	docker compose run --rm crawler \
+		sh -lc 'mkdir -p $(SITEMAP_DIR) && \
 		python -m src.crawler.core.sitemap_scraper --sitemap \
 		--base-url $(SITEMAP_BASE) \
 		--start-page $(SITEMAP_START) \
 		--pages $(SITEMAP_PAGES) \
-		--output $(SITEMAP_OUTPUT)
+		--output $(HAWK_SITEMAP_FILE)'
 
 crawl-test:
+	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de", "job_id":"$(CRAWL_TEST_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 100, "discovery_mode": true, "skip_images": true, "max_concurrency": 1, "max_rpm": 20}' \
 		| $(PYTHON) -m json.tool
 
 crawl-full:
+	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "max_pages": 2000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 50}' \
@@ -42,7 +47,7 @@ crawl-full:
 
 crawl-projekt:
 	docker compose run --rm crawler \
-		sh -lc 'mkdir -p /app/data/jobs/$(PROJEKT_JOB_ID) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o /app/data/jobs/$(PROJEKT_JOB_ID)/sitemap.json'
+		sh -lc 'mkdir -p $(SITEMAP_DIR) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o $(PROJEKT_SITEMAP_FILE)'
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 2000, "discovery_mode": true, "skip_images": false, "max_concurrency": 3, "max_rpm": 50}' \
@@ -66,3 +71,7 @@ down:
 
 logs:
 	docker compose logs -f
+
+clean-shared:
+	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
+	docker compose exec crawler sh -lc 'rm -rf /app/shared/$(JOB_ID)'
