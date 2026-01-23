@@ -141,13 +141,14 @@ class URLTrackingManager:
             num_chunks = (len(self.urls) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
             print(f"Stored {len(self.urls)} unique URLs across {num_chunks} chunks (detected {self.total_entries_detected} total entries including duplicates)")
 
-    async def add_url(self, url: str, source: str = "discovery"):
+    async def add_url(self, url: str, source: str = "discovery", sitemap_date: Optional[str] = None):
         """
         Add a single URL (typically from discovery during crawling).
 
         Args:
             url: URL to add
             source: Source of discovery (e.g., "discovery", "seed")
+            sitemap_date: Optional sitemap lastmod date if available
         """
         async with self.lock:
             if url not in self.urls:
@@ -156,7 +157,7 @@ class URLTrackingManager:
                 self.urls[url] = {
                     "status": "pending",
                     "url_hash": generate_url_hash(url),
-                    "sitemap_date": None,
+                    "sitemap_date": sitemap_date,
                     "header_last_modified": None,
                     "header_date": None,
                     "page_number": None,
