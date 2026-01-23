@@ -23,6 +23,12 @@ class ServiceCrawlMixin:
             self.abort_reason = reason
             self.to_visit.clear()
 
+    async def _request_browser_restart(self, url: str) -> None:
+        async with self.restart_lock:
+            if url not in self.restart_urls:
+                self.restart_urls.append(url)
+            self.restart_crawler = True
+
     async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
         """Save page data to JSON and markdown files in hash-based directory"""
         low_quality_content = page_data.get('low_quality_content')
@@ -195,16 +201,28 @@ class ServiceCrawlMixin:
                         'html_content': ''
                     }
             else:
-                page_data = await self.extract_page_data(
-                    url,
-                    crawler,
-                    current_page_number,
-                    head_headers=head_headers,
-                    head_status=head_status,
-                    depth=self.url_depth.get(url, 0),
-                    source_type=self.url_source.get(url, 'seed'),
-                    url_hash=url_hash
-                )
+                try:
+                    page_data = await self.extract_page_data(
+                        url,
+                        crawler,
+                        current_page_number,
+                        head_headers=head_headers,
+                        head_status=head_status,
+                        depth=self.url_depth.get(url, 0),
+                        source_type=self.url_source.get(url, 'seed'),
+                        url_hash=url_hash
+                    )
+                except RuntimeError as exc:
+                    if str(exc).startswith("browser_closed:"):
+                        print(f"Browser context closed; requesting restart and retry for {url}")
+                        await self._request_browser_restart(url)
+                        async with self.counter_lock:
+                            self.page_counter -= 1
+                            self.visited_urls.discard(url)
+                        if self.url_tracking_manager:
+                            await self.url_tracking_manager.set_pending(url)
+                        return
+                    raise
 
             if page_data:
                 pdf_entries = page_data['data'].get('pdfs', [])
@@ -298,6 +316,8 @@ class ServiceCrawlMixin:
             tasks = [self.crawl_page(url, crawler) for url in batch]
             await asyncio.gather(*tasks, return_exceptions=True)
             if self.abort_crawl:
+                break
+            if self.restart_crawler:
                 break
 
     async def crawl(self) -> Dict:
@@ -417,10 +437,26 @@ class ServiceCrawlMixin:
                 verbose=False
             )
 
-            async with AsyncWebCrawler(config=browser_config) as crawler:
-                await self._run_crawl_batches(crawler)
-                if self.abort_crawl:
-                    raise RuntimeError(self.abort_reason or "Aborting crawl due to server error")
+            while True:
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    await self._run_crawl_batches(crawler)
+                    if self.abort_crawl:
+                        raise RuntimeError(self.abort_reason or "Aborting crawl due to server error")
+                    if not self.restart_crawler:
+                        break
+
+                async with self.restart_lock:
+                    self.browser_restart_count += 1
+                    restart_urls = list(self.restart_urls)
+                    self.restart_urls.clear()
+                    self.restart_crawler = False
+
+                if self.browser_restart_count > self.max_browser_restarts:
+                    raise RuntimeError("Aborting crawl: exceeded maximum browser restarts")
+
+                for retry_url in restart_urls:
+                    if retry_url not in self.to_visit:
+                        self.to_visit.insert(0, retry_url)
 
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])

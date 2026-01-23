@@ -223,6 +223,21 @@ class URLTrackingManager:
                 self.urls[url]["completed_at"] = timestamp
                 await self._write_state()
 
+    async def set_pending(self, url: str):
+        """
+        Reset URL status to pending (for retries).
+
+        Args:
+            url: URL to reset
+        """
+        async with self.lock:
+            if url in self.urls:
+                self.urls[url]["status"] = "pending"
+                self.urls[url]["error"] = None
+                self.urls[url]["page_number"] = None
+                self.urls[url]["completed_at"] = None
+                await self._write_state()
+
     async def get_url_state(self, url: str) -> Optional[Dict[str, Any]]:
         """Get state for a specific URL."""
         async with self.lock:
