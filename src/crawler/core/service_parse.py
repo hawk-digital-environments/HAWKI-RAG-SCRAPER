@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import aiohttp
+from aiohttp.http_exceptions import ContentLengthError
 from bs4 import BeautifulSoup
 import html2text
 from crawl4ai import AsyncWebCrawler
@@ -101,61 +102,98 @@ class ServiceParseMixin:
             session = aiohttp.ClientSession(headers=self.headers)
             cleanup_session = True
 
+        last_error = None
+        max_attempts = 3
         try:
-            async with session.get(pdf_url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=60)) as response:
-                content_type = response.headers.get('Content-Type', '').lower()
-                if response.status != 200 or ('pdf' not in content_type and not pdf_url.lower().split('?')[0].endswith('.pdf')):
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    async with session.get(
+                        pdf_url,
+                        headers=self.headers,
+                        timeout=aiohttp.ClientTimeout(total=60)
+                    ) as response:
+                        content_type = response.headers.get('Content-Type', '').lower()
+                        if response.status not in (200, 206) or (
+                            'pdf' not in content_type and not pdf_url.lower().split('?')[0].endswith('.pdf')
+                        ):
+                            return None
+
+                        pdf_buffer = bytearray()
+                        incomplete = False
+                        try:
+                            async for chunk in response.content.iter_chunked(1024 * 256):
+                                if chunk:
+                                    pdf_buffer.extend(chunk)
+                        except (aiohttp.ClientPayloadError, ContentLengthError) as e:
+                            incomplete = True
+                            last_error = e
+
+                        if not pdf_buffer:
+                            if attempt < max_attempts and last_error:
+                                await asyncio.sleep(0.5 * attempt)
+                                continue
+                            return None
+
+                        parsed = urlparse(pdf_url)
+                        filename = os.path.basename(parsed.path)
+                        if not filename or not filename.lower().endswith('.pdf'):
+                            filename = f"file_{abs(hash(pdf_url))}.pdf"
+
+                        # Normalize German characters and sanitize
+                        umlaut_map = str.maketrans({
+                            'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
+                            'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
+                            'ß': 'ss'
+                        })
+                        filename = filename.translate(umlaut_map)
+                        filename = re.sub(r'[^\w\-_\.]', '_', filename)
+
+                        pdf_bytes = bytes(pdf_buffer)
+
+                        # Use hash-based or page number-based storage
+                        if url_hash and self.storage_manager:
+                            # Hash-based storage
+                            self.storage_manager.create_hash_directory(
+                                url_hash,
+                                create_images_dir=not self.config.skip_images,
+                                create_files_dir=True
+                            )
+                            await self.storage_manager.save_hash_pdf(url_hash, filename, pdf_bytes)
+                            files_dir = self.storage_manager.get_hash_files_directory(url_hash)
+                            filepath = files_dir / filename
+                        elif self.storage_manager:
+                            # Page number-based storage (deprecated)
+                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
+                            await self.storage_manager.save_pdf(page_number, filename, pdf_bytes)
+                            files_dir = self.storage_manager.get_files_directory(page_number)
+                            filepath = files_dir / filename
+                        else:
+                            # Fallback for no storage_manager
+                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
+                            files_dir = page_dir / "files"
+                            files_dir.mkdir(exist_ok=True)
+                            filepath = files_dir / filename
+                            async with aiofiles.open(filepath, 'wb') as f:
+                                await f.write(pdf_bytes)
+
+                        result = {
+                            "url": pdf_url,
+                            "local_path": str(filepath.resolve())
+                        }
+                        if incomplete:
+                            result["incomplete"] = True
+                            result["error"] = str(last_error)
+                        return result
+                except (aiohttp.ClientPayloadError, ContentLengthError) as e:
+                    last_error = e
+                    if attempt < max_attempts:
+                        await asyncio.sleep(0.5 * attempt)
+                        continue
+                    print(f"Error downloading PDF {pdf_url}: {e}")
                     return None
-
-                pdf_bytes = await response.read()
-
-                parsed = urlparse(pdf_url)
-                filename = os.path.basename(parsed.path)
-                if not filename or not filename.lower().endswith('.pdf'):
-                    filename = f"file_{abs(hash(pdf_url))}.pdf"
-
-                # Normalize German characters and sanitize
-                umlaut_map = str.maketrans({
-                    'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
-                    'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
-                    'ß': 'ss'
-                })
-                filename = filename.translate(umlaut_map)
-                filename = re.sub(r'[^\w\-_\.]', '_', filename)
-
-                # Use hash-based or page number-based storage
-                if url_hash and self.storage_manager:
-                    # Hash-based storage
-                    self.storage_manager.create_hash_directory(
-                        url_hash,
-                        create_images_dir=not self.config.skip_images,
-                        create_files_dir=True
-                    )
-                    await self.storage_manager.save_hash_pdf(url_hash, filename, pdf_bytes)
-                    files_dir = self.storage_manager.get_hash_files_directory(url_hash)
-                    filepath = files_dir / filename
-                elif self.storage_manager:
-                    # Page number-based storage (deprecated)
-                    page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                    await self.storage_manager.save_pdf(page_number, filename, pdf_bytes)
-                    files_dir = self.storage_manager.get_files_directory(page_number)
-                    filepath = files_dir / filename
-                else:
-                    # Fallback for no storage_manager
-                    page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                    files_dir = page_dir / "files"
-                    files_dir.mkdir(exist_ok=True)
-                    filepath = files_dir / filename
-                    async with aiofiles.open(filepath, 'wb') as f:
-                        await f.write(pdf_bytes)
-
-                return {
-                    "url": pdf_url,
-                    "local_path": str(filepath.resolve())
-                }
-        except Exception as e:
-            print(f"Error downloading PDF {pdf_url}: {e}")
-            return None
+                except Exception as e:
+                    print(f"Error downloading PDF {pdf_url}: {e}")
+                    return None
         finally:
             if cleanup_session:
                 await session.close()
