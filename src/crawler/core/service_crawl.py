@@ -51,6 +51,31 @@ class ServiceCrawlMixin:
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler):
         """Crawl a single page"""
         async with self.semaphore:
+            was_failed = False
+            if self.url_tracking_manager:
+                prior_state = await self.url_tracking_manager.get_url_state(url)
+                was_failed = (prior_state or {}).get("status") == "failed"
+
+            parsed_url = urlparse(url)
+            if parsed_url.scheme not in ("http", "https"):
+                print(f"Skipping non-HTTP URL: {url}")
+                async with self.counter_lock:
+                    if url in self.visited_urls:
+                        return
+                    self.visited_urls.add(url)
+                if self.url_tracking_manager:
+                    await self.url_tracking_manager.set_completed(url, None)
+                if self.progress_tracker:
+                    if was_failed:
+                        await self.progress_tracker.decrement_failed()
+                    await self.progress_tracker.increment_completed()
+                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                if self.job_state:
+                    if was_failed:
+                        await self.job_state.decrement_failed()
+                    await self.job_state.increment_completed()
+                return
+
             # Check if URL already visited or max pages reached
             async with self.counter_lock:
                 if url in self.visited_urls or (
@@ -63,11 +88,6 @@ class ServiceCrawlMixin:
                 self.visited_urls.add(url)
                 self.page_counter += 1
                 current_page_number = self.page_counter
-
-            was_failed = False
-            if self.url_tracking_manager:
-                prior_state = await self.url_tracking_manager.get_url_state(url)
-                was_failed = (prior_state or {}).get("status") == "failed"
 
             # Generate URL hash for storage
             url_hash = generate_url_hash(url)
