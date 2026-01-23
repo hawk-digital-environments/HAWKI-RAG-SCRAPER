@@ -296,7 +296,12 @@ class ServiceCrawlMixin:
                             self.url_source[new_url] = "discovery"
 
                             if self.url_tracking_manager:
-                                await self.url_tracking_manager.add_url(new_url, source="discovery")
+                                sitemap_entry = self._lookup_sitemap_entry(new_url) or {}
+                                await self.url_tracking_manager.add_url(
+                                    new_url,
+                                    source="discovery",
+                                    sitemap_date=sitemap_entry.get("last_modified")
+                                )
                             await self._update_total_urls(len(self.visited_urls) + len(self.to_visit))
             else:
                 error_msg = "Extraction failed"
@@ -419,7 +424,12 @@ class ServiceCrawlMixin:
                 self.url_source[start_url] = "seed"
 
                 if self.url_tracking_manager:
-                    await self.url_tracking_manager.add_url(start_url, source="seed")
+                    sitemap_entry = self._lookup_sitemap_entry(start_url) or {}
+                    await self.url_tracking_manager.add_url(
+                        start_url,
+                        source="seed",
+                        sitemap_date=sitemap_entry.get("last_modified")
+                    )
                 if self.job_state:
                     await self.job_state.set_total_urls(1)
                 if self.progress_tracker:
