@@ -3,7 +3,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from email.utils import parsedate_to_datetime
 
 import aiohttp
@@ -13,6 +13,18 @@ from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BAS
 
 
 class ServiceUtilsMixin:
+    def _is_discovery_url_allowed(self, url: str) -> bool:
+        """Allow only HAWK-owned URLs for discovery-mode crawling."""
+        if not url:
+            return False
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False
+        return host.endswith("hawk.de")
+
     def _is_video_url(self, url: str) -> bool:
         return url.lower().split('?')[0].endswith((
             ".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv", ".wmv",
@@ -201,6 +213,8 @@ class ServiceUtilsMixin:
             if not href:
                 continue
             absolute = urljoin(base_url, href)
+            if not self._is_discovery_url_allowed(absolute):
+                continue
             if absolute not in links:
                 links.append(absolute)
         return links

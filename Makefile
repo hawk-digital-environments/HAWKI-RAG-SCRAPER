@@ -7,7 +7,7 @@ PROJEKT_SITEMAP_JSON ?= https://projekte.g.hawk.de/sitemap.json
 PROJEKT_JOB_ID ?= Projekte_HAWK
 CRAWL_TEST_JOB_ID ?= Test_HAWK
 CRAWL_FULL_JOB_ID ?= Full_HAWK_test
-RESCRAPE_FAILED ?= false
+RESCRAPE_FAILED ?= true
 PYTHON ?= python3
 
 # Allow `make cancel <job_id>` as shorthand
