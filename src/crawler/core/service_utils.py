@@ -13,6 +13,18 @@ from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BAS
 
 
 class ServiceUtilsMixin:
+    def _is_forbidden_host(self, host: str) -> bool:
+        """Return True when a host should never be crawled."""
+        if not host:
+            return True
+        host = host.lower()
+        forbidden_hosts = {"mail.hawk.de", "studip.hawk.de", "win-it.hawk.de"}
+        if host in forbidden_hosts:
+            return True
+        if host.endswith(".studip.hawk.de"):
+            return True
+        return False
+
     def _is_discovery_url_allowed(self, url: str) -> bool:
         """Allow only HAWK-owned URLs for discovery-mode crawling."""
         if not url:
@@ -22,6 +34,8 @@ class ServiceUtilsMixin:
             return False
         host = (parsed.hostname or "").lower()
         if not host:
+            return False
+        if self._is_forbidden_host(host):
             return False
         return host.endswith("hawk.de")
 

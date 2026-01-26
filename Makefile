@@ -9,7 +9,7 @@ PROJEKT_SITEMAP_FILE ?= $(SITEMAP_DIR)/projekte_sitemap.json
 PROJEKT_JOB_ID ?= Projekte_HAWK
 CRAWL_TEST_JOB_ID ?= Test_HAWK
 CRAWL_FULL_JOB_ID ?= Full_HAWK_23Jan
-RESCRAPE_FAILED ?= false
+RESCRAPE_FAILED ?= true
 FAILED_THRESHOLD ?= 100
 MAX_RETRY_ROUNDS ?= 4
 PYTHON ?= python3
@@ -52,7 +52,7 @@ crawl-full:
 	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 3, "max_rpm": 40}' \
+		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-full-auto:
@@ -85,7 +85,7 @@ crawl-projekt:
 		sh -lc 'mkdir -p $(SITEMAP_DIR) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o $(PROJEKT_SITEMAP_FILE)'
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 2000, "discovery_mode": true, "skip_images": false, "max_concurrency": 3, "max_rpm": 50}' \
+		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 2000, "discovery_mode": true, "skip_images": false, "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-projekt-auto:
