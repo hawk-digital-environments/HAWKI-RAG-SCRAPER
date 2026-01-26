@@ -98,9 +98,11 @@ class URLTrackingManager:
         Must be called before using the manager.
         """
         # Resume from existing state if present
-        if self.index_file.exists() and self.chunks_dir.exists():
-            await self.read_state()
-            return
+        if self.chunks_dir.exists():
+            chunk_files = list(self.chunks_dir.glob("urls_chunk_*.json"))
+            if self.index_file.exists() or chunk_files:
+                await self.read_state()
+                return
 
         # Create job directory and chunks directory if needed
         self.job_dir.mkdir(parents=True, exist_ok=True)
@@ -363,17 +365,27 @@ class URLTrackingManager:
         """
         try:
             # Try reading from chunks
-            if self.chunks_dir.exists() and self.index_file.exists():
-                async with aiofiles.open(self.index_file, 'r', encoding='utf-8') as f:
-                    index_data = json.loads(await f.read())
-                    total_chunks = index_data.get('total_chunks', 0)
-                    self.total_entries_detected = index_data.get('total_entries', 0)
+            if self.chunks_dir.exists():
+                total_chunks = 0
+                if self.index_file.exists():
+                    async with aiofiles.open(self.index_file, 'r', encoding='utf-8') as f:
+                        index_data = json.loads(await f.read())
+                        total_chunks = index_data.get('total_chunks', 0)
+                        self.total_entries_detected = index_data.get('total_entries', 0)
 
-                # Read all chunks and merge
-                all_urls = {}
-                for chunk_num in range(total_chunks):
-                    chunk_data = await self._read_chunk(chunk_num)
-                    all_urls.update(chunk_data)
+                all_urls: Dict[str, Dict[str, Any]] = {}
+                if total_chunks > 0:
+                    for chunk_num in range(total_chunks):
+                        chunk_data = await self._read_chunk(chunk_num)
+                        all_urls.update(chunk_data)
+                else:
+                    chunk_files = sorted(self.chunks_dir.glob("urls_chunk_*.json"))
+                    for chunk_file in chunk_files:
+                        async with aiofiles.open(chunk_file, 'r', encoding='utf-8') as f:
+                            chunk_data = json.loads(await f.read())
+                        all_urls.update(chunk_data)
+                    self.total_entries_detected = len(all_urls)
+                    await self._write_index()
 
                 self.urls = all_urls
                 return self.urls.copy()
