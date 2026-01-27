@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Set
@@ -49,6 +50,8 @@ class ServiceInitMixin:
         self.restart_lock = asyncio.Lock()
         self.browser_restart_count = 0
         self.max_browser_restarts = 3
+        self.browser_restart_interval_seconds = 3600
+        self.browser_last_restart = time.monotonic()
 
         self.communication_service = communication_service
         self.job_state = job_state
