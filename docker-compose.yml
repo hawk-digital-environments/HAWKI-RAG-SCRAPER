@@ -40,6 +40,8 @@ services:
       - ./output:/app/output
       # Forbidden hosts list
       - ./forbidden_urls.txt:/app/forbidden_urls.txt:ro
+      # Utility scripts
+      - ./src/scripts:/app/src/scripts:ro
       # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
       - rawki_shared_storage:/app/shared

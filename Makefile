@@ -31,6 +31,14 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
+# Allow `make post-process-similarity <job_id>` as shorthand
+ifeq ($(firstword $(MAKECMDGOALS)),post-process-similarity)
+  ifneq ($(word 2,$(MAKECMDGOALS)),)
+    override JOB_ID := $(word 2,$(MAKECMDGOALS))
+    $(eval $(word 2,$(MAKECMDGOALS)):=)
+  endif
+endif
+
 .PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt crawl-full-auto crawl-projekt-auto build up down logs clean-shared post-process-similarity
 
 crawl-sitemap:
@@ -139,6 +147,6 @@ clean-shared:
 
 post-process-similarity:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make post-process-similarity JOB_ID=<id>"; exit 1; fi
-	docker compose exec -T crawler python3 /app/scripts/post_process_similarity.py \
+	docker compose exec -T crawler python3 /app/src/scripts/post_process_similarity.py \
 		--job-id "$(JOB_ID)" \
 		--threshold "$(SIMILARITY_THRESHOLD)" $(if $(DEDUPLICATE_IDENTICAL),--dedupe-identical,)
