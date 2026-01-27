@@ -13,6 +13,7 @@ RESCRAPE_FAILED ?= true
 FAILED_THRESHOLD ?= 100
 MAX_RETRY_ROUNDS ?= 4
 PYTHON ?= python3
+SIMILARITY_THRESHOLD ?= 0.95
 
 # Allow `make cancel <job_id>` as shorthand
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
@@ -30,7 +31,7 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
-.PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt crawl-full-auto crawl-projekt-auto build up down logs clean-shared
+.PHONY: crawl-sitemap crawl-test crawl-full crawl-projekt crawl-full-auto crawl-projekt-auto build up down logs clean-shared post-process-similarity
 
 crawl-sitemap:
 	docker compose run --rm crawler \
@@ -135,3 +136,9 @@ logs:
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
 	docker compose exec crawler sh -lc 'rm -rf /app/shared/$(JOB_ID)'
+
+post-process-similarity:
+	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make post-process-similarity JOB_ID=<id>"; exit 1; fi
+	docker compose exec -T crawler python3 /app/scripts/post_process_similarity.py \
+		--job-id "$(JOB_ID)" \
+		--threshold "$(SIMILARITY_THRESHOLD)" $(if $(DEDUPLICATE_IDENTICAL),--dedupe-identical,)

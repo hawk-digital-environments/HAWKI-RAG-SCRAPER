@@ -67,6 +67,7 @@ class ServiceParseMixin:
             ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
             ".odp", ".rtf", ".txt", ".csv", ".zip", ".rar", ".7z"
         )
+        disallowed_extensions = (".exe",)
         soup = BeautifulSoup(html_content, 'html.parser')
         file_links = []
         for a in soup.find_all('a'):
@@ -77,9 +78,32 @@ class ServiceParseMixin:
             lower = absolute_url.lower().split('?')[0]
             if lower.endswith('.pdf'):
                 continue
+            if lower.endswith(disallowed_extensions):
+                continue
             if lower.endswith(extensions):
                 file_links.append(absolute_url)
         return file_links
+
+    def _should_skip_file_download(
+        self,
+        url: str,
+        filename: Optional[str],
+        content_type: str
+    ) -> bool:
+        """Skip downloads that resolve to disallowed or extension-less files."""
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+        if path.endswith(".exe"):
+            return True
+        if filename and filename.lower().endswith(".exe"):
+            return True
+        if content_type == "application/x-msdownload":
+            return True
+        if not filename:
+            return True
+        if Path(filename).suffix == "":
+            return True
+        return False
 
     async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL"""
@@ -117,6 +141,8 @@ class ServiceParseMixin:
         """Check if a URL points directly to a non-PDF file."""
         parsed = urlparse(url)
         path = parsed.path.lower()
+        if path.endswith(".exe"):
+            return False
         if "/media/" in path and not path.endswith(".pdf"):
             return True
 
@@ -135,6 +161,8 @@ class ServiceParseMixin:
 
         content_type = headers.get('content-type', '').lower()
         if not content_type:
+            return False
+        if content_type == "application/x-msdownload":
             return False
         if 'text/html' in content_type:
             return False
@@ -322,6 +350,8 @@ class ServiceParseMixin:
                             ext = mimetypes.guess_extension(content_type or "")
                             ext = ext or ".bin"
                             filename = f"file_{abs(hash(file_url))}{ext}"
+                        if self._should_skip_file_download(file_url, filename, content_type):
+                            return None
 
                         umlaut_map = str.maketrans({
                             'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
