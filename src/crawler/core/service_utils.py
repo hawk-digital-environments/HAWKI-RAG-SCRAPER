@@ -13,16 +13,34 @@ from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BAS
 
 
 class ServiceUtilsMixin:
+    def _get_forbidden_hosts(self) -> set:
+        """Load forbidden hosts from forbidden_urls.txt (workspace root)."""
+        path = Path("forbidden_urls.txt")
+        if not path.exists():
+            return set()
+        hosts = set()
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    entry = line.strip()
+                    if not entry or entry.startswith("#"):
+                        continue
+                    hosts.add(entry.lower())
+        except Exception:
+            return set()
+        return hosts
+
     def _is_forbidden_host(self, host: str) -> bool:
         """Return True when a host should never be crawled."""
         if not host:
             return True
         host = host.lower()
-        forbidden_hosts = {"mail.hawk.de", "studip.hawk.de", "win-it.hawk.de"}
+        forbidden_hosts = self._get_forbidden_hosts()
         if host in forbidden_hosts:
             return True
-        if host.endswith(".studip.hawk.de"):
-            return True
+        for forbidden in forbidden_hosts:
+            if host.endswith(f".{forbidden}"):
+                return True
         return False
 
     def _is_discovery_url_allowed(self, url: str) -> bool:

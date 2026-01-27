@@ -35,6 +35,7 @@ Lifecycle:
 import json
 import asyncio
 import hashlib
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -394,3 +395,28 @@ class URLTrackingManager:
             print(f"Warning: Failed to read URL tracking state for {self.job_id}: {e}")
 
         return {}
+
+    async def purge_forbidden_hosts(self, forbidden_hosts: List[str]) -> int:
+        """Remove URLs matching forbidden hosts and rewrite state files."""
+        if not forbidden_hosts:
+            return 0
+        forbidden = {h.lower() for h in forbidden_hosts}
+        removed = 0
+        async with self.lock:
+            for url in list(self.urls.keys()):
+                host = (urlparse(url).hostname or "").lower()
+                if not host:
+                    continue
+                if host in forbidden:
+                    self.urls.pop(url, None)
+                    removed += 1
+                    continue
+                for block in forbidden:
+                    if host.endswith(f".{block}"):
+                        self.urls.pop(url, None)
+                        removed += 1
+                        break
+            if removed:
+                self.total_entries_detected = max(self.total_entries_detected - removed, len(self.urls))
+                await self._write_state()
+        return removed
