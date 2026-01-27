@@ -3,3 +3,5 @@ studip.hawk.de
 win-it.hawk.de
 wiki.hawk.de
 modb21.hawk.de
+hisinone.hawk.de
+modb18.hawk.de

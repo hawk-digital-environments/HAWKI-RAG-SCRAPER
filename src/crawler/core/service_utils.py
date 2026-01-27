@@ -13,21 +13,39 @@ from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BAS
 
 
 class ServiceUtilsMixin:
+    _DEFAULT_FORBIDDEN_HOSTS = {
+        "mail.hawk.de",
+        "studip.hawk.de",
+        "win-it.hawk.de",
+        "wiki.hawk.de",
+        "modb21.hawk.de",
+        "modb18.hawk.de",
+        "hisinone.hawk.de",
+    }
+
     def _get_forbidden_hosts(self) -> set:
-        """Load forbidden hosts from forbidden_urls.txt (workspace root)."""
-        path = Path("forbidden_urls.txt")
-        if not path.exists():
-            return set()
-        hosts = set()
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    entry = line.strip()
-                    if not entry or entry.startswith("#"):
-                        continue
-                    hosts.add(entry.lower())
-        except Exception:
-            return set()
+        """Load forbidden hosts from forbidden_urls.txt."""
+        candidates = [
+            Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
+            Path("/app/forbidden_urls.txt"),
+            Path("/app/shared/forbidden_urls.txt"),
+            Path("forbidden_urls.txt"),
+        ]
+        hosts = set(self._DEFAULT_FORBIDDEN_HOSTS)
+        for path in candidates:
+            if not path or str(path) == ".":
+                continue
+            if not path.exists():
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        entry = line.strip()
+                        if not entry or entry.startswith("#"):
+                            continue
+                        hosts.add(entry.lower())
+            except Exception:
+                continue
         return hosts
 
     def _is_forbidden_host(self, host: str) -> bool:

@@ -38,6 +38,8 @@ services:
       - ./data:/app/data
       # Mount output directory for backwards compatibility
       - ./output:/app/output
+      # Forbidden hosts list
+      - ./forbidden_urls.txt:/app/forbidden_urls.txt:ro
       # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
       - rawki_shared_storage:/app/shared
