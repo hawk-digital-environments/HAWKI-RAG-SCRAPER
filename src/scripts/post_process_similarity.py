@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -99,6 +100,9 @@ def main() -> int:
 
     content_files = _iter_content_files(job_dir)
     records = []
+    start = time.time()
+    total_files = len(content_files)
+    print(f"Scanning {total_files} content.md files...", flush=True)
     for path in content_files:
         text = _read_text(path)
         normalized = _normalize_text(text)
@@ -113,6 +117,16 @@ def main() -> int:
                 "content_hash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
             }
         )
+        if total_files and len(records) % 500 == 0:
+            elapsed = time.time() - start
+            rate = len(records) / elapsed if elapsed else 0.0
+            remaining = (total_files - len(records)) / rate if rate else 0.0
+            print(
+                f"  processed {len(records)}/{total_files} "
+                f"({len(records)/total_files:.1%}), "
+                f"ETA ~{remaining/60:.1f} min",
+                flush=True,
+            )
 
     bands = 4
     band_bits = 64 // bands
@@ -133,7 +147,10 @@ def main() -> int:
                     pair = (ids[i], ids[j])
                     candidate_pairs.add(pair)
 
+    print(f"Candidate pairs: {len(candidate_pairs)}", flush=True)
     similar_pairs = []
+    checked = 0
+    check_start = time.time()
     for i, j in candidate_pairs:
         a = records[i]
         b = records[j]
@@ -143,6 +160,17 @@ def main() -> int:
         seq_similarity = _content_similarity(a["content_path"], b["content_path"])
         if seq_similarity >= args.threshold:
             similar_pairs.append((i, j, seq_similarity))
+        checked += 1
+        if checked % 5000 == 0:
+            elapsed = time.time() - check_start
+            rate = checked / elapsed if elapsed else 0.0
+            remaining = (len(candidate_pairs) - checked) / rate if rate else 0.0
+            print(
+                f"  compared {checked}/{len(candidate_pairs)} "
+                f"({checked/len(candidate_pairs):.1%}), "
+                f"ETA ~{remaining/60:.1f} min",
+                flush=True,
+            )
 
     parent = list(range(len(records)))
 
