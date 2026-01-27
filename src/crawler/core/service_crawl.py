@@ -402,6 +402,11 @@ class ServiceCrawlMixin:
 
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
+                removed = await self.url_tracking_manager.purge_forbidden_hosts(
+                    list(self._get_forbidden_hosts())
+                )
+                if removed:
+                    print(f"Removed {removed} forbidden URLs from tracking state")
             if self.progress_tracker:
                 await self.progress_tracker.start()
 
@@ -412,6 +417,8 @@ class ServiceCrawlMixin:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
+                        if self._is_forbidden_host((urlparse(url).hostname or "").lower()):
+                            continue
                         status = (meta or {}).get("status")
                         if status in ("pending", "failed", "processing"):
                             resume_urls.append(url)
