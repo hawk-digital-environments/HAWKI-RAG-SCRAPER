@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Dict, Optional, List
 from urllib.parse import urlparse
@@ -187,7 +188,7 @@ class ServiceCrawlMixin:
                     self.page_counter -= 1
                 return
 
-            # Handle direct PDF URLs
+            # Handle direct file URLs
             page_data = None
             if await self.is_pdf_resource(url, head_status, head_headers):
                 pdf_entry = await self.fetch_and_save_pdf(url, current_page_number, url_hash=url_hash)
@@ -207,7 +208,32 @@ class ServiceCrawlMixin:
                             'lang': pdf_lang,
                             'updated_at': updated_at,
                             'source_type': self.url_source.get(url, 'seed'),
-                            'pdfs': [pdf_entry]
+                            'pdfs': [pdf_entry],
+                            'files': []
+                        },
+                        'markdown': '',
+                        'html_content': ''
+                    }
+            elif await self.is_file_resource(url, head_status, head_headers):
+                file_entry = await self.fetch_and_save_file(url, current_page_number, url_hash=url_hash)
+                if file_entry:
+                    file_lang = self.detect_language(None, head_headers, url=url)
+                    sitemap_entry = self._lookup_sitemap_entry(url) or {}
+                    updated_at = sitemap_entry.get("last_modified")
+                    if not updated_at:
+                        updated_at = datetime.now().isoformat()
+                    page_data = {
+                        'data': {
+                            'title': [],
+                            'page_url': [url],
+                            'url_hash': url_hash,
+                            'meta_img_url': [],
+                            'images': [],
+                            'lang': file_lang,
+                            'updated_at': updated_at,
+                            'source_type': self.url_source.get(url, 'seed'),
+                            'pdfs': [],
+                            'files': [file_entry]
                         },
                         'markdown': '',
                         'html_content': ''
@@ -238,6 +264,7 @@ class ServiceCrawlMixin:
 
             if page_data:
                 pdf_entries = page_data['data'].get('pdfs', [])
+                file_entries = page_data['data'].get('files', [])
 
                 if page_data.get('html_content'):
                     pdf_links = self.extract_pdf_links(page_data['html_content'], url)
@@ -253,7 +280,21 @@ class ServiceCrawlMixin:
                                 if pdf_entry:
                                     pdf_entries.append(pdf_entry)
 
+                    file_links = self.extract_file_links(page_data['html_content'], url)
+                    if file_links:
+                        async with aiohttp.ClientSession(headers=self.headers) as file_session:
+                            for file_url in file_links:
+                                file_entry = await self.fetch_and_save_file(
+                                    file_url,
+                                    current_page_number,
+                                    session=file_session,
+                                    url_hash=url_hash
+                                )
+                                if file_entry:
+                                    file_entries.append(file_entry)
+
                 page_data['data']['pdfs'] = pdf_entries
+                page_data['data']['files'] = file_entries
 
                 await self.save_page_data(page_data, current_page_number, url_hash)
 
@@ -327,6 +368,10 @@ class ServiceCrawlMixin:
             or self.page_counter < self.config.max_pages
             or self.allow_over_max_pages
         ):
+            if time.monotonic() - self.browser_last_restart >= self.browser_restart_interval_seconds:
+                print("Restarting browser: reached hourly restart interval")
+                self.restart_crawler = True
+                break
             batch_size = min(self.config.max_concurrency, len(self.to_visit))
             batch = self.to_visit[:batch_size]
             self.to_visit = self.to_visit[batch_size:]
@@ -449,6 +494,7 @@ class ServiceCrawlMixin:
 
             while True:
                 async with AsyncWebCrawler(config=browser_config) as crawler:
+                    self.browser_last_restart = time.monotonic()
                     await self._run_crawl_batches(crawler)
                     if self.abort_crawl:
                         raise RuntimeError(self.abort_reason or "Aborting crawl due to server error")

@@ -52,7 +52,7 @@ crawl-full:
 	$(MAKE) crawl-sitemap
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 40}' \
+		-d '{"url": "https://www.hawk.de","job_id":"$(CRAWL_FULL_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "hawk_sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(HAWK_SITEMAP_FILE)", "max_pages": 40000, "discovery_mode": true, "skip_images": true, "max_concurrency": 2, "max_rpm": 30}' \
 		| $(PYTHON) -m json.tool
 
 crawl-full-auto:
