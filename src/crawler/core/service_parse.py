@@ -5,7 +5,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple
 from urllib.parse import urljoin, urlparse
 
 import aiofiles
@@ -21,6 +21,17 @@ from src.crawler.core.service_utils import assess_content_quality
 
 
 class ServiceParseMixin:
+    def _build_run_config(self) -> CrawlerRunConfig:
+        return CrawlerRunConfig(
+            word_count_threshold=0,
+            exclude_external_links=False,
+            process_iframes=False,
+            remove_overlay_elements=False,
+            cache_mode=CacheMode.BYPASS,
+            wait_until=self.config.wait_until,
+            page_timeout=self.config.page_timeout_ms,
+            delay_before_return_html=5.0
+        )
     async def download_image(self, image_url: str, session: aiohttp.ClientSession, images_dir: Path) -> Optional[str]:
         """Download an image and save it to the images directory"""
         await self.rate_limiter.acquire()
@@ -417,31 +428,24 @@ class ServiceParseMixin:
         head_status: Optional[int] = None,
         depth: int = 0,
         source_type: str = "seed",
-        url_hash: Optional[str] = None
+        url_hash: Optional[str] = None,
+        crawl_result: Optional[Any] = None
     ) -> Optional[Dict]:
         """Extract data from a single page"""
-        await self.rate_limiter.acquire()
-
         try:
-            run_config = CrawlerRunConfig(
-                word_count_threshold=0,
-                exclude_external_links=False,
-                process_iframes=False,
-                remove_overlay_elements=False,
-                cache_mode=CacheMode.BYPASS,
-                wait_until=self.config.wait_until,
-                page_timeout=self.config.page_timeout_ms,
-                delay_before_return_html=5.0
-            )
-
-            result = await crawler.arun(url=url, config=run_config)
+            if crawl_result is None:
+                await self.rate_limiter.acquire()
+                run_config = self._build_run_config()
+                result = await crawler.arun(url=url, config=run_config)
+            else:
+                result = crawl_result
 
             # Track request
             if self.progress_tracker:
                 await self.progress_tracker.increment_requests()
 
             if not result.success:
-                print(f"Failed to crawl {url}: {result.error_message}")
+                self.job_logger.error("crawl4ai failure for %s: %s", url, result.error_message)
                 if self.progress_tracker:
                     await self.progress_tracker.increment_errors()
                 return None

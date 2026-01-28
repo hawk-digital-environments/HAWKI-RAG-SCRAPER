@@ -3,7 +3,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from email.utils import parsedate_to_datetime
 
 import aiohttp
@@ -43,10 +43,38 @@ class ServiceUtilsMixin:
                         entry = line.strip()
                         if not entry or entry.startswith("#"):
                             continue
+                        if "/" in entry or "?" in entry:
+                            continue
                         hosts.add(entry.lower())
             except Exception:
                 continue
         return hosts
+
+    def _get_forbidden_url_patterns(self) -> List[str]:
+        """Load forbidden URL patterns from forbidden_urls.txt."""
+        candidates = [
+            Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
+            Path("/app/forbidden_urls.txt"),
+            Path("/app/shared/forbidden_urls.txt"),
+            Path("forbidden_urls.txt"),
+        ]
+        patterns: List[str] = []
+        for path in candidates:
+            if not path or str(path) == ".":
+                continue
+            if not path.exists():
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        entry = line.strip()
+                        if not entry or entry.startswith("#"):
+                            continue
+                        if "/" in entry or "?" in entry:
+                            patterns.append(entry.lower())
+            except Exception:
+                continue
+        return patterns
 
     def _is_forbidden_host(self, host: str) -> bool:
         """Return True when a host should never be crawled."""
@@ -61,6 +89,26 @@ class ServiceUtilsMixin:
                 return True
         return False
 
+    def _is_forbidden_url(self, url: str) -> bool:
+        """Return True when a specific URL should never be crawled."""
+        if not url:
+            return True
+        url_lower = url.lower()
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if self._is_forbidden_host(host):
+            return True
+        for pattern in self._get_forbidden_url_patterns():
+            if pattern in url_lower:
+                return True
+        path = (parsed.path or "").rstrip("/")
+        if path == "/de/form/contact":
+            query = parse_qs(parsed.query or "")
+            form_type = query.get("form_type", [""])[0]
+            if form_type in ("person", "functioncontact") and "entity_key" in query:
+                return True
+        return False
+
     def _is_discovery_url_allowed(self, url: str) -> bool:
         """Allow only HAWK-owned URLs for discovery-mode crawling."""
         if not url:
@@ -71,7 +119,7 @@ class ServiceUtilsMixin:
         host = (parsed.hostname or "").lower()
         if not host:
             return False
-        if self._is_forbidden_host(host):
+        if self._is_forbidden_url(url):
             return False
         return host.endswith("hawk.de")
 
@@ -195,15 +243,17 @@ class ServiceUtilsMixin:
                     if "json" in content_type or sitemap_url.lower().endswith(".json") or content_stripped.startswith("{"):
                         try:
                             data = json.loads(content.decode("utf-8"))
-                            urls = list(data.keys())
-                            for url in urls:
-                                meta = data.get(url, {})
+                            urls = []
+                            for url, meta in data.items():
+                                if self._is_forbidden_url(url):
+                                    continue
                                 lastmod_date = None
                                 if isinstance(meta, dict):
                                     lastmod_date = meta.get("last_modified") or meta.get("lastmod") or meta.get("date")
                                 if lastmod_date:
                                     self.sitemap_lastmod[url] = lastmod_date
                                 urls_with_dates.append((url, lastmod_date))
+                                urls.append(url)
                             print(f"Detected JSON sitemap with {len(urls)} URLs")
                         except Exception as e:
                             print(f"Error parsing JSON sitemap: {e}")
@@ -233,6 +283,8 @@ class ServiceUtilsMixin:
                             if not loc or not loc.text:
                                 continue
                             url = loc.text.strip()
+                            if self._is_forbidden_url(url):
+                                continue
                             lastmod_tag = url_tag.find('lastmod')
                             lastmod_date = None
                             if lastmod_tag and lastmod_tag.text:
@@ -246,7 +298,11 @@ class ServiceUtilsMixin:
 
                     # Handle plain text fallback
                     content_text = content.decode("utf-8", errors="ignore")
-                    lines = [line.strip() for line in content_text.splitlines() if line.strip()]
+                    lines = [
+                        line.strip()
+                        for line in content_text.splitlines()
+                        if line.strip() and not self._is_forbidden_url(line.strip())
+                    ]
                     return lines
 
         except Exception as e:
