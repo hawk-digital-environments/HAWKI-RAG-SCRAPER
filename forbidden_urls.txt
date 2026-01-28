@@ -5,3 +5,4 @@ wiki.hawk.de
 modb21.hawk.de
 hisinone.hawk.de
 modb18.hawk.de
+www.hawk.de/de/form/contact?form_type=functioncontact

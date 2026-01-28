@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime
@@ -52,6 +53,13 @@ class ServiceInitMixin:
         self.max_browser_restarts = 3
         self.browser_restart_interval_seconds = 3600
         self.browser_last_restart = time.monotonic()
+        self.enable_browser_restarts = False
+        self.enable_memory_watchdog = True
+        self.memory_restart_threshold = 0.9
+        self.memory_resume_threshold = 0.1
+        self.memory_restart_wait_seconds = 300
+        self.restart_reason: Optional[str] = None
+        self.job_logger = logging.getLogger("crawler")
 
         self.communication_service = communication_service
         self.job_state = job_state
@@ -68,6 +76,7 @@ class ServiceInitMixin:
             self.progress_tracker = ProgressTracker(event_emitter=self.communication_service)
             self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
+            self._setup_job_error_logger()
 
         self.http_session: Optional[aiohttp.ClientSession] = None
 
@@ -101,6 +110,29 @@ class ServiceInitMixin:
             self.output_dir = self.storage_manager.get_job_directory()
         else:
             self.output_dir = Path(config.output_dir) / self.config.label
+
+    def _setup_job_error_logger(self) -> None:
+        if not self.job_id or not self.storage_manager:
+            return
+        self.storage_manager.ensure_job_directory()
+        log_path = self.storage_manager.get_job_directory() / "crawler.log"
+        logger = logging.getLogger(f"crawler.{self.job_id}")
+        handler_name = f"job_error_file_{self.job_id}"
+        for handler in logger.handlers:
+            if getattr(handler, "name", "") == handler_name:
+                self.job_logger = logger
+                return
+        handler = logging.FileHandler(log_path)
+        handler.name = handler_name
+        handler.setLevel(logging.ERROR)
+        handler.setFormatter(
+            logging.Formatter(
+                f"{self.job_id} - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+        )
+        logger.addHandler(handler)
+        logger.propagate = True
+        self.job_logger = logger
 
     async def setup_directories(self):
         """Create necessary directories"""

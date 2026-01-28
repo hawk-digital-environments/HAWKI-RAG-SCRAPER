@@ -16,6 +16,23 @@ from src.crawler.storage.summary_manager import SummaryManager
 
 
 class ServiceCrawlMixin:
+    def _looks_like_file_url(self, url: str) -> bool:
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+        if path.endswith(".exe"):
+            return True
+        if path.endswith(".pdf"):
+            return True
+        extensions = (
+            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
+            ".odp", ".rtf", ".txt", ".csv", ".zip", ".rar", ".7z"
+        )
+        if path.endswith(extensions):
+            return True
+        if "/media/" in path and not path.endswith(".pdf"):
+            return True
+        return False
+
     async def _trigger_safe_stop(self, reason: str) -> None:
         async with self.abort_lock:
             if self.abort_crawl:
@@ -25,10 +42,53 @@ class ServiceCrawlMixin:
             self.to_visit.clear()
 
     async def _request_browser_restart(self, url: str) -> None:
+        if not self.enable_browser_restarts:
+            return
         async with self.restart_lock:
             if url not in self.restart_urls:
                 self.restart_urls.append(url)
             self.restart_crawler = True
+            self.restart_reason = "browser_closed"
+
+    def _get_memory_usage_ratio(self) -> Optional[float]:
+        """Return memory usage ratio based on cgroup limits, or None if unavailable."""
+        paths = [
+            ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+            ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+        ]
+        for current_path, max_path in paths:
+            try:
+                with open(current_path, "r", encoding="utf-8") as f:
+                    current = f.read().strip()
+                with open(max_path, "r", encoding="utf-8") as f:
+                    limit = f.read().strip()
+                if limit == "max":
+                    return None
+                current_val = float(current)
+                limit_val = float(limit)
+                if limit_val <= 0:
+                    return None
+                return current_val / limit_val
+            except Exception:
+                continue
+        return None
+
+    async def _wait_for_memory_relief(self) -> None:
+        """Block until memory usage drops below resume threshold."""
+        if not self.enable_memory_watchdog:
+            return
+        deadline = time.monotonic() + self.memory_restart_wait_seconds
+        while True:
+            ratio = self._get_memory_usage_ratio()
+            if ratio is None or ratio <= self.memory_resume_threshold:
+                return
+            if time.monotonic() >= deadline:
+                self.job_logger.error(
+                    "memory watchdog timeout: usage %.1f%% still above resume threshold",
+                    ratio * 100 if ratio is not None else -1,
+                )
+                return
+            await asyncio.sleep(5)
 
     async def _update_total_urls(self, new_total: int) -> None:
         if new_total <= 0:
@@ -75,7 +135,7 @@ class ServiceCrawlMixin:
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
 
-    async def crawl_page(self, url: str, crawler: AsyncWebCrawler):
+    async def crawl_page(self, url: str, crawler: AsyncWebCrawler, crawl_result: Optional[object] = None):
         """Crawl a single page"""
         async with self.semaphore:
             if self.abort_crawl:
@@ -248,17 +308,20 @@ class ServiceCrawlMixin:
                         head_status=head_status,
                         depth=self.url_depth.get(url, 0),
                         source_type=self.url_source.get(url, 'seed'),
-                        url_hash=url_hash
+                        url_hash=url_hash,
+                        crawl_result=crawl_result
                     )
                 except RuntimeError as exc:
                     if str(exc).startswith("browser_closed:"):
-                        print(f"Browser context closed; requesting restart and retry for {url}")
-                        await self._request_browser_restart(url)
+                        self.job_logger.error("browser context closed for %s", url)
                         async with self.counter_lock:
                             self.page_counter -= 1
                             self.visited_urls.discard(url)
                         if self.url_tracking_manager:
-                            await self.url_tracking_manager.set_pending(url)
+                            await self.url_tracking_manager.set_failed(
+                                url,
+                                "browser context closed"
+                            )
                         return
                     raise
 
@@ -368,7 +431,22 @@ class ServiceCrawlMixin:
             or self.page_counter < self.config.max_pages
             or self.allow_over_max_pages
         ):
-            if time.monotonic() - self.browser_last_restart >= self.browser_restart_interval_seconds:
+            if self.enable_memory_watchdog:
+                ratio = self._get_memory_usage_ratio()
+                if ratio is not None and ratio >= self.memory_restart_threshold:
+                    self.job_logger.error(
+                        "memory watchdog triggered: usage %.1f%% >= %.1f%%",
+                        ratio * 100,
+                        self.memory_restart_threshold * 100,
+                    )
+                    self.restart_crawler = True
+                    self.restart_reason = "memory"
+                    break
+            if (
+                self.enable_browser_restarts
+                and self.browser_restart_interval_seconds > 0
+                and time.monotonic() - self.browser_last_restart >= self.browser_restart_interval_seconds
+            ):
                 print("Restarting browser: reached hourly restart interval")
                 self.restart_crawler = True
                 break
@@ -376,7 +454,32 @@ class ServiceCrawlMixin:
             batch = self.to_visit[:batch_size]
             self.to_visit = self.to_visit[batch_size:]
 
-            tasks = [self.crawl_page(url, crawler) for url in batch]
+            batch_html = [url for url in batch if not self._looks_like_file_url(url)]
+            batch_direct = [url for url in batch if url not in batch_html]
+
+            results_by_url = {}
+            if batch_html:
+                run_config = self._build_run_config()
+                try:
+                    results = await crawler.arun_many(batch_html, config=run_config)
+                    if hasattr(results, "__aiter__"):
+                        results = [r async for r in results]
+                    for result in results:
+                        for key in (
+                            getattr(result, "url", None),
+                            getattr(result, "page_url", None),
+                            getattr(result, "final_url", None),
+                        ):
+                            if key:
+                                results_by_url.setdefault(key, result)
+                except Exception as exc:
+                    self.job_logger.error("crawl4ai arun_many failed: %s", exc)
+
+            tasks = [
+                self.crawl_page(url, crawler, crawl_result=results_by_url.get(url))
+                for url in batch_html
+            ]
+            tasks.extend(self.crawl_page(url, crawler) for url in batch_direct)
             await asyncio.gather(*tasks, return_exceptions=True)
             if self.abort_crawl:
                 break
@@ -417,7 +520,7 @@ class ServiceCrawlMixin:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
-                        if self._is_forbidden_host((urlparse(url).hostname or "").lower()):
+                        if self._is_forbidden_url(url):
                             continue
                         status = (meta or {}).get("status")
                         if status in ("pending", "failed", "processing"):
@@ -513,16 +616,28 @@ class ServiceCrawlMixin:
                     restart_urls = list(self.restart_urls)
                     self.restart_urls.clear()
                     self.restart_crawler = False
+                    restart_reason = self.restart_reason
+                    self.restart_reason = None
 
-                if self.browser_restart_count > self.max_browser_restarts:
+                if (
+                    restart_reason != "memory"
+                    and self.enable_browser_restarts
+                    and self.browser_restart_count > self.max_browser_restarts
+                ):
                     raise RuntimeError("Aborting crawl: exceeded maximum browser restarts")
 
+                if restart_reason == "memory":
+                    await self._wait_for_memory_relief()
+
                 for retry_url in restart_urls:
+                    if self._is_forbidden_url(retry_url):
+                        continue
                     if retry_url not in self.to_visit:
                         self.to_visit.insert(0, retry_url)
 
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
+                    failed_urls = [url for url in failed_urls if not self._is_forbidden_url(url)]
                     if len(failed_urls) > 1:
                         rescrape_round = 0
                         max_rescrape_rounds = 10
@@ -572,6 +687,7 @@ class ServiceCrawlMixin:
 
         except Exception as e:
             error_msg = str(e)
+            self.job_logger.error("crawl exception: %s", error_msg, exc_info=True)
             print(f"Crawl job failed: {error_msg}")
 
             if self.progress_tracker:
