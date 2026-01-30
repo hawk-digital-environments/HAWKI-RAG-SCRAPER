@@ -33,6 +33,7 @@ Lifecycle:
 """
 
 import json
+import os
 import asyncio
 import hashlib
 from urllib.parse import urlparse
@@ -92,6 +93,47 @@ class URLTrackingManager:
         # In-memory state - dictionary for unique URLs only
         self.urls: Dict[str, Dict[str, Any]] = {}
         self.total_entries_detected: int = 0  # Track total including duplicates
+        self._forbidden_hosts, self._forbidden_patterns = self._load_forbidden_rules()
+
+    def _load_forbidden_rules(self) -> tuple[set, list]:
+        paths = []
+        env_path = os.getenv("FORBIDDEN_URLS_PATH")
+        if env_path:
+            paths.append(Path(env_path))
+        paths.append(Path("/app/forbidden_urls.txt"))
+        paths.append(Path(__file__).resolve().parents[3] / "forbidden_urls.txt")
+        forbidden_path = next((p for p in paths if p.exists()), None)
+        if not forbidden_path:
+            return set(), []
+
+        hosts = set()
+        patterns = []
+        for raw in forbidden_path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            lower = line.lower()
+            if "://" in lower or "/" in lower or "?" in lower:
+                patterns.append(lower)
+            else:
+                hosts.add(lower)
+        return hosts, patterns
+
+    def _is_forbidden_url(self, url: str) -> bool:
+        if not url:
+            return False
+        lower = url.lower()
+        host = (urlparse(url).hostname or "").lower()
+        if host:
+            if host in self._forbidden_hosts:
+                return True
+            for block in self._forbidden_hosts:
+                if host.endswith(f".{block}"):
+                    return True
+        for pattern in self._forbidden_patterns:
+            if pattern in lower:
+                return True
+        return False
 
     async def initialize(self):
         """
@@ -127,6 +169,8 @@ class URLTrackingManager:
 
             # Add only unique URLs
             for url, sitemap_date in urls_with_dates:
+                if self._is_forbidden_url(url):
+                    continue
                 if url not in self.urls:
                     self.urls[url] = {
                         "status": "pending",
@@ -154,6 +198,8 @@ class URLTrackingManager:
             sitemap_date: Optional sitemap lastmod date if available
         """
         async with self.lock:
+            if self._is_forbidden_url(url):
+                return
             if url not in self.urls:
                 timestamp = datetime.utcnow().isoformat() + "Z"
                 self.total_entries_detected += 1
@@ -339,6 +385,15 @@ class URLTrackingManager:
             # Write each chunk
             for chunk_num, chunk_data in chunks.items():
                 await self._write_chunk(chunk_num, chunk_data)
+
+            # Remove stale chunk files that no longer belong to the current set
+            expected = {self._get_chunk_file(num).name for num in chunks.keys()}
+            for chunk_file in self.chunks_dir.glob("urls_chunk_*.json"):
+                if chunk_file.name not in expected:
+                    try:
+                        chunk_file.unlink()
+                    except Exception as e:
+                        print(f"Warning: Failed to delete stale URL chunk {chunk_file} for {self.job_id}: {e}")
 
             # Write index
             await self._write_index()
