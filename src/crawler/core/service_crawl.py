@@ -105,6 +105,8 @@ class ServiceCrawlMixin:
     async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
         """Save page data to JSON and markdown files in hash-based directory"""
         low_quality_content = page_data.get('low_quality_content')
+        raw_html = (page_data.get('data') or {}).get('html_content')
+        should_save_raw = bool(raw_html) and (low_quality_content or not page_data.get('markdown'))
         if self.storage_manager and url_hash:
             self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
             await self.storage_manager.save_hash_json(url_hash, page_data['data'])
@@ -113,6 +115,10 @@ class ServiceCrawlMixin:
                 low_q_file = self.storage_manager.get_hash_directory(url_hash) / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
+            if should_save_raw:
+                raw_file = self.storage_manager.get_hash_directory(url_hash) / "raw.html"
+                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
+                    await f.write(raw_html)
         elif self.storage_manager:
             page_dir = await self.create_page_directory(page_number)
             await self.storage_manager.save_page_json(page_number, page_data['data'])
@@ -121,6 +127,10 @@ class ServiceCrawlMixin:
                 low_q_file = page_dir / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
+            if should_save_raw:
+                raw_file = page_dir / "raw.html"
+                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
+                    await f.write(raw_html)
         else:
             page_dir = await self.create_page_directory(page_number)
             json_filename = page_dir / f"data_{page_number:05d}.json"
@@ -134,6 +144,10 @@ class ServiceCrawlMixin:
                 low_q_file = page_dir / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
+            if should_save_raw:
+                raw_file = page_dir / "raw.html"
+                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
+                    await f.write(raw_html)
 
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler, crawl_result: Optional[object] = None):
         """Crawl a single page"""
@@ -543,8 +557,15 @@ class ServiceCrawlMixin:
             await self._send_stage(Stage.INITIALIZATION)
 
             start_url = str(self.config.url)
+            sitemap_only = bool(getattr(self.config, "sitemap_only", False))
+            if sitemap_only:
+                self.config.discovery_mode = False
             print(f"Crawl for {start_url}")
             if resume_urls:
+                if sitemap_only:
+                    resume_urls = [
+                        url for url in resume_urls if self._lookup_sitemap_entry(url)
+                    ]
                 self.to_visit = resume_urls
                 for u in self.to_visit:
                     self.url_depth[u] = 0
@@ -561,7 +582,10 @@ class ServiceCrawlMixin:
 
                 await self._send_stage(Stage.SITEMAP_DETECTED, {"sitemap_url": start_url, "total_urls": len(urls)})
 
-                urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
+                if sitemap_only:
+                    urls_to_crawl = urls
+                else:
+                    urls_to_crawl = urls[:self.config.max_pages] if self.config.max_pages > 0 else urls
                 self.to_visit = urls_to_crawl
                 for u in self.to_visit:
                     self.url_depth[u] = 0
@@ -569,6 +593,20 @@ class ServiceCrawlMixin:
                 print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
 
                 await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(urls), "total_to_crawl": len(self.to_visit)})
+                if self.job_state:
+                    await self.job_state.set_total_urls(len(self.to_visit))
+                if self.progress_tracker:
+                    await self.progress_tracker.set_total_urls(len(self.to_visit))
+            elif sitemap_only and not resume_urls:
+                sitemap_urls = list(self.sitemap_map.keys()) if self.sitemap_map else []
+                if not sitemap_urls:
+                    raise RuntimeError("Sitemap-only crawl requested but no sitemap URLs are available.")
+                self.to_visit = sitemap_urls
+                for u in self.to_visit:
+                    self.url_depth[u] = 0
+                    self.url_source[u] = "sitemap"
+                print(f"Sitemap-only crawl: will crawl {len(self.to_visit)} URLs")
+                await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(self.to_visit), "total_to_crawl": len(self.to_visit)})
                 if self.job_state:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:

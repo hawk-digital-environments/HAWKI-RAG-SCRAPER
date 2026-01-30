@@ -17,6 +17,10 @@ class CrawlConfig(BaseModel):
     max_rpm: int = Field(default=60, ge=1, description="Maximum requests per minute")
     request_delay: Optional[int] = Field(default=None, ge=0, description="Delay between requests in milliseconds")
     discovery_mode: bool = Field(default=False, description="Discover URLs inside the given page")
+    sitemap_only: bool = Field(
+        default=False,
+        description="Crawl only sitemap entries (no discovery and no non-sitemap URLs)",
+    )
     sitemap: bool = Field(default=False, alias="hawk_sitemap", description="Pre-scrape the sitemap before crawling")
     rescrape_failed: bool = Field(default=False, description="Rescrape failed URLs from existing job state")
     min_word_count: int = Field(default=20, ge=0, description="Minimum word count for content quality (0 disables filter)")

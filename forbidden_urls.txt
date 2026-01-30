@@ -60,3 +60,7 @@ blue-flash-hawk.de
 goe-mx-21.hawk.de
 hawki-info.hawk.de
 amrl.hawk.de
+publikationsserver.hawk.de
+studienportal.hawk.de
+https://www.hawk.de/en/form/contact?form_type=functioncontac
+https://hawk.de/de/form/contact?form_type=functioncontact
