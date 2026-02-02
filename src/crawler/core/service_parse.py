@@ -21,6 +21,20 @@ from src.crawler.core.service_utils import assess_content_quality
 
 
 class ServiceParseMixin:
+    def _fix_mojibake(self, text: str) -> str:
+        """Attempt to fix UTF-8 text that was decoded as latin-1/Windows-1252."""
+        if not text:
+            return text
+        if not re.search(r"[Ãâ�]", text):
+            return text
+        try:
+            repaired = text.encode("latin1").decode("utf-8")
+        except Exception:
+            return text
+        original_score = text.count("Ã") + text.count("â")
+        repaired_score = repaired.count("Ã") + repaired.count("â")
+        return repaired if repaired_score < original_score else text
+
     def _build_run_config(self) -> CrawlerRunConfig:
         return CrawlerRunConfig(
             word_count_threshold=0,
@@ -470,6 +484,7 @@ class ServiceParseMixin:
                 lines = [line.strip() for line in text_content.split('\n') if line.strip()]
                 markdown_content = '\n\n'.join(lines)
 
+            markdown_content = self._fix_mojibake(markdown_content)
             markdown_content = filter_markdown_lines(markdown_content)
             quality = assess_content_quality(markdown_content, self.config.min_word_count)
             low_quality_content = None
@@ -483,7 +498,7 @@ class ServiceParseMixin:
             title = []
             title_tag = soup.find('title')
             if title_tag:
-                title.append(title_tag.text.strip())
+                title.append(self._fix_mojibake(title_tag.text.strip()))
             canonical_url = None
             canonical_tag = soup.find('link', rel='canonical')
             if canonical_tag and canonical_tag.get('href'):
