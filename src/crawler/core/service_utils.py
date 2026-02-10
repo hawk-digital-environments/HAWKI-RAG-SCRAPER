@@ -144,6 +144,33 @@ class ServiceUtilsMixin:
             url = url[len("www."):]
         return url.rstrip("/")
 
+    def _normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]:
+        """Normalize sitemap metadata into a dict with a last_modified key when possible."""
+        if isinstance(meta, dict):
+            normalized = dict(meta)
+        else:
+            normalized = {"last_modified": meta}
+        if not normalized.get("last_modified"):
+            normalized["last_modified"] = (
+                normalized.get("lastmod")
+                or normalized.get("date")
+                or normalized.get("published_at")
+            )
+        return normalized
+
+    def _get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Return the sitemap date from a sitemap entry when available."""
+        if not entry:
+            return None
+        if not isinstance(entry, dict):
+            return str(entry)
+        return (
+            entry.get("last_modified")
+            or entry.get("lastmod")
+            or entry.get("date")
+            or entry.get("published_at")
+        )
+
     def _load_sitemap_map(self, path: str) -> Dict[str, Dict[str, str]]:
         """Load sitemap JSON into a normalized dict; silent fallback to empty."""
         if not path:
@@ -158,10 +185,7 @@ class ServiceUtilsMixin:
                 key = self._normalize_url_key(url)
                 if not key:
                     continue
-                if isinstance(meta, dict):
-                    normalized[key] = meta
-                else:
-                    normalized[key] = {"last_modified": meta}
+                normalized[key] = self._normalize_sitemap_meta(meta)
             return normalized
         except Exception:
             return {}
@@ -247,13 +271,15 @@ class ServiceUtilsMixin:
                             for url, meta in data.items():
                                 if self._is_forbidden_url(url):
                                     continue
-                                lastmod_date = None
-                                if isinstance(meta, dict):
-                                    lastmod_date = meta.get("last_modified") or meta.get("lastmod") or meta.get("date")
+                                normalized_meta = self._normalize_sitemap_meta(meta)
+                                lastmod_date = self._get_sitemap_date(normalized_meta)
                                 if lastmod_date:
                                     self.sitemap_lastmod[url] = lastmod_date
                                 urls_with_dates.append((url, lastmod_date))
                                 urls.append(url)
+                                key = self._normalize_url_key(url)
+                                if key:
+                                    self.sitemap_map[key] = normalized_meta
                             print(f"Detected JSON sitemap with {len(urls)} URLs")
                         except Exception as e:
                             print(f"Error parsing JSON sitemap: {e}")

@@ -10,7 +10,6 @@ rplan.hawk.de
 hornemann-institut.hawk.de
 stage.hawk.de
 zzhh.hawk.de
-projekte.g.hawk.de
 hands-on.hawk.de
 campus.hawk.de
 qualitaetlehre.hawk.de
