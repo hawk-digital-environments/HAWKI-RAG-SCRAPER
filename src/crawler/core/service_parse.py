@@ -517,7 +517,13 @@ class ServiceParseMixin:
             entry = self._first_sitemap_entry(url, final_url)
 
             lang = self.detect_language(result.html, head_headers, url=final_url or url, sitemap_entry=entry)
-            sitemap_date = entry.get("last_modified") if entry else None
+            sitemap_date = self._get_sitemap_date(entry)
+            if not sitemap_date and self.url_tracking_manager:
+                url_state = await self.url_tracking_manager.get_url_state(final_url or url)
+                if not url_state and final_url and final_url != url:
+                    url_state = await self.url_tracking_manager.get_url_state(url)
+                if url_state:
+                    sitemap_date = url_state.get("sitemap_date")
             published_at = sitemap_date
             updated_at = sitemap_date
 

@@ -269,7 +269,7 @@ class ServiceCrawlMixin:
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
-                    updated_at = sitemap_entry.get("last_modified")
+                    updated_at = self._get_sitemap_date(sitemap_entry)
                     if not updated_at:
                         updated_at = datetime.now().isoformat()
                     page_data = {
@@ -293,7 +293,7 @@ class ServiceCrawlMixin:
                 if file_entry:
                     file_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
-                    updated_at = sitemap_entry.get("last_modified")
+                    updated_at = self._get_sitemap_date(sitemap_entry)
                     if not updated_at:
                         updated_at = datetime.now().isoformat()
                     page_data = {
@@ -418,7 +418,7 @@ class ServiceCrawlMixin:
                                 await self.url_tracking_manager.add_url(
                                     new_url,
                                     source="discovery",
-                                    sitemap_date=sitemap_entry.get("last_modified")
+                                    sitemap_date=self._get_sitemap_date(sitemap_entry)
                                 )
                             await self._update_total_urls(len(self.visited_urls) + len(self.to_visit))
             else:
@@ -621,7 +621,7 @@ class ServiceCrawlMixin:
                     await self.url_tracking_manager.add_url(
                         start_url,
                         source="seed",
-                        sitemap_date=sitemap_entry.get("last_modified")
+                        sitemap_date=self._get_sitemap_date(sitemap_entry)
                     )
                 if self.job_state:
                     await self.job_state.set_total_urls(1)

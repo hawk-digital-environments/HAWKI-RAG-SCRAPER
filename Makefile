@@ -98,7 +98,7 @@ crawl-projekt:
 		sh -lc 'mkdir -p $(SITEMAP_DIR) && curl -sSfL "$(PROJEKT_SITEMAP_JSON)" -o $(PROJEKT_SITEMAP_FILE)'
 	curl -s -X POST http://localhost:8040/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 2000, "discovery_mode": false, "skip_images": false, "max_concurrency": 2, "max_rpm": 40}' \
+		-d '{"url": "$(PROJEKT_SITEMAP_JSON)", "job_id":"$(PROJEKT_JOB_ID)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 6000, "discovery_mode": false, "skip_images": false, "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-projekt-auto:
