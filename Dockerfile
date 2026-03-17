@@ -58,7 +58,6 @@ RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY src/ ./src/
-COPY data/ ./data/
 
 # Ensure src is on PYTHONPATH for runtime
 ENV PYTHONPATH="/app/src:${PYTHONPATH}"
