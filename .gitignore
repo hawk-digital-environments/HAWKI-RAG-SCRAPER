@@ -38,7 +38,8 @@ crawl4ai-env/
 # Output directories
 output/
 *.log
-
+*.txt
+*.json
 # Environment variables
 .env
 .env.local
