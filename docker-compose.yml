@@ -34,8 +34,8 @@ services:
       # Data storage path for job files
       - DATA_PATH=${DATA_PATH:-/app/shared}
     volumes:
-      # Mount data directory for job-specific storage (new structure)
-      - ./data:/app/data
+      # Site profiles
+      - ./profiles:/app/profiles:ro
       # Mount output directory for backwards compatibility
       - ./output:/app/output
       # Forbidden hosts list

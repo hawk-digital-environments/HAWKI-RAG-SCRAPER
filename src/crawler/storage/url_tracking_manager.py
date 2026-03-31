@@ -75,7 +75,14 @@ class URLTrackingManager:
 
     CHUNK_SIZE = 2000  # Unique URLs per chunk file
 
-    def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
+    def __init__(
+        self,
+        job_id: str,
+        base_path: str = "/app/data/jobs",
+        forbidden_hosts: Optional[List[str]] = None,
+        forbidden_patterns: Optional[List[str]] = None,
+        forbidden_rules_file: Optional[str] = None,
+    ):
         """
         Initialize URL tracking manager.
 
@@ -93,6 +100,9 @@ class URLTrackingManager:
         # In-memory state - dictionary for unique URLs only
         self.urls: Dict[str, Dict[str, Any]] = {}
         self.total_entries_detected: int = 0  # Track total including duplicates
+        self._profile_forbidden_hosts = {h.lower() for h in (forbidden_hosts or [])}
+        self._profile_forbidden_patterns = [p.lower() for p in (forbidden_patterns or [])]
+        self._forbidden_rules_file = forbidden_rules_file
         self._forbidden_hosts, self._forbidden_patterns = self._load_forbidden_rules()
 
     def _load_forbidden_rules(self) -> tuple[set, list]:
@@ -100,23 +110,23 @@ class URLTrackingManager:
         env_path = os.getenv("FORBIDDEN_URLS_PATH")
         if env_path:
             paths.append(Path(env_path))
+        if self._forbidden_rules_file:
+            paths.append(Path(self._forbidden_rules_file))
         paths.append(Path("/app/forbidden_urls.txt"))
         paths.append(Path(__file__).resolve().parents[3] / "forbidden_urls.txt")
         forbidden_path = next((p for p in paths if p.exists()), None)
-        if not forbidden_path:
-            return set(), []
-
-        hosts = set()
-        patterns = []
-        for raw in forbidden_path.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            lower = line.lower()
-            if "://" in lower or "/" in lower or "?" in lower:
-                patterns.append(lower)
-            else:
-                hosts.add(lower)
+        hosts = set(self._profile_forbidden_hosts)
+        patterns = list(self._profile_forbidden_patterns)
+        if forbidden_path:
+            for raw in forbidden_path.read_text().splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                lower = line.lower()
+                if "://" in lower or "/" in lower or "?" in lower:
+                    patterns.append(lower)
+                else:
+                    hosts.add(lower)
         return hosts, patterns
 
     def _is_forbidden_url(self, url: str) -> bool:

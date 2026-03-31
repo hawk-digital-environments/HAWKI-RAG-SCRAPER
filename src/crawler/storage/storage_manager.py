@@ -13,13 +13,14 @@ Why this exists:
 Directory Structure:
 /app/data/jobs/{job_id}/
     ├── job_state.json          # Job metadata (managed by JobStateManager)
-    ├── {hash[0]}/{hash[1]}/{hash[2]}/{hash[3]}/{full_hash}/
-    │   ├── data.json           # Page metadata
-    │   ├── content.md          # Extracted content
-    │   ├── images/             # Downloaded images
-    │   │   └── image1.jpg
-    │   └── files/              # Downloaded PDFs
-    │       └── file1.pdf
+    ├── pages/
+    │   └── {hash[0]}/{hash[1]}/{hash[2]}/{hash[3]}/{full_hash}/
+    │       ├── data.json       # Page metadata
+    │       ├── content.md      # Extracted content
+    │       ├── images/         # Downloaded images
+    │       │   └── image1.jpg
+    │       └── files/          # Downloaded PDFs and files
+    │           └── file1.pdf
     └── ...
 
 Lifecycle:
@@ -33,6 +34,12 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import aiofiles
+
+from src.crawler.storage.page_output import (
+    CONTENT_FILENAME,
+    METADATA_FILENAME,
+    PAGE_ROOT_DIRNAME,
+)
 
 
 class StorageManager:
@@ -80,7 +87,7 @@ class StorageManager:
             # Fallback for invalid hashes
             return self.job_dir / url_hash
 
-        return self.job_dir / url_hash[0] / url_hash[1] / url_hash[2] / url_hash[3] / url_hash
+        return self.job_dir / PAGE_ROOT_DIRNAME / url_hash[0] / url_hash[1] / url_hash[2] / url_hash[3] / url_hash
 
     def get_page_directory(self, page_number: int) -> Path:
         """
@@ -92,7 +99,7 @@ class StorageManager:
         Returns:
             Path to page directory
         """
-        return self.job_dir / f"page_{page_number:05d}"
+        return self.job_dir / PAGE_ROOT_DIRNAME / f"page_{page_number:05d}"
 
     def create_hash_directory(
         self,
@@ -180,10 +187,10 @@ class StorageManager:
             data: Dictionary to save as JSON
         """
         hash_dir = self.get_hash_directory(url_hash)
-        json_file = hash_dir / "data.json"
+        json_file = hash_dir / METADATA_FILENAME
 
         async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
 
     async def save_hash_content(self, url_hash: str, content: str):
         """
@@ -194,7 +201,7 @@ class StorageManager:
             content: Content to save
         """
         hash_dir = self.get_hash_directory(url_hash)
-        content_file = hash_dir / "content.md"
+        content_file = hash_dir / CONTENT_FILENAME
 
         async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
             await f.write(content if content else "")
@@ -209,10 +216,10 @@ class StorageManager:
             data: Dictionary to save as JSON
         """
         page_dir = self.get_page_directory(page_number)
-        json_file = page_dir / f"data_{page_number:05d}.json"
+        json_file = page_dir / METADATA_FILENAME
 
         async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
 
     async def save_page_content(self, page_number: int, content: str):
         """
@@ -224,7 +231,7 @@ class StorageManager:
             content: Content to save
         """
         page_dir = self.get_page_directory(page_number)
-        content_file = page_dir / f"content_{page_number:05d}.md"
+        content_file = page_dir / CONTENT_FILENAME
 
         async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
             await f.write(content if content else "")

@@ -5,7 +5,7 @@ wiki.hawk.de
 modb21.hawk.de
 hisinone.hawk.de
 modb18.hawk.de
-www.hawk.de/de/form/contact?form_type=functioncontact
+/de/form/contact?form_type=functioncontact
 rplan.hawk.de
 hornemann-institut.hawk.de
 stage.hawk.de
@@ -61,5 +61,4 @@ hawki-info.hawk.de
 amrl.hawk.de
 publikationsserver.hawk.de
 studienportal.hawk.de
-https://www.hawk.de/en/form/contact?form_type=functioncontac
-https://hawk.de/de/form/contact?form_type=functioncontact
+/en/form/contact?form_type=functioncontact

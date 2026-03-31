@@ -105,7 +105,7 @@ Unified job state object with observer pattern for automatic synchronization.
 ```python
 from src.crawler.state import JobState
 
-job_state = JobState(job_id="123", base_path="/app/data/jobs")
+job_state = JobState(job_id="123", base_path="/app/shared")
 await job_state.initialize()
 
 # Register observer for auto-broadcasting
@@ -156,7 +156,7 @@ Centralized file I/O operations for job data with hash-based directories.
 ```python
 from src.crawler.storage import StorageManager
 
-storage = StorageManager(job_id, base_path="/app/data/jobs")
+storage = StorageManager(job_id, base_path="/app/shared")
 hash_dir = storage.create_hash_directory(url_hash)
 await storage.save_hash_json(url_hash, metadata)
 await storage.save_hash_content(url_hash, markdown_content)

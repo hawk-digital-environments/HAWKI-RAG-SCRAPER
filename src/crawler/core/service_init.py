@@ -16,6 +16,7 @@ from src.crawler.storage.url_tracking_manager import URLTrackingManager
 from src.crawler.storage.summary_manager import SummaryManager
 from src.crawler.core.service_rate import RateLimiter
 from src.crawler.core.sitemap_scraper import DEFAULT_SITEMAP_BASE
+from src.crawler.profiles import resolve_site_profile
 
 
 class ServiceInitMixin:
@@ -65,6 +66,7 @@ class ServiceInitMixin:
         self.job_state = job_state
         self.storage_manager = storage_manager
         self.job_id = job_id
+        self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
 
         self.progress_tracker = None
         self.url_tracking_manager = None
@@ -74,7 +76,13 @@ class ServiceInitMixin:
         if self.job_id and self.storage_manager:
             base_path = str(self.storage_manager.base_path)
             self.progress_tracker = ProgressTracker(event_emitter=self.communication_service)
-            self.url_tracking_manager = URLTrackingManager(job_id=job_id, base_path=base_path)
+            self.url_tracking_manager = URLTrackingManager(
+                job_id=job_id,
+                base_path=base_path,
+                forbidden_hosts=self.site_profile.get("forbidden", {}).get("hosts"),
+                forbidden_patterns=self.site_profile.get("forbidden", {}).get("url_patterns"),
+                forbidden_rules_file=self.site_profile.get("forbidden", {}).get("rules_file"),
+            )
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
             self._setup_job_error_logger()
 
@@ -85,12 +93,14 @@ class ServiceInitMixin:
             default_sitemap_path = str(self.storage_manager.get_job_directory() / "sitemap.json")
         self.sitemap_path = (
             self.config.sitemap_output
+            or os.getenv("SITE_SITEMAP_JSON")
             or os.getenv("SITEMAP_JSON")
-            or os.getenv("HAWK_SITEMAP_JSON")
             or default_sitemap_path
         )
         self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
-        self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", DEFAULT_SITEMAP_BASE)
+        self.sitemap_urls = self._load_sitemap_urls(self.sitemap_path)
+        profile_sitemap = self.site_profile.get("sitemap", {})
+        self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", profile_sitemap.get("base_url", DEFAULT_SITEMAP_BASE))
         self.crawl_host = urlparse(str(self.config.url)).hostname
 
         self.headers = {

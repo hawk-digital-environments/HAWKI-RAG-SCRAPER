@@ -27,11 +27,12 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_SITEMAP_BASE = "https://www.hawk.de/sitemaps/main/sitemap.xml"
+DEFAULT_SITEMAP_BASE = ""
 DEFAULT_TIMEOUT_MS = 150000
 DEFAULT_WAIT_UNTIL = "domcontentloaded"
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TABLE_SELECTOR = "table"
+DEFAULT_OUTPUT_PATH = Path("data/sitemap.json")
 DEFAULT_HEADER_KEYWORDS = {
     "url": ["url"],
     "last_modified": ["letztes", "lastmod", "geandert", "modified"],
@@ -61,27 +62,35 @@ class SitemapScraper:
         lang_regex: Optional[str] = None,
     ):
         profile_data = self._load_profile(profile) if profile else {}
+        sitemap_profile = profile_data.get("sitemap", profile_data)
 
-        self.base_url = (profile_data.get("base_url") or base_url).rstrip("/")
-        self.start_page = int(profile_data.get("start_page", start_page))
-        self.max_pages = int(profile_data.get("pages", max_pages))
-        self.output_path = Path(profile_data.get("output_path", output_path))
+        self.base_url = (sitemap_profile.get("base_url") or base_url).rstrip("/")
+        self.start_page = int(sitemap_profile.get("start_page", start_page))
+        self.max_pages = int(sitemap_profile.get("pages", max_pages))
+        explicit_output = Path(output_path)
+        profile_output = sitemap_profile.get("output_path")
+        self.output_path = (
+            explicit_output
+            if str(explicit_output) != str(DEFAULT_OUTPUT_PATH)
+            else Path(profile_output or explicit_output)
+        )
         self.page_timeout = page_timeout
         self.wait_until = wait_until
         self.max_retries = max_retries
-        self.table_selector = profile_data.get("table_selector") or table_selector or DEFAULT_TABLE_SELECTOR
+        self.table_selector = sitemap_profile.get("table_selector") or table_selector or DEFAULT_TABLE_SELECTOR
         self.header_keywords = {
-            "url": profile_data.get("headers", {}).get("url")
+            "url": sitemap_profile.get("headers", {}).get("url")
                    or (header_keywords or {}).get("url")
                    or DEFAULT_HEADER_KEYWORDS["url"],
-            "last_modified": profile_data.get("headers", {}).get("lastmod") or profile_data.get("headers", {}).get("last_modified")
+            "last_modified": sitemap_profile.get("headers", {}).get("lastmod") or sitemap_profile.get("headers", {}).get("last_modified")
                              or (header_keywords or {}).get("last_modified")
                              or DEFAULT_HEADER_KEYWORDS["last_modified"],
-            "language": profile_data.get("headers", {}).get("lang") or profile_data.get("headers", {}).get("language")
+            "language": sitemap_profile.get("headers", {}).get("lang") or sitemap_profile.get("headers", {}).get("language")
                         or (header_keywords or {}).get("language")
                         or DEFAULT_HEADER_KEYWORDS["language"],
         }
-        lang_regex_str = profile_data.get("lang_from_url_regex") or lang_regex
+        self.language_prefixes = sitemap_profile.get("language_prefixes") or {}
+        lang_regex_str = sitemap_profile.get("lang_from_url_regex") or lang_regex
         self.lang_regex: Optional[Pattern[str]] = re.compile(lang_regex_str, re.IGNORECASE) if lang_regex_str else None
 
         self.run_config = CrawlerRunConfig(
@@ -96,9 +105,11 @@ class SitemapScraper:
         )
 
     @staticmethod
-    def _load_profile(profile_path: Union[str, Path]) -> Dict:
-        """Load a site profile from JSON/YAML; unknown/invalid -> {}."""
+    def _load_profile(profile_path: Union[str, Path, Dict]) -> Dict:
+        """Load a site profile from JSON/YAML/dict; unknown/invalid -> {}."""
         try:
+            if isinstance(profile_path, dict):
+                return profile_path
             path = Path(profile_path)
             if not path.exists():
                 LOGGER.warning("Profile file %s not found; continuing with defaults.", profile_path)
@@ -180,28 +191,28 @@ class SitemapScraper:
         return _clean_text(cell.get_text(" ", strip=True))
 
     def _language_from_url(self, url: str) -> Optional[str]:
-        """
-        Infer language from URL.
-        - If lang_regex is provided, use it first.
-        - If base_url targets hawk.de, use existing en/de path heuristics.
-        - Otherwise, return None.
-        """
+        """Infer language from URL via regex, configured prefixes, and generic en/de fallback."""
         if not url:
             return None
         if self.lang_regex:
             match = self.lang_regex.search(url)
             if match and match.group(1):
                 return match.group(1).upper()
-        # Apply special-case heuristics only for hawk.de
-        if "hawk.de" not in self.base_url.lower():
-            return None
         try:
             cleaned = _clean_text(url)
             parsed = urlparse(cleaned)
         except Exception:
             return None
 
-        # Regex-based extraction between the 3rd and 4th slash
+        for prefix, language in self.language_prefixes.items():
+            prefix = str(prefix).strip("/").lower()
+            if not prefix:
+                continue
+            if re.search(rf"^https?://[^/]+/{re.escape(prefix)}(?:/|$)", cleaned, re.IGNORECASE):
+                return str(language).upper()
+            if cleaned.startswith(f"/{prefix}/") or cleaned == f"/{prefix}":
+                return str(language).upper()
+
         match = re.search(r"^https?://[^/]+/([^/]+)/", cleaned, re.IGNORECASE)
         if not match and cleaned.startswith("/"):
             match = re.search(r"^/([^/]+)/", cleaned, re.IGNORECASE)
@@ -212,7 +223,6 @@ class SitemapScraper:
             if candidate.startswith("de"):
                 return "DE"
 
-        # Fallback to path splitting
         path = parsed.path or ""
         parts = [p for p in path.split("/") if p]
         if parts:
@@ -222,7 +232,6 @@ class SitemapScraper:
             if candidate.startswith("de"):
                 return "DE"
 
-        # As a fallback, check if the path contains /en/ or /de/
         lowered_path = path.lower()
         if "/en/" in lowered_path or lowered_path.startswith("/en"):
             return "EN"
@@ -441,13 +450,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=str,
-        default="data/sitemap.json",
+        default=str(DEFAULT_OUTPUT_PATH),
         help="Where to store the generated JSON map.",
     )
     parser.add_argument(
         "--profile",
         type=str,
-        help="Path to a JSON/YAML site profile with base_url, table_selector, headers, lang_from_url_regex, pages, start_page, output_path.",
+        help="Path to a JSON/YAML site profile with sitemap settings such as base_url, selectors, headers, language rules, pages, and output_path.",
     )
     parser.add_argument(
         "--table-selector",

@@ -152,40 +152,37 @@ Health check endpoint.
 
 ## Output Structure
 
-Each crawl job creates a labeled directory with the following structure:
+Each crawl job now uses one normalized layout for every scraped website:
 
 ```
-output/
-└── example_com_20250321_143022/
-    ├── images/
-    │   ├── image1.jpg
-    │   ├── image2.png
-    │   └── ...
-    ├── data_00001.json
-    ├── site_00001.md
-    ├── data_00002.json
-    ├── site_00002.md
-    └── ...
+/app/shared/{job_id}/
+├── job_state.json
+├── summary.json
+├── pages/
+│   └── a/b/c/d/{url_hash}/
+│       ├── content.md
+│       ├── data.json
+│       ├── images/
+│       ├── files/
+│       └── diagnostics/
+└── url_chunks/
 ```
 
-### JSON Data Format (data_XXXXX.json)
+Every scraped page produces exactly:
+- `content.md` for extracted Markdown content
+- `data.json` for normalized metadata
 
-```json
-{
-  "title": ["Page Title"],
-  "page_url": ["https://example.com/page"],
-  "meta_img_url": ["https://example.com/og-image.jpg"],
-  "images": [
-    "https://example.com/image1.jpg",
-    "https://example.com/image2.png"
-  ],
-  "date": ["2025-03-21"]
-}
+`data.json` includes consistent fields for downstream conversion and ingestion, including:
+- `title`, `url`, `canonical_url`
+- `timestamps.fetched_at`, `timestamps.published_at`, `timestamps.updated_at`
+- `tags`, `images`, `documents`
+- `status.content_status` to distinguish `success`, `partial`, `empty`, and `binary`
+
+You can validate a dataset with:
+
+```bash
+python3 -m src.scripts.validate_dataset /app/shared/<job_id>
 ```
-
-### Markdown Format (site_XXXXX.md)
-
-Contains the extracted text content from the page in clean markdown format.
 
 ## Usage Examples
 
