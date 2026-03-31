@@ -9,29 +9,27 @@ from email.utils import parsedate_to_datetime
 import aiohttp
 from bs4 import BeautifulSoup
 
-from src.crawler.core.sitemap_scraper import SitemapScraper, DEFAULT_SITEMAP_BASE
+from src.crawler.core.sitemap_scraper import SitemapScraper
 
 
 class ServiceUtilsMixin:
-    _DEFAULT_FORBIDDEN_HOSTS = {
-        "mail.hawk.de",
-        "studip.hawk.de",
-        "win-it.hawk.de",
-        "wiki.hawk.de",
-        "modb21.hawk.de",
-        "modb18.hawk.de",
-        "hisinone.hawk.de",
-    }
-
-    def _get_forbidden_hosts(self) -> set:
-        """Load forbidden hosts from forbidden_urls.txt."""
-        candidates = [
+    def _get_forbidden_file_candidates(self) -> List[Path]:
+        profile_file = (getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("rules_file")
+        candidates = []
+        if profile_file:
+            candidates.append(Path(profile_file))
+        candidates.extend([
             Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
             Path("/app/forbidden_urls.txt"),
             Path("/app/shared/forbidden_urls.txt"),
             Path("forbidden_urls.txt"),
-        ]
-        hosts = set(self._DEFAULT_FORBIDDEN_HOSTS)
+        ])
+        return candidates
+
+    def _get_forbidden_hosts(self) -> set:
+        """Load forbidden hosts from forbidden_urls.txt."""
+        candidates = self._get_forbidden_file_candidates()
+        hosts = set((getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("hosts", []))
         for path in candidates:
             if not path or str(path) == ".":
                 continue
@@ -52,13 +50,8 @@ class ServiceUtilsMixin:
 
     def _get_forbidden_url_patterns(self) -> List[str]:
         """Load forbidden URL patterns from forbidden_urls.txt."""
-        candidates = [
-            Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
-            Path("/app/forbidden_urls.txt"),
-            Path("/app/shared/forbidden_urls.txt"),
-            Path("forbidden_urls.txt"),
-        ]
-        patterns: List[str] = []
+        candidates = self._get_forbidden_file_candidates()
+        patterns: List[str] = list((getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("url_patterns", []))
         for path in candidates:
             if not path or str(path) == ".":
                 continue
@@ -109,8 +102,15 @@ class ServiceUtilsMixin:
                 return True
         return False
 
+    def _allowed_discovery_hosts(self) -> List[str]:
+        profile_hosts = (getattr(self, "site_profile", {}) or {}).get("discovery", {}).get("allowed_hosts") or []
+        if profile_hosts:
+            return [str(host).lower() for host in profile_hosts]
+        crawl_host = (self.crawl_host or "").lower()
+        return [crawl_host] if crawl_host else []
+
     def _is_discovery_url_allowed(self, url: str) -> bool:
-        """Allow only HAWK-owned URLs for discovery-mode crawling."""
+        """Allow only configured discovery hosts for crawl expansion."""
         if not url:
             return False
         parsed = urlparse(url)
@@ -121,7 +121,10 @@ class ServiceUtilsMixin:
             return False
         if self._is_forbidden_url(url):
             return False
-        return host.endswith("hawk.de")
+        for allowed in self._allowed_discovery_hosts():
+            if host == allowed or host.endswith(f".{allowed}"):
+                return True
+        return False
 
     def _is_video_url(self, url: str) -> bool:
         return url.lower().split('?')[0].endswith((
@@ -190,6 +193,26 @@ class ServiceUtilsMixin:
         except Exception:
             return {}
 
+    def _load_sitemap_urls(self, path: str) -> List[str]:
+        """Load sitemap JSON and preserve full URLs for crawl seeding."""
+        if not path:
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                return []
+            urls: List[str] = []
+            for url in raw.keys():
+                if not isinstance(url, str):
+                    continue
+                if self._is_forbidden_url(url):
+                    continue
+                urls.append(url)
+            return urls
+        except Exception:
+            return []
+
     def _lookup_sitemap_entry(self, url: str) -> Optional[Dict[str, str]]:
         key = self._normalize_url_key(url)
         if not key:
@@ -219,22 +242,27 @@ class ServiceUtilsMixin:
         """Optionally scrape the sitemap JSON before crawling."""
         if not getattr(self.config, "sitemap", False):
             return
-        base_url = self.sitemap_base or DEFAULT_SITEMAP_BASE
+        sitemap_profile = (getattr(self, "site_profile", {}) or {}).get("sitemap", {})
+        base_url = self.sitemap_base or sitemap_profile.get("base_url")
+        if not base_url:
+            return
         output_path = Path(self.sitemap_path)
-        start_page = self.config.sitemap_start_page or int(os.getenv("SITEMAP_START", "1"))
-        max_pages = self.config.sitemap_pages or int(os.getenv("SITEMAP_PAGES", "6"))
+        start_page = self.config.sitemap_start_page or int(os.getenv("SITEMAP_START", str(sitemap_profile.get("start_page", "1"))))
+        max_pages = self.config.sitemap_pages or int(os.getenv("SITEMAP_PAGES", str(sitemap_profile.get("pages", "6"))))
 
         try:
             scraper = SitemapScraper(
                 base_url=base_url,
                 output_path=str(output_path),
                 start_page=start_page,
-                max_pages=max_pages
+                max_pages=max_pages,
+                profile=(getattr(self, "site_profile", {}) or {}),
             )
             await scraper.scrape()
             self.sitemap_map = self._load_sitemap_map(str(output_path))
+            self.sitemap_urls = self._load_sitemap_urls(str(output_path))
         except Exception as e:
-            print(f"Error scraping HAWK sitemap: {e}")
+            print(f"Error scraping sitemap: {e}")
 
     async def is_sitemap(self, url: str) -> bool:
         """Check if URL is a sitemap"""
@@ -344,35 +372,98 @@ class ServiceUtilsMixin:
             href = a.get('href')
             if not href:
                 continue
+            if str(href).startswith("#"):
+                continue
             absolute = urljoin(base_url, href)
+            absolute = self.normalize_url(absolute)
             if not self._is_discovery_url_allowed(absolute):
                 continue
             if absolute not in links:
                 links.append(absolute)
         return links
 
+def detect_language_confidence(lang: Optional[str], markdown: str) -> float:
+    if not markdown or not markdown.strip():
+        return 0.0
+    if not lang:
+        return 0.25
+    word_count = len(re.findall(r"\b\w+\b", markdown))
+    if word_count >= 150:
+        return 0.95
+    if word_count >= 75:
+        return 0.85
+    if word_count >= 25:
+        return 0.7
+    return 0.55
 
-def assess_content_quality(markdown: str, min_word_count: int) -> Dict[str, Any]:
+
+def assess_content_quality(
+    markdown: str,
+    min_word_count: int,
+    *,
+    link_density: float = 0.0,
+    heading_count: int = 0,
+    paragraph_count: int = 0,
+    duplicate_ratio: float = 0.0,
+    boilerplate_ratio: float = 0.0,
+    language_confidence: float = 0.0,
+) -> Dict[str, Any]:
     """
-    Simple content quality check based on word count.
+    Richer content quality assessment with structural and noise signals.
     """
     word_count = len(re.findall(r"[A-Za-z0-9_]+", markdown))
-    if min_word_count <= 0:
-        return {
-            "word_count": word_count,
-            "is_low_quality": False,
-            "reason": None
-        }
+    score = 0.0
+    score += min(word_count / 4.0, 45.0)
+    score += min(heading_count * 3.0, 15.0)
+    score += min(paragraph_count * 1.5, 15.0)
+    score += max(0.0, (1.0 - min(link_density, 1.0))) * 12.0
+    score += max(0.0, (1.0 - min(duplicate_ratio, 1.0))) * 8.0
+    score += max(0.0, (1.0 - min(boilerplate_ratio, 1.0))) * 10.0
+    score += max(0.0, min(language_confidence, 1.0)) * 10.0
+    score = max(0.0, min(100.0, score))
 
-    if word_count < min_word_count:
-        return {
-            "word_count": word_count,
-            "is_low_quality": True,
-            "reason": f"word_count_below_{min_word_count}"
-        }
+    reasons: List[str] = []
+    if min_word_count > 0 and word_count < min_word_count:
+        reasons.append(f"word_count_below_{min_word_count}")
+    if link_density > 0.6:
+        reasons.append("high_link_density")
+    if duplicate_ratio > 0.35:
+        reasons.append("high_duplicate_ratio")
+    if boilerplate_ratio > 0.3:
+        reasons.append("high_boilerplate_ratio")
+    if paragraph_count == 0 and word_count > 40:
+        reasons.append("missing_paragraph_structure")
+
+    quality_label = "high"
+    if score < 80:
+        quality_label = "medium"
+    if score < 55:
+        quality_label = "low"
+    if score < 30:
+        quality_label = "very_low"
+
+    content_classification = "success"
+    if word_count == 0:
+        content_classification = "empty"
+    elif score < 30:
+        content_classification = "partial"
+    elif score < 45:
+        content_classification = "noisy"
 
     return {
-        "word_count": word_count,
-        "is_low_quality": False,
-        "reason": None
+        "score": round(score, 2),
+        "quality_label": quality_label,
+        "content_classification": content_classification,
+        "is_low_quality": bool(reasons) or score < 45,
+        "reason": reasons[0] if reasons else None,
+        "reasons": reasons,
+        "signals": {
+            "word_count": word_count,
+            "link_density": round(link_density, 4),
+            "heading_count": heading_count,
+            "paragraph_count": paragraph_count,
+            "duplicate_ratio": round(duplicate_ratio, 4),
+            "boilerplate_ratio": round(boilerplate_ratio, 4),
+            "language_confidence": round(language_confidence, 4),
+        }
     }

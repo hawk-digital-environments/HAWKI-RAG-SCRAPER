@@ -13,6 +13,7 @@ from crawl4ai.async_configs import BrowserConfig
 from src.crawler.communication.interface import Stage
 from src.crawler.storage.url_tracking_manager import generate_url_hash
 from src.crawler.storage.summary_manager import SummaryManager
+from src.crawler.storage.page_output import DIAGNOSTICS_DIRNAME, build_page_metadata
 
 
 class ServiceCrawlMixin:
@@ -105,18 +106,22 @@ class ServiceCrawlMixin:
     async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
         """Save page data to JSON and markdown files in hash-based directory"""
         low_quality_content = page_data.get('low_quality_content')
-        raw_html = (page_data.get('data') or {}).get('html_content')
+        raw_html = page_data.get('html_content')
         should_save_raw = bool(raw_html) and (low_quality_content or not page_data.get('markdown'))
         if self.storage_manager and url_hash:
             self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
             await self.storage_manager.save_hash_json(url_hash, page_data['data'])
             await self.storage_manager.save_hash_content(url_hash, page_data['markdown'] if page_data['markdown'] else "")
             if low_quality_content:
-                low_q_file = self.storage_manager.get_hash_directory(url_hash) / "low_q.txt"
+                diagnostics_dir = self.storage_manager.get_hash_directory(url_hash) / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                low_q_file = diagnostics_dir / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
             if should_save_raw:
-                raw_file = self.storage_manager.get_hash_directory(url_hash) / "raw.html"
+                diagnostics_dir = self.storage_manager.get_hash_directory(url_hash) / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                raw_file = diagnostics_dir / "raw.html"
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
                     await f.write(raw_html)
         elif self.storage_manager:
@@ -124,28 +129,36 @@ class ServiceCrawlMixin:
             await self.storage_manager.save_page_json(page_number, page_data['data'])
             await self.storage_manager.save_page_content(page_number, page_data['markdown'] if page_data['markdown'] else "")
             if low_quality_content:
-                low_q_file = page_dir / "low_q.txt"
+                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                low_q_file = diagnostics_dir / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
             if should_save_raw:
-                raw_file = page_dir / "raw.html"
+                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                raw_file = diagnostics_dir / "raw.html"
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
                     await f.write(raw_html)
         else:
             page_dir = await self.create_page_directory(page_number)
-            json_filename = page_dir / f"data_{page_number:05d}.json"
+            json_filename = page_dir / "data.json"
             async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False))
+                await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False, allow_nan=False))
 
-            md_filename = page_dir / f"content_{page_number:05d}.md"
+            md_filename = page_dir / "content.md"
             async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
                 await f.write(page_data['markdown'] if page_data['markdown'] else "")
             if low_quality_content:
-                low_q_file = page_dir / "low_q.txt"
+                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                low_q_file = diagnostics_dir / "low_q.txt"
                 async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
                     await f.write(low_quality_content)
             if should_save_raw:
-                raw_file = page_dir / "raw.html"
+                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
+                diagnostics_dir.mkdir(exist_ok=True)
+                raw_file = diagnostics_dir / "raw.html"
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
                     await f.write(raw_html)
 
@@ -269,22 +282,31 @@ class ServiceCrawlMixin:
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
-                    updated_at = self._get_sitemap_date(sitemap_entry)
-                    if not updated_at:
-                        updated_at = datetime.now().isoformat()
+                    fetched_at = datetime.now().isoformat()
+                    updated_at = self._get_sitemap_date(sitemap_entry) or self._parse_http_date((head_headers or {}).get("last-modified"))
                     page_data = {
-                        'data': {
-                            'title': [],
-                            'page_url': [url],
-                            'url_hash': url_hash,
-                            'meta_img_url': [],
-                            'images': [],
-                            'lang': pdf_lang,
-                            'updated_at': updated_at,
-                            'source_type': self.url_source.get(url, 'seed'),
-                            'pdfs': [pdf_entry],
-                            'files': []
-                        },
+                        'data': build_page_metadata(
+                            url=url,
+                            source_url=url,
+                            url_hash=url_hash,
+                            title="",
+                            lang=pdf_lang,
+                            fetched_at=fetched_at,
+                            published_at=self._get_sitemap_date(sitemap_entry),
+                            updated_at=updated_at,
+                            tags=[],
+                            images=[],
+                            pdfs=[pdf_entry],
+                            files=[],
+                            http_status=head_status,
+                            content_length=None,
+                            content_hash=None,
+                            quality={},
+                            markdown="",
+                            low_quality_content=None,
+                            source_type=self.url_source.get(url, 'seed'),
+                            depth=self.url_depth.get(url, 0),
+                        ),
                         'markdown': '',
                         'html_content': ''
                     }
@@ -293,22 +315,31 @@ class ServiceCrawlMixin:
                 if file_entry:
                     file_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
-                    updated_at = self._get_sitemap_date(sitemap_entry)
-                    if not updated_at:
-                        updated_at = datetime.now().isoformat()
+                    fetched_at = datetime.now().isoformat()
+                    updated_at = self._get_sitemap_date(sitemap_entry) or self._parse_http_date((head_headers or {}).get("last-modified"))
                     page_data = {
-                        'data': {
-                            'title': [],
-                            'page_url': [url],
-                            'url_hash': url_hash,
-                            'meta_img_url': [],
-                            'images': [],
-                            'lang': file_lang,
-                            'updated_at': updated_at,
-                            'source_type': self.url_source.get(url, 'seed'),
-                            'pdfs': [],
-                            'files': [file_entry]
-                        },
+                        'data': build_page_metadata(
+                            url=url,
+                            source_url=url,
+                            url_hash=url_hash,
+                            title="",
+                            lang=file_lang,
+                            fetched_at=fetched_at,
+                            published_at=self._get_sitemap_date(sitemap_entry),
+                            updated_at=updated_at,
+                            tags=[],
+                            images=[],
+                            pdfs=[],
+                            files=[file_entry],
+                            http_status=head_status,
+                            content_length=None,
+                            content_hash=None,
+                            quality={},
+                            markdown="",
+                            low_quality_content=None,
+                            source_type=self.url_source.get(url, 'seed'),
+                            depth=self.url_depth.get(url, 0),
+                        ),
                         'markdown': '',
                         'html_content': ''
                     }
@@ -406,6 +437,7 @@ class ServiceCrawlMixin:
                     for new_url in new_urls:
                         if self.abort_crawl:
                             break
+                        new_url = self.normalize_url(new_url)
                         if urlparse(new_url).path.lower().endswith("piwik.php"):
                             continue
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
@@ -597,6 +629,27 @@ class ServiceCrawlMixin:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(len(self.to_visit))
+            elif not resume_urls and getattr(self.config, "sitemap", False):
+                sitemap_urls = list(getattr(self, "sitemap_urls", []) or [])
+                if sitemap_urls:
+                    if sitemap_only:
+                        urls_to_crawl = sitemap_urls
+                    else:
+                        urls_to_crawl = sitemap_urls[:self.config.max_pages] if self.config.max_pages > 0 else sitemap_urls
+                    self.to_visit = urls_to_crawl
+                    for u in self.to_visit:
+                        self.url_depth[u] = 0
+                        self.url_source[u] = "sitemap"
+                    print(f"Loaded {len(sitemap_urls)} URLs from sitemap file, will crawl {len(self.to_visit)}")
+
+                    await self._send_stage(
+                        Stage.URLS_DISCOVERED,
+                        {"discovered": len(sitemap_urls), "total_to_crawl": len(self.to_visit)}
+                    )
+                    if self.job_state:
+                        await self.job_state.set_total_urls(len(self.to_visit))
+                    if self.progress_tracker:
+                        await self.progress_tracker.set_total_urls(len(self.to_visit))
             elif sitemap_only and not resume_urls:
                 sitemap_urls = list(self.sitemap_map.keys()) if self.sitemap_map else []
                 if not sitemap_urls:

@@ -25,7 +25,7 @@ These services are **completely optional** and the crawler maintains full backwa
   ├── progress_tracker.py          # Rate-limited progress updates
   └── summary_manager.py           # Summary generation
 
-/data/jobs/{job_id}/               # New storage structure
+/app/shared/{job_id}/              # Active Docker storage structure
   ├── job_state.json               # Job metadata and status
   ├── urls_tracking.json           # URL tracking with dates
   ├── summary.json                 # Final job summary
@@ -55,7 +55,7 @@ These services are **completely optional** and the crawler maintains full backwa
   "updated_at": "2025-11-21T17:32:51.477731Z",
   "completed_at": "2025-11-21T17:32:51.477731Z",
   "current_url": "https://www.hawki.info/roadmap",
-  "output_directory": "/app/data/jobs/{job_id}",
+  "output_directory": "/app/shared/{job_id}",
   "error": null
 }
 ```
@@ -73,7 +73,7 @@ These services are **completely optional** and the crawler maintains full backwa
 - Consistent file organization
 
 **Directory Structure**:
-- All files stored in `/app/data/jobs/{job_id}/`
+- All files stored in `/app/shared/{job_id}/`
 - Each page in separate folder: `page_00001/`, `page_00002/`, etc.
 - Images in subfolder: `page_00001/images/`
 - Job state at root: `job_state.json`
@@ -175,17 +175,17 @@ if self.job_state_manager:
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `DATA_PATH` | Base path for job storage | `/app/data/jobs` | `/app/data/jobs` |
+| `DATA_PATH` | Base path for job storage | `/app/shared` | `/app/shared` |
 
 **Configure in docker-compose.yml**:
 ```yaml
 environment:
-  - DATA_PATH=${DATA_PATH:-/app/data/jobs}
+  - DATA_PATH=${DATA_PATH:-/app/shared}
 ```
 
 **Or in .env file**:
 ```bash
-DATA_PATH=/app/data/jobs
+DATA_PATH=/app/shared
 ```
 
 ## Usage Examples
@@ -207,7 +207,7 @@ Data is still saved to `./output/{label}/` as before.
 
 ### With Services (New Architecture)
 
-When running in the Docker container, services are automatically initialized and data is saved to `./data/jobs/{job_id}/`:
+When running in the Docker container, services are automatically initialized and data is saved to `/app/shared/{job_id}/`:
 
 ```bash
 # 1. Submit job
@@ -243,7 +243,7 @@ $status = Http::get("http://crawler:8004/status/{$jobId}")->json();
 
 // Or read state file directly from shared volume
 $state = json_decode(
-    file_get_contents("/shared/data/jobs/{$jobId}/job_state.json")
+    file_get_contents("/app/shared/{$jobId}/job_state.json")
 );
 
 // List all files
@@ -267,7 +267,7 @@ JOB_ID=$(curl -X POST http://localhost:8004/crawl \
 sleep 10
 
 # Check state file
-cat data/jobs/${JOB_ID}/job_state.json | jq
+cat /app/shared/${JOB_ID}/job_state.json | jq
 ```
 
 ### Test File Endpoints
@@ -317,7 +317,7 @@ Services integrate through hooks without modifying the scraping flow:
 **Symptom**: `job_state.json` is stale or missing
 
 **Solutions**:
-1. Check `/app/data` volume is mounted
+1. Check `/app/shared` storage is mounted
 2. Verify write permissions on volume
 3. Check logs for "Failed to write job state" warnings
 
@@ -328,7 +328,7 @@ Services integrate through hooks without modifying the scraping flow:
 **Solutions**:
 1. Verify job completed successfully
 2. Check job_id is correct
-3. Ensure `/app/data` volume is properly mounted
+3. Ensure `/app/shared` storage is properly mounted
 4. Check file path doesn't have traversal attempts
 
 ## Future Enhancements

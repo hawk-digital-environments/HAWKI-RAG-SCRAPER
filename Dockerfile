@@ -62,9 +62,8 @@ COPY src/ ./src/
 # Ensure src is on PYTHONPATH for runtime
 ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
-# Create output and data directories
-RUN mkdir -p /app/output && chmod 755 /app/output && \
-    mkdir -p /app/data && chmod 755 /app/data
+# Create output directory
+RUN mkdir -p /app/output && chmod 755 /app/output
 
 # Expose port
 EXPOSE 8000
