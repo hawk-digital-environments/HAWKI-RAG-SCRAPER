@@ -19,20 +19,29 @@ Configuration:
 """
 
 import asyncio
+import importlib
 import json
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 from datetime import datetime
 
 try:
-    import aio_pika
-    from aio_pika import Message, DeliveryMode, ExchangeType
-    from aio_pika.exceptions import AMQPException
+    aio_pika = importlib.import_module("aio_pika")
+    Message = getattr(aio_pika, "Message")
+    DeliveryMode = getattr(aio_pika, "DeliveryMode")
+    ExchangeType = getattr(aio_pika, "ExchangeType")
+    AMQPException = importlib.import_module("aio_pika.exceptions").AMQPException
     RABBITMQ_AVAILABLE = True
 except ImportError:
+    class AMQPException(Exception):
+        """Fallback AMQP exception when aio-pika is unavailable."""
+
     RABBITMQ_AVAILABLE = False
     aio_pika = None
+    Message = None
+    DeliveryMode = None
+    ExchangeType = None
 
 from .interface import CommunicationInterface, Stage, ReportType
 from ..state.job_state import JobStateData
@@ -94,10 +103,16 @@ class RabbitMQCommunicationService(CommunicationInterface):
         self.exchange_name = exchange
         self.queue_name = queue or f"job-{job_id}"
 
-        self.connection: Optional[aio_pika.Connection] = None
-        self.channel: Optional[aio_pika.Channel] = None
-        self.exchange: Optional[aio_pika.Exchange] = None
-        self.queue: Optional[aio_pika.Queue] = None
+        # Safe because the service raises immediately above if aio-pika is unavailable.
+        self._aio_pika = cast(Any, aio_pika)
+        self._message_cls = cast(Any, Message)
+        self._delivery_mode = cast(Any, DeliveryMode)
+        self._exchange_type = cast(Any, ExchangeType)
+
+        self.connection: Optional[Any] = None
+        self.channel: Optional[Any] = None
+        self.exchange: Optional[Any] = None
+        self.queue: Optional[Any] = None
 
         self.logger = logging.getLogger(f"RabbitMQCommunication[{job_id}]")
         self._reconnect_attempts = 0
@@ -120,7 +135,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
 
             # Establish connection
             self.logger.info(f"Establishing connection to RabbitMQ...")
-            self.connection = await aio_pika.connect_robust(
+            self.connection = await self._aio_pika.connect_robust(
                 url,
                 timeout=5,
                 heartbeat=30
@@ -139,7 +154,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
             self.logger.info(f"Declaring exchange: {self.exchange_name}")
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name,
-                ExchangeType.TOPIC,
+                self._exchange_type.TOPIC,
                 durable=True  # Survive broker restart
             )
             self.logger.info(f"Exchange declared: {self.exchange_name}")
@@ -252,9 +267,9 @@ class RabbitMQCommunicationService(CommunicationInterface):
 
             # Create message
             message_body = json.dumps(payload, default=str).encode('utf-8')
-            message = Message(
+            message = self._message_cls(
                 message_body,
-                delivery_mode=DeliveryMode.PERSISTENT,  # Survive broker restart
+                delivery_mode=self._delivery_mode.PERSISTENT,  # Survive broker restart
                 content_type='application/json',
                 content_encoding='utf-8',
                 headers={
