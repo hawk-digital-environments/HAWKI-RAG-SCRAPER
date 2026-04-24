@@ -70,12 +70,13 @@ class RabbitMQCommunicationService(CommunicationInterface):
     def __init__(
         self,
         job_id: str,
-        host: str = os.getenv("RABBITMQ_HOST","localhost"),
-        port: int = int(os.getenv("RABBITMQ_PORT",5672)),
-        user: str = os.getenv("RABBITMQ_USERNAME","guest"),
-        password: str = os.getenv("RABBITMQ_PASSWORD","guest"),
-        exchange: str = os.getenv("RABBITMQ_CHANNEL","scrape-events"),
-        queue: str = None
+        host: str = os.getenv("RABBITMQ_HOST", "localhost"),
+        port: int = int(os.getenv("RABBITMQ_PORT", 5672)),
+        user: str = os.getenv("RABBITMQ_USER", "guest"),
+        password: str = os.getenv("RABBITMQ_PASSWORD", "guest"),
+        exchange: str = os.getenv("RABBITMQ_EXCHANGE", "scrape-events"),
+        queue: str = None,
+        exchange_type: Optional[str] = os.getenv("RABBITMQ_EXCHANGE_TYPE"),
     ):
         """
         Initialize RabbitMQ communication service.
@@ -88,6 +89,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
             password: RabbitMQ password
             exchange: Exchange name for broadcasting events
             queue: Queue name (default: job-{job_id})
+            exchange_type: Exchange type (topic|direct|fanout|headers)
         """
         super().__init__(job_id)
 
@@ -102,6 +104,8 @@ class RabbitMQCommunicationService(CommunicationInterface):
         self.password = password
         self.exchange_name = exchange
         self.queue_name = queue or f"job-{job_id}"
+        default_exchange_type = "topic" if exchange == "scrape-events" else "direct"
+        self.exchange_type_name = (exchange_type or default_exchange_type).strip().lower()
 
         # Safe because the service raises immediately above if aio-pika is unavailable.
         self._aio_pika = cast(Any, aio_pika)
@@ -118,6 +122,26 @@ class RabbitMQCommunicationService(CommunicationInterface):
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 3
         self._reconnect_delay = 2
+
+    def _resolve_exchange_type(self) -> Any:
+        exchange_map = {
+            "topic": self._exchange_type.TOPIC,
+            "direct": self._exchange_type.DIRECT,
+            "fanout": self._exchange_type.FANOUT,
+            "headers": self._exchange_type.HEADERS,
+        }
+        return exchange_map.get(self.exchange_type_name, self._exchange_type.TOPIC)
+
+    def _bind_routing_key(self) -> str:
+        # Direct exchanges do exact key matching. Topic exchanges support wildcards.
+        if self.exchange_type_name == "direct":
+            return f"job.{self.job_id}"
+        return f"job.{self.job_id}.#"
+
+    def _event_routing_key(self, event: str) -> str:
+        if self.exchange_type_name == "direct":
+            return f"job.{self.job_id}"
+        return f"job.{self.job_id}.{event}"
 
     async def connect(self) -> bool:
         """Establish RabbitMQ connection with retry logic."""
@@ -150,11 +174,13 @@ class RabbitMQCommunicationService(CommunicationInterface):
             # Enable publisher confirms for reliability
             await self.channel.set_qos(prefetch_count=1)
 
-            # Declare exchange (topic type for flexible routing)
-            self.logger.info(f"Declaring exchange: {self.exchange_name}")
+            exchange_type = self._resolve_exchange_type()
+            self.logger.info(
+                f"Declaring exchange: {self.exchange_name} (type={self.exchange_type_name})"
+            )
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name,
-                self._exchange_type.TOPIC,
+                exchange_type,
                 durable=True  # Survive broker restart
             )
             self.logger.info(f"Exchange declared: {self.exchange_name}")
@@ -173,7 +199,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
             self.logger.info(f"Queue declared: {self.queue_name}")
 
             # Bind queue to exchange (catch all events for this job)
-            routing_key = f"job.{self.job_id}.#"
+            routing_key = self._bind_routing_key()
             self.logger.info(f"Binding queue to exchange with routing key: {routing_key}")
             await self.queue.bind(
                 self.exchange,
@@ -279,7 +305,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
             )
 
             # Publish with routing key
-            routing_key = f"job.{self.job_id}.{event}"
+            routing_key = self._event_routing_key(event)
             await self.exchange.publish(
                 message,
                 routing_key=routing_key
