@@ -74,10 +74,18 @@ class CommunicationFactory:
             rabbitmq_user = os.getenv("RABBITMQ_USER", "guest")
             rabbitmq_password = os.getenv("RABBITMQ_PASSWORD", "guest")
             rabbitmq_exchange = os.getenv("RABBITMQ_EXCHANGE", "scrape-events")
+            rabbitmq_exchange_type = os.getenv("RABBITMQ_EXCHANGE_TYPE")
+            if not rabbitmq_exchange_type:
+                rabbitmq_exchange_type = "topic" if rabbitmq_exchange == "scrape-events" else "direct"
             rabbitmq_queue = os.getenv("RABBITMQ_QUEUE", f"job-{job_id}")
 
             print(f"[CommunicationFactory] ✅ Creating RabbitMQ communication service for job {job_id}", flush=True)
-            print(f"[CommunicationFactory] RabbitMQ Config - Host: {rabbitmq_host}, Port: {rabbitmq_port}, Exchange: {rabbitmq_exchange}", flush=True)
+            print(
+                f"[CommunicationFactory] RabbitMQ Config - Host: {rabbitmq_host}, "
+                f"Port: {rabbitmq_port}, Exchange: {rabbitmq_exchange}, "
+                f"Type: {rabbitmq_exchange_type}",
+                flush=True
+            )
 
             return RabbitMQCommunicationService(
                 job_id=job_id,
@@ -86,7 +94,8 @@ class CommunicationFactory:
                 user=rabbitmq_user,
                 password=rabbitmq_password,
                 exchange=rabbitmq_exchange,
-                queue=rabbitmq_queue
+                queue=rabbitmq_queue,
+                exchange_type=rabbitmq_exchange_type,
             )
         except ImportError as e:
             print(f"[CommunicationFactory] ❌ Failed to import RabbitMQ service (is aio-pika installed?): {e}", flush=True)

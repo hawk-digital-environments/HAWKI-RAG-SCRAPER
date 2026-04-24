@@ -27,6 +27,7 @@ services:
       - RABBITMQ_USER=${RABBITMQ_USER:-guest}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-guest}
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE:-scrape-events}
+      - RABBITMQ_EXCHANGE_TYPE=${RABBITMQ_EXCHANGE_TYPE:-direct}
       - RABBITMQ_QUEUE=${RABBITMQ_QUEUE:-}
       # WebSocket URL for real-time events (legacy, deprecated)
       # Example: ws://laravel-app:6001 for Laravel WebSocket
