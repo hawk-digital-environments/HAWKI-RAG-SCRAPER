@@ -233,6 +233,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
             await asyncio.sleep(poll_interval)
 
     sync_task = None
+    crawler = None
     try:
         logger.info(f"[Job {job_id}] Initializing state manager...")
         # Initialize state manager (creates job directory and initial state file)
@@ -308,6 +309,11 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         if communication_service and hasattr(communication_service, "disconnect"):
             try:
                 await communication_service.disconnect()
+            except Exception:
+                pass
+        if crawler and hasattr(crawler, "file_event_publisher") and crawler.file_event_publisher:
+            try:
+                await crawler.file_event_publisher.close()
             except Exception:
                 pass
         tasks.pop(job_id, None)

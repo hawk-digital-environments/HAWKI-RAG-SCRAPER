@@ -12,6 +12,52 @@ A FastAPI interface for the crawl4ai library that provides intelligent web crawl
 - **Concurrent Crawling**: Parallel request processing with configurable concurrency
 - **Date Extraction**: Extract dates using custom CSS selectors
 
+## Pipeline Events (Scrape -> Convert -> Ingest)
+
+The scraper now supports RabbitMQ producer publishing for file discovery events without changing
+the existing crawl and storage behavior.
+
+- Event published: `scrape.file.discovered`
+- Exchange: `pipeline.events` (durable, direct by default)
+- Routing key: `scrape.file.discovered`
+- Publish point: after a supported file is fully written to the existing `files/` directory
+- No conversion or ingestion is executed from this repo
+
+Environment variables:
+
+```bash
+COMMUNICATION_ENABLED=true
+COMMUNICATION_METHOD=rabbitmq
+
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
+RABBITMQ_HEARTBEAT=30
+RABBITMQ_CONNECTION_TIMEOUT=30
+
+RABBITMQ_EVENTS_EXCHANGE=pipeline.events
+RABBITMQ_EVENTS_EXCHANGE_TYPE=direct
+RABBITMQ_FILE_DISCOVERED_ROUTING_KEY=scrape.file.discovered
+
+RABBITMQ_PUBLISHER_CONFIRMS=true
+RABBITMQ_PERSISTENT_MESSAGES=true
+RABBITMQ_MANDATORY_PUBLISH=true
+
+JOB_SCHEMA_VERSION=1
+JOB_SOURCE=scraper
+```
+
+Disabled mode:
+
+- If `COMMUNICATION_ENABLED=false` or `COMMUNICATION_METHOD=none`, crawl behavior is unchanged and no RabbitMQ connection is attempted.
+- Optional debug outbox: set `FILE_EVENT_OUTBOX_PATH=/path/to/file_events_outbox.jsonl`.
+
+Supported file-event extensions:
+
+- `pdf`, `doc`, `docx`, `ppt`, `pptx`, `xls`, `xlsx`, `txt`, `csv`, `md`, `html`
+
 ## Installation
 
 ### Using Virtual Environment
