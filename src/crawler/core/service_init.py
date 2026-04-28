@@ -17,6 +17,7 @@ from src.crawler.storage.summary_manager import SummaryManager
 from src.crawler.core.service_rate import RateLimiter
 from src.crawler.core.sitemap_scraper import DEFAULT_SITEMAP_BASE
 from src.crawler.profiles import resolve_site_profile
+from src.services.file_event_publisher import FileEventPublisher
 
 
 class ServiceInitMixin:
@@ -71,6 +72,7 @@ class ServiceInitMixin:
         self.progress_tracker = None
         self.url_tracking_manager = None
         self.summary_manager = None
+        self.file_event_publisher = None
 
         base_path = None
         if self.job_id and self.storage_manager:
@@ -84,6 +86,10 @@ class ServiceInitMixin:
                 forbidden_rules_file=self.site_profile.get("forbidden", {}).get("rules_file"),
             )
             self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
+            self.file_event_publisher = FileEventPublisher(
+                default_job_id=str(job_id),
+                job_base_path=self.storage_manager.get_job_directory(),
+            )
             self._setup_job_error_logger()
 
         self.http_session: Optional[aiohttp.ClientSession] = None

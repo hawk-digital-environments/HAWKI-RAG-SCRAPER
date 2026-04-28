@@ -125,7 +125,12 @@ class ServiceCrawlExecutionMixin:
 
             page_data = None
             if await self.is_pdf_resource(url, head_status, head_headers):
-                pdf_entry = await self.fetch_and_save_pdf(url, current_page_number, url_hash=url_hash)
+                pdf_entry = await self.fetch_and_save_pdf(
+                    url,
+                    current_page_number,
+                    url_hash=url_hash,
+                    page_url=url,
+                )
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
@@ -158,7 +163,12 @@ class ServiceCrawlExecutionMixin:
                         'html_content': ''
                     }
             elif await self.is_file_resource(url, head_status, head_headers):
-                file_entry = await self.fetch_and_save_file(url, current_page_number, url_hash=url_hash)
+                file_entry = await self.fetch_and_save_file(
+                    url,
+                    current_page_number,
+                    url_hash=url_hash,
+                    page_url=url,
+                )
                 if file_entry:
                     file_lang = self.detect_language(None, head_headers, url=url)
                     sitemap_entry = self._lookup_sitemap_entry(url) or {}
@@ -230,7 +240,8 @@ class ServiceCrawlExecutionMixin:
                                     pdf_url,
                                     current_page_number,
                                     session=pdf_session,
-                                    url_hash=url_hash
+                                    url_hash=url_hash,
+                                    page_url=url,
                                 )
                                 if pdf_entry:
                                     pdf_entries.append(pdf_entry)
@@ -243,7 +254,8 @@ class ServiceCrawlExecutionMixin:
                                     file_url,
                                     current_page_number,
                                     session=file_session,
-                                    url_hash=url_hash
+                                    url_hash=url_hash,
+                                    page_url=url,
                                 )
                                 if file_entry:
                                     file_entries.append(file_entry)

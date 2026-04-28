@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import mimetypes
 import os
 import re
@@ -13,6 +14,48 @@ from bs4 import BeautifulSoup
 
 
 class ServiceParseAssetsMixin:
+    async def _publish_saved_file_event(
+        self,
+        *,
+        file_url: str,
+        page_url: Optional[str],
+        file_entry: Dict[str, str],
+    ) -> None:
+        publisher = getattr(self, "file_event_publisher", None)
+        if not publisher:
+            return
+
+        if file_entry.get("incomplete"):
+            return
+
+        try:
+            outcome = await publisher.publish_file_discovered(
+                url=file_url,
+                page_url=page_url,
+                job_id=getattr(self, "job_id", None),
+                local_path=file_entry.get("local_path", ""),
+                relative_path=file_entry.get("relative_path"),
+                filename=file_entry.get("filename"),
+                extension=Path(file_entry.get("filename", "")).suffix,
+                content_type=file_entry.get("content_type"),
+                payload={"asset_type": "file"},
+            )
+            if not outcome.success and not outcome.skipped:
+                logging.getLogger("crawler").error(
+                    "file_event_publish_failed url=%s local_path=%s reason=%s error=%s",
+                    file_url,
+                    file_entry.get("local_path"),
+                    outcome.reason,
+                    outcome.error,
+                )
+        except Exception as exc:  # pragma: no cover - defensive path
+            logging.getLogger("crawler").error(
+                "file_event_publish_exception url=%s local_path=%s error=%s",
+                file_url,
+                file_entry.get("local_path"),
+                exc,
+            )
+
     async def download_image(self, image_url: str, session: aiohttp.ClientSession, images_dir: Path) -> Optional[str]:
         """Download an image and save it to the images directory"""
         await self.rate_limiter.acquire()
@@ -201,7 +244,8 @@ class ServiceParseAssetsMixin:
         pdf_url: str,
         page_number: int,
         session: Optional[aiohttp.ClientSession] = None,
-        url_hash: Optional[str] = None
+        url_hash: Optional[str] = None,
+        page_url: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
         """Download a PDF and save it to the files directory"""
         await self.rate_limiter.acquire()
@@ -221,7 +265,7 @@ class ServiceParseAssetsMixin:
                         headers=self.headers,
                         timeout=aiohttp.ClientTimeout(total=60)
                     ) as response:
-                        content_type = response.headers.get('Content-Type', '').lower()
+                        content_type = response.headers.get('Content-Type', '').split(';')[0].strip().lower()
                         if response.status not in (200, 206) or (
                             'pdf' not in content_type and not pdf_url.lower().split('?')[0].endswith('.pdf')
                         ):
@@ -285,10 +329,17 @@ class ServiceParseAssetsMixin:
                             "local_path": str(filepath.resolve()),
                             "filename": filename,
                             "relative_path": f"files/{filename}",
+                            "content_type": content_type,
                         }
                         if incomplete:
                             result["incomplete"] = True
                             result["error"] = str(last_error)
+                        else:
+                            await self._publish_saved_file_event(
+                                file_url=pdf_url,
+                                page_url=page_url or pdf_url,
+                                file_entry=result,
+                            )
                         return result
                 except (aiohttp.ClientPayloadError, ContentLengthError) as e:
                     last_error = e
@@ -309,7 +360,8 @@ class ServiceParseAssetsMixin:
         file_url: str,
         page_number: int,
         session: Optional[aiohttp.ClientSession] = None,
-        url_hash: Optional[str] = None
+        url_hash: Optional[str] = None,
+        page_url: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
         """Download a non-PDF file and save it to the files directory."""
         await self.rate_limiter.acquire()
@@ -404,6 +456,12 @@ class ServiceParseAssetsMixin:
                         if incomplete and last_error:
                             result["incomplete"] = True
                             result["error"] = str(last_error)
+                        else:
+                            await self._publish_saved_file_event(
+                                file_url=file_url,
+                                page_url=page_url or file_url,
+                                file_entry=result,
+                            )
                         return result
                 except (aiohttp.ClientPayloadError, ContentLengthError) as e:
                     last_error = e

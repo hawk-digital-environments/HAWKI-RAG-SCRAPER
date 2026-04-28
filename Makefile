@@ -4,6 +4,7 @@ SITEMAP_DIR ?= /app/shared/sitemaps
 SITE_PROFILE ?= /app/profiles/hawk.json
 SITE_SITEMAP_FILE ?= $(SITEMAP_DIR)/site_sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
+URL ?= https://www.hawk.de
 JSON_SITEMAP_URL ?= https://projekte.g.hawk.de/sitemap.json
 JSON_SITEMAP_FILE ?= $(SITEMAP_DIR)/json_sitemap.json
 JOB_ID_JSON_SITEMAP ?= JsonSitemap_Job
@@ -66,7 +67,7 @@ crawl:
 		fi; \
 		curl -s -X POST http://localhost:8040/crawl \
 			-H "Content-Type: application/json" \
-			-d "{\"url\": \"https://www.hawk.de\", \"job_id\":\"$(JOB_ID_FULL)\", \"site_profile_path\":\"$(SITE_PROFILE)\", \"rescrape_failed\": $(RESCRAPE_FAILED), \"sitemap\": true, \"sitemap_base\": \"$(SITEMAP_BASE)\", \"sitemap_output\": \"$(SITE_SITEMAP_FILE)\", \"max_pages\": $$effective_max_pages, \"discovery_mode\": $$effective_discovery_mode, \"skip_images\": $(SKIP_IMAGES), \"max_concurrency\": 2, \"max_rpm\": 40}" \
+			-d "{\"url\": \"$(URL)\", \"job_id\":\"$(JOB_ID_FULL)\", \"site_profile_path\":\"$(SITE_PROFILE)\", \"rescrape_failed\": $(RESCRAPE_FAILED), \"sitemap\": true, \"sitemap_base\": \"$(SITEMAP_BASE)\", \"sitemap_output\": \"$(SITE_SITEMAP_FILE)\", \"max_pages\": $$effective_max_pages, \"discovery_mode\": $$effective_discovery_mode, \"skip_images\": $(SKIP_IMAGES), \"max_concurrency\": 2, \"max_rpm\": 40}" \
 			| $(PYTHON) -m json.tool
 
 crawl-profile-sitemap:

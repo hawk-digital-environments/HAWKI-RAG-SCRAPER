@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
 import { crawlerApiBaseUrls } from '$lib/server/config';
 import { fetchCrawler } from '$lib/server/crawler-client';
@@ -38,7 +39,7 @@ function deriveCounts(summary: unknown): SummaryCounts {
 	return { found, completed, missed };
 }
 
-export async function GET({ fetch, params }) {
+export const GET: RequestHandler = async ({ fetch, params }) => {
 	const { jobId } = params;
 	if (!jobId) {
 		return json({ error: 'jobId is required' }, { status: 400 });
@@ -87,4 +88,4 @@ export async function GET({ fetch, params }) {
 			{ status: 502 }
 		);
 	}
-}
+};
