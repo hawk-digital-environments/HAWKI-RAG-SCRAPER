@@ -54,6 +54,13 @@ Disabled mode:
 - If `COMMUNICATION_ENABLED=false` or `COMMUNICATION_METHOD=none`, crawl behavior is unchanged and no RabbitMQ connection is attempted.
 - Optional debug outbox: set `FILE_EVENT_OUTBOX_PATH=/path/to/file_events_outbox.jsonl`.
 
+Decoupled mode (recommended for Phase 1):
+
+- Disable legacy progress/event queues while keeping file-event publishing:
+  - `COMMUNICATION_METHOD=none`
+  - `FILE_EVENTS_ENABLED=true`
+  - `FILE_EVENTS_TRANSPORT=rabbitmq`
+
 Supported file-event extensions:
 
 - `pdf`, `doc`, `docx`, `ppt`, `pptx`, `xls`, `xlsx`, `txt`, `csv`, `md`, `html`
