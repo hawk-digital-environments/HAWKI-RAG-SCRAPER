@@ -470,7 +470,7 @@
 		</div>
 		<div class="grid two-col">
 			<div>
-				<label>Saved Profiles</label>
+				<p class="field-label">Saved Profiles</p>
 				<div class="profile-list">
 					{#if profiles.length === 0}
 						<p class="muted">No profiles found. Create one below.</p>
@@ -486,13 +486,13 @@
 						{/each}
 					{/if}
 				</div>
-				<label>New Profile Name</label>
-				<input placeholder="e.g. tu-berlin" bind:value={newProfileName} />
+				<label for="new-profile-name">New Profile Name</label>
+				<input id="new-profile-name" placeholder="e.g. tu-berlin" bind:value={newProfileName} />
 				<p class="muted">Reads/writes actual files in `profiles/*.json` (or `.json.example` as read-only templates).</p>
 			</div>
 			<div>
-				<label>Profile JSON Editor</label>
-				<textarea rows="13" bind:value={profileEditorText}></textarea>
+				<label for="profile-json-editor">Profile JSON Editor</label>
+				<textarea id="profile-json-editor" rows="13" bind:value={profileEditorText}></textarea>
 				<div class="row">
 					<button on:click={saveProfile}>Save Profile</button>
 				</div>
@@ -522,27 +522,27 @@
 		</div>
 
 		<div class="grid three-col">
-			<div class="field"><label>job_id</label><input bind:value={form.job_id} /></div>
-			<div class="field"><label>url</label><input bind:value={form.url} /></div>
-			<div class="field"><label>site_profile_path</label><input bind:value={form.site_profile_path} /></div>
-			<div class="field"><label>output_dir</label><input bind:value={form.output_dir} /></div>
-			<div class="field"><label>label</label><input bind:value={form.label} /></div>
-			<div class="field"><label>sitemap_base</label><input bind:value={form.sitemap_base} /></div>
-			<div class="field"><label>sitemap_output</label><input bind:value={form.sitemap_output} /></div>
-			<div class="field"><label>date_selector</label><input bind:value={form.date_selector} /></div>
-			<div class="field"><label>image_exceptions</label><input bind:value={form.image_exceptions} /></div>
-			<div class="field"><label>max_pages</label><input type="number" bind:value={form.max_pages} /></div>
-			<div class="field"><label>max_concurrency</label><input type="number" bind:value={form.max_concurrency} min="1" max="20" /></div>
-			<div class="field"><label>max_rpm</label><input type="number" bind:value={form.max_rpm} min="1" /></div>
-			<div class="field"><label>max_images_per_page</label><input type="number" bind:value={form.max_images_per_page} min="0" max="50" /></div>
-			<div class="field"><label>request_delay (ms)</label><input type="number" bind:value={form.request_delay} placeholder="optional" /></div>
-			<div class="field"><label>sitemap_start_page</label><input type="number" bind:value={form.sitemap_start_page} /></div>
-			<div class="field"><label>sitemap_pages</label><input type="number" bind:value={form.sitemap_pages} /></div>
-			<div class="field"><label>min_word_count</label><input type="number" bind:value={form.min_word_count} min="0" /></div>
-			<div class="field"><label>max_link_density</label><input type="number" step="0.01" bind:value={form.max_link_density} min="0" max="1" /></div>
-			<div class="field"><label>max_link_density_words</label><input type="number" bind:value={form.max_link_density_words} min="0" /></div>
-			<div class="field"><label>wait_until</label><input bind:value={form.wait_until} /></div>
-			<div class="field"><label>page_timeout_ms</label><input type="number" bind:value={form.page_timeout_ms} min="1" /></div>
+			<div class="field"><label for="job_id">job_id</label><input id="job_id" bind:value={form.job_id} /></div>
+			<div class="field"><label for="url">url</label><input id="url" bind:value={form.url} /></div>
+			<div class="field"><label for="site_profile_path">site_profile_path</label><input id="site_profile_path" bind:value={form.site_profile_path} /></div>
+			<div class="field"><label for="output_dir">output_dir</label><input id="output_dir" bind:value={form.output_dir} /></div>
+			<div class="field"><label for="label">label</label><input id="label" bind:value={form.label} /></div>
+			<div class="field"><label for="sitemap_base">sitemap_base</label><input id="sitemap_base" bind:value={form.sitemap_base} /></div>
+			<div class="field"><label for="sitemap_output">sitemap_output</label><input id="sitemap_output" bind:value={form.sitemap_output} /></div>
+			<div class="field"><label for="date_selector">date_selector</label><input id="date_selector" bind:value={form.date_selector} /></div>
+			<div class="field"><label for="image_exceptions">image_exceptions</label><input id="image_exceptions" bind:value={form.image_exceptions} /></div>
+			<div class="field"><label for="max_pages">max_pages</label><input id="max_pages" type="number" bind:value={form.max_pages} /></div>
+			<div class="field"><label for="max_concurrency">max_concurrency</label><input id="max_concurrency" type="number" bind:value={form.max_concurrency} min="1" max="20" /></div>
+			<div class="field"><label for="max_rpm">max_rpm</label><input id="max_rpm" type="number" bind:value={form.max_rpm} min="1" /></div>
+			<div class="field"><label for="max_images_per_page">max_images_per_page</label><input id="max_images_per_page" type="number" bind:value={form.max_images_per_page} min="0" max="50" /></div>
+			<div class="field"><label for="request_delay">request_delay (ms)</label><input id="request_delay" type="number" bind:value={form.request_delay} placeholder="optional" /></div>
+			<div class="field"><label for="sitemap_start_page">sitemap_start_page</label><input id="sitemap_start_page" type="number" bind:value={form.sitemap_start_page} /></div>
+			<div class="field"><label for="sitemap_pages">sitemap_pages</label><input id="sitemap_pages" type="number" bind:value={form.sitemap_pages} /></div>
+			<div class="field"><label for="min_word_count">min_word_count</label><input id="min_word_count" type="number" bind:value={form.min_word_count} min="0" /></div>
+			<div class="field"><label for="max_link_density">max_link_density</label><input id="max_link_density" type="number" step="0.01" bind:value={form.max_link_density} min="0" max="1" /></div>
+			<div class="field"><label for="max_link_density_words">max_link_density_words</label><input id="max_link_density_words" type="number" bind:value={form.max_link_density_words} min="0" /></div>
+			<div class="field"><label for="wait_until">wait_until</label><input id="wait_until" bind:value={form.wait_until} /></div>
+			<div class="field"><label for="page_timeout_ms">page_timeout_ms</label><input id="page_timeout_ms" type="number" bind:value={form.page_timeout_ms} min="1" /></div>
 		</div>
 
 		<div class="toggle-grid">
@@ -717,10 +717,16 @@
 		margin-bottom: 0.2rem;
 	}
 
+	.field-label {
+		font-size: 0.79rem;
+		opacity: 0.92;
+		display: block;
+		margin: 0 0 0.2rem;
+	}
+
 	input,
 	textarea,
 	button,
-	select,
 	pre {
 		font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
 	}
