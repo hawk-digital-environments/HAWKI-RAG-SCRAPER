@@ -5,8 +5,11 @@ Factory pattern for creating communication service instances based on configurat
 """
 
 import os
+import logging
 from typing import Optional
 from .interface import CommunicationInterface
+
+LOGGER = logging.getLogger("crawler.communication.factory")
 
 
 class CommunicationFactory:
@@ -43,20 +46,23 @@ class CommunicationFactory:
         # Check if communication is enabled
         enabled = os.getenv("COMMUNICATION_ENABLED", "true").lower() == "true"
         if not enabled:
-            print(f"[CommunicationFactory] Communication disabled for job {job_id}", flush=True)
+            LOGGER.info("Communication disabled", extra={"job_id": job_id})
             return None
 
         # Get communication method
         method = os.getenv("COMMUNICATION_METHOD", "none").lower()
-        print(f"[CommunicationFactory] Creating {method} communication service for job {job_id}", flush=True)
+        LOGGER.info("Creating communication service", extra={"job_id": job_id, "method": method})
 
         if method == "rabbitmq":
             return CommunicationFactory._create_rabbitmq(job_id)
         elif method == "none":
-            print(f"[CommunicationFactory] Communication method set to 'none' for job {job_id}", flush=True)
+            LOGGER.info("Communication method set to none", extra={"job_id": job_id})
             return None
         else:
-            print(f"[CommunicationFactory] Unknown communication method '{method}', defaulting to 'none'", flush=True)
+            LOGGER.warning(
+                "Unknown communication method, defaulting to none",
+                extra={"job_id": job_id, "method": method},
+            )
             return None
 
     @staticmethod
@@ -67,7 +73,7 @@ class CommunicationFactory:
 
             rabbitmq_host = os.getenv("RABBITMQ_HOST")
             if not rabbitmq_host:
-                print(f"[CommunicationFactory] ❌ RABBITMQ_HOST not configured, communication disabled for job {job_id}", flush=True)
+                LOGGER.error("RABBITMQ_HOST not configured", extra={"job_id": job_id})
                 return None
 
             rabbitmq_port = int(os.getenv("RABBITMQ_PORT", "5672"))
@@ -79,12 +85,15 @@ class CommunicationFactory:
                 rabbitmq_exchange_type = "topic" if rabbitmq_exchange == "scrape-events" else "direct"
             rabbitmq_queue = os.getenv("RABBITMQ_QUEUE", f"job-{job_id}")
 
-            print(f"[CommunicationFactory] ✅ Creating RabbitMQ communication service for job {job_id}", flush=True)
-            print(
-                f"[CommunicationFactory] RabbitMQ Config - Host: {rabbitmq_host}, "
-                f"Port: {rabbitmq_port}, Exchange: {rabbitmq_exchange}, "
-                f"Type: {rabbitmq_exchange_type}",
-                flush=True
+            LOGGER.info(
+                "Creating RabbitMQ communication service",
+                extra={
+                    "job_id": job_id,
+                    "host": rabbitmq_host,
+                    "port": rabbitmq_port,
+                    "exchange": rabbitmq_exchange,
+                    "exchange_type": rabbitmq_exchange_type,
+                },
             )
 
             return RabbitMQCommunicationService(
@@ -98,12 +107,14 @@ class CommunicationFactory:
                 exchange_type=rabbitmq_exchange_type,
             )
         except ImportError as e:
-            print(f"[CommunicationFactory] ❌ Failed to import RabbitMQ service (is aio-pika installed?): {e}", flush=True)
-            import traceback
-            print(traceback.format_exc(), flush=True)
+            LOGGER.exception(
+                "Failed to import RabbitMQ service (is aio-pika installed?)",
+                extra={"job_id": job_id, "error": str(e)},
+            )
             return None
         except Exception as e:
-            print(f"[CommunicationFactory] ❌ Failed to create RabbitMQ service: {e}", flush=True)
-            import traceback
-            print(traceback.format_exc(), flush=True)
+            LOGGER.exception(
+                "Failed to create RabbitMQ service",
+                extra={"job_id": job_id, "error": str(e)},
+            )
             return None

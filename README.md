@@ -405,6 +405,8 @@ Create a `.env` file for configuration:
 CRAWL4AI_API_TOKEN=your_token_here
 MAX_CONCURRENT_TASKS=5
 LOG_LEVEL=INFO
+LOG_FORMAT=text
+JOB_LOG_FILE_LEVEL=ERROR
 ```
 
 ## Performance Tuning

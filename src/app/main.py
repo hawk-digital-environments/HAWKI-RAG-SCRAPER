@@ -20,16 +20,11 @@ from src.crawler.core.service import CrawlerService
 from src.crawler.communication.factory import CommunicationFactory
 from src.crawler.state.job_state import JobState
 from src.crawler.storage.storage_manager import StorageManager
+from src.common.logging_setup import configure_logging
 
-# Configure logging for Docker - ensure all output goes to stdout
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)],
-    force=True  # Override any existing handlers
-)
-logging.getLogger().setLevel(logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure logging for Docker with env-driven level/format.
+configure_logging()
+logger = logging.getLogger("crawler.api")
 
 
 # Force unbuffered output for Docker
@@ -291,9 +286,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         # Propagate cancellation after cleanup
         raise
     except Exception as e:
-        import traceback
-        print(f"[run_crawl_job] job {job_id} failed: {e}", flush=True)
-        traceback.print_exc()
+        logger.exception("run_crawl_job failed", extra={"job_id": job_id, "error": str(e)})
         jobs[job_id].status = "failed"
         jobs[job_id].message = f"Crawl failed: {str(e)}"
         jobs[job_id].completed_at = datetime.now()
@@ -378,16 +371,19 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     )
     jobs[job_id] = job_status
 
-    print(f"[crawl endpoint] queued job {job_id} for {config.url}", flush=True)
+    logger.info("crawl job queued", extra={"job_id": job_id, "url": str(config.url)})
 
     # Launch crawl task and track it
     loop = asyncio.get_running_loop()
     task = loop.create_task(run_crawl_job(job_id, config))
     task.add_done_callback(
-        lambda t: print(
-            f"[crawl endpoint] job {job_id} done with result={t.result() if not t.exception() else None} "
-            f"exception={t.exception()}",
-            flush=True
+        lambda t: logger.info(
+            "crawl job finished",
+            extra={
+                "job_id": job_id,
+                "status": "failed" if t.exception() else "completed",
+                "error": str(t.exception()) if t.exception() else None,
+            },
         )
     )
     tasks[job_id] = task

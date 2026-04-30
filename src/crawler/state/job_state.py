@@ -13,11 +13,14 @@ where the state itself is the primary object, not just a manager.
 
 import json
 import asyncio
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 import aiofiles
 from dataclasses import dataclass, asdict, field
+
+LOGGER = logging.getLogger("crawler.job_state")
 
 
 @dataclass
@@ -105,7 +108,12 @@ class JobState:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                print(f"Warning: Observer notification failed: {e}")
+                LOGGER.warning(
+                    "Observer notification failed for %s: %s",
+                    self._data.job_id,
+                    e,
+                    extra={"job_id": self._data.job_id},
+                )
 
     async def initialize(self):
         """
@@ -123,7 +131,12 @@ class JobState:
                             self._data.output_directory = str(self.job_dir)
                         return
                 except Exception as e:
-                    print(f"Warning: Failed to read job state for {self._data.job_id}: {e}")
+                    LOGGER.warning(
+                        "Failed to read job state for %s: %s",
+                        self._data.job_id,
+                        e,
+                        extra={"job_id": self._data.job_id},
+                    )
 
             # Create job directory
             self.job_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +155,12 @@ class JobState:
             async with aiofiles.open(self.state_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(self._data.to_dict(), indent=2, ensure_ascii=False))
         except Exception as e:
-            print(f"Warning: Failed to write job state for {self._data.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to write job state for %s: %s",
+                self._data.job_id,
+                e,
+                extra={"job_id": self._data.job_id},
+            )
 
     async def _update_timestamp_and_persist(self):
         """Update timestamp, persist to disk, and notify observers."""
@@ -271,6 +289,11 @@ class JobState:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:
-            print(f"Warning: Failed to read job state for {self._data.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to read job state for %s: %s",
+                self._data.job_id,
+                e,
+                extra={"job_id": self._data.job_id},
+            )
 
         return self._data.to_dict()

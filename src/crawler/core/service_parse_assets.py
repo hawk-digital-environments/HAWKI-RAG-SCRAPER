@@ -14,6 +14,9 @@ from bs4 import BeautifulSoup
 
 
 class ServiceParseAssetsMixin:
+    def _asset_logger(self):
+        return getattr(self, "job_logger", logging.getLogger("crawler"))
+
     async def _publish_saved_file_event(
         self,
         *,
@@ -41,7 +44,7 @@ class ServiceParseAssetsMixin:
                 payload={"asset_type": "file"},
             )
             if not outcome.success and not outcome.skipped:
-                logging.getLogger("crawler").error(
+                self._asset_logger().error(
                     "file_event_publish_failed url=%s local_path=%s reason=%s error=%s",
                     file_url,
                     file_entry.get("local_path"),
@@ -49,7 +52,7 @@ class ServiceParseAssetsMixin:
                     outcome.error,
                 )
         except Exception as exc:  # pragma: no cover - defensive path
-            logging.getLogger("crawler").error(
+            self._asset_logger().error(
                 "file_event_publish_exception url=%s local_path=%s error=%s",
                 file_url,
                 file_entry.get("local_path"),
@@ -98,7 +101,7 @@ class ServiceParseAssetsMixin:
 
                 return filename
         except Exception as e:
-            print(f"Error downloading image {image_url}: {e}")
+            self._asset_logger().warning("Error downloading image %s: %s", image_url, e)
             return None
 
     def extract_pdf_links(self, html_content: str, base_url: str) -> List[str]:
@@ -168,7 +171,7 @@ class ServiceParseAssetsMixin:
                 headers = {k.lower(): v for k, v in response.headers.items()}
                 return response.status, headers
         except Exception as e:
-            print(f"Warning: HEAD request failed for {url}: {e}")
+            self._asset_logger().warning("HEAD request failed for %s: %s", url, e)
             return None, {}
 
     async def is_pdf_resource(
@@ -346,10 +349,10 @@ class ServiceParseAssetsMixin:
                     if attempt < max_attempts:
                         await asyncio.sleep(0.5 * attempt)
                         continue
-                    print(f"Error downloading PDF {pdf_url}: {e}")
+                    self._asset_logger().error("Error downloading PDF %s: %s", pdf_url, e)
                     return None
                 except Exception as e:
-                    print(f"Error downloading PDF {pdf_url}: {e}")
+                    self._asset_logger().error("Error downloading PDF %s: %s", pdf_url, e)
                     return None
         finally:
             if cleanup_session:
@@ -468,10 +471,10 @@ class ServiceParseAssetsMixin:
                     if attempt < max_attempts:
                         await asyncio.sleep(0.5 * attempt)
                         continue
-                    print(f"Error downloading file {file_url}: {e}")
+                    self._asset_logger().error("Error downloading file %s: %s", file_url, e)
                     return None
                 except Exception as e:
-                    print(f"Error downloading file {file_url}: {e}")
+                    self._asset_logger().error("Error downloading file %s: %s", file_url, e)
                     return None
         finally:
             if cleanup_session:

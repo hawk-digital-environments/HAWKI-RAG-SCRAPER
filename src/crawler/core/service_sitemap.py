@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -9,6 +10,8 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from src.crawler.core.sitemap_scraper import SitemapScraper
+
+LOGGER = logging.getLogger("crawler.sitemap")
 
 
 class ServiceSitemapMixin:
@@ -142,7 +145,7 @@ class ServiceSitemapMixin:
             self.sitemap_map = self._load_sitemap_map(str(output_path))
             self.sitemap_urls = self._load_sitemap_urls(str(output_path))
         except Exception as e:
-            print(f"Error scraping sitemap: {e}")
+            LOGGER.error("Error scraping sitemap: %s", e, extra={"job_id": getattr(self, "job_id", None)})
 
     async def is_sitemap(self, url: str) -> bool:
         """Check if URL is a sitemap"""
@@ -164,7 +167,12 @@ class ServiceSitemapMixin:
                     allow_redirects=True
                 ) as response:
                     if response.status != 200:
-                        print(f"Error fetching sitemap {sitemap_url}: HTTP {response.status}")
+                        LOGGER.warning(
+                            "Error fetching sitemap %s: HTTP %s",
+                            sitemap_url,
+                            response.status,
+                            extra={"job_id": getattr(self, "job_id", None)},
+                        )
                         return []
 
                     content_type = response.headers.get("content-type", "")
@@ -187,9 +195,17 @@ class ServiceSitemapMixin:
                                 key = self._normalize_url_key(url)
                                 if key:
                                     self.sitemap_map[key] = normalized_meta
-                            print(f"Detected JSON sitemap with {len(urls)} URLs")
+                            LOGGER.info(
+                                "Detected JSON sitemap with %s URLs",
+                                len(urls),
+                                extra={"job_id": getattr(self, "job_id", None)},
+                            )
                         except Exception as e:
-                            print(f"Error parsing JSON sitemap: {e}")
+                            LOGGER.error(
+                                "Error parsing JSON sitemap: %s",
+                                e,
+                                extra={"job_id": getattr(self, "job_id", None)},
+                            )
                         if self.url_tracking_manager:
                             await self.url_tracking_manager.add_urls_from_sitemap(urls_with_dates)
                         return [u for u, _ in urls_with_dates]
@@ -236,7 +252,12 @@ class ServiceSitemapMixin:
                     return lines
 
         except Exception as e:
-            print(f"Error parsing sitemap {sitemap_url}: {e}")
+            LOGGER.error(
+                "Error parsing sitemap %s: %s",
+                sitemap_url,
+                e,
+                extra={"job_id": getattr(self, "job_id", None)},
+            )
 
         return []
 
