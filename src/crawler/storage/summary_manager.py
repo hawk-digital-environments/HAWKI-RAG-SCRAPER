@@ -45,9 +45,12 @@ Lifecycle:
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 import aiofiles
+
+LOGGER = logging.getLogger("crawler.summary")
 
 
 class SummaryManager:
@@ -91,7 +94,7 @@ class SummaryManager:
             async with aiofiles.open(self.summary_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(summary, indent=2, ensure_ascii=False))
         except Exception as e:
-            print(f"Error saving summary for {self.job_id}: {e}")
+            LOGGER.error("Error saving summary for %s: %s", self.job_id, e, extra={"job_id": self.job_id})
 
     async def read_summary(self) -> Optional[Dict[str, Any]]:
         """
@@ -106,7 +109,7 @@ class SummaryManager:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:
-            print(f"Error reading summary for {self.job_id}: {e}")
+            LOGGER.error("Error reading summary for %s: %s", self.job_id, e, extra={"job_id": self.job_id})
 
         return None
 

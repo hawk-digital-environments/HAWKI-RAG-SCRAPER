@@ -13,6 +13,10 @@ services:
       - COMMUNICATION_METHOD=${COMMUNICATION_METHOD:-none}
       # Optional API security token
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-text}
+      - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-ERROR}
       # Maximum concurrent crawl tasks
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
       # Server configuration

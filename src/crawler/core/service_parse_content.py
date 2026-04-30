@@ -119,7 +119,10 @@ class ServiceParseContentMixin:
 
             if not markdown_content or len(markdown_content.strip()) <= 1:
                 fallback_used = True
-                print(f"Warning: html2text produced empty output, using BeautifulSoup text extraction for {url}")
+                self.job_logger.warning(
+                    "html2text produced empty output, using BeautifulSoup text extraction for %s",
+                    url,
+                )
                 soup_temp = BeautifulSoup(cleaned_html, 'html.parser')
                 main_content = soup_temp.find('body') or soup_temp
                 text_content = main_content.get_text(separator='\n', strip=True)
@@ -328,5 +331,5 @@ class ServiceParseContentMixin:
             error_text = str(e)
             if "Browser.new_context" in error_text and "Target page, context or browser has been closed" in error_text:
                 raise RuntimeError(f"browser_closed:{url}") from e
-            print(f"Error extracting data from {url}: {e}")
+            self.job_logger.error("Error extracting data from %s: %s", url, e)
             return None

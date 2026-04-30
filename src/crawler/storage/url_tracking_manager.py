@@ -36,11 +36,14 @@ import json
 import os
 import asyncio
 import hashlib
+import logging
 from urllib.parse import urlparse
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import aiofiles
+
+LOGGER = logging.getLogger("crawler.url_tracking")
 
 
 def generate_url_hash(url: str) -> str:
@@ -196,7 +199,13 @@ class URLTrackingManager:
 
             await self._write_state()
             num_chunks = (len(self.urls) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
-            print(f"Stored {len(self.urls)} unique URLs across {num_chunks} chunks (detected {self.total_entries_detected} total entries including duplicates)")
+            LOGGER.info(
+                "Stored %s unique URLs across %s chunks (detected %s total entries including duplicates)",
+                len(self.urls),
+                num_chunks,
+                self.total_entries_detected,
+                extra={"job_id": self.job_id},
+            )
 
     async def add_url(self, url: str, source: str = "discovery", sitemap_date: Optional[str] = None):
         """
@@ -361,7 +370,12 @@ class URLTrackingManager:
             async with aiofiles.open(self.index_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(index_data, indent=2, ensure_ascii=False))
         except Exception as e:
-            print(f"Warning: Failed to write URL index for {self.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to write URL index for %s: %s",
+                self.job_id,
+                e,
+                extra={"job_id": self.job_id},
+            )
 
     async def _write_chunk(self, chunk_num: int, chunk_data: Dict[str, Dict[str, Any]]):
         """Write a specific chunk to disk."""
@@ -370,7 +384,13 @@ class URLTrackingManager:
             async with aiofiles.open(chunk_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(chunk_data, indent=2, ensure_ascii=False))
         except Exception as e:
-            print(f"Warning: Failed to write URL chunk {chunk_num} for {self.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to write URL chunk %s for %s: %s",
+                chunk_num,
+                self.job_id,
+                e,
+                extra={"job_id": self.job_id},
+            )
 
     async def _write_state(self):
         """
@@ -403,14 +423,25 @@ class URLTrackingManager:
                     try:
                         chunk_file.unlink()
                     except Exception as e:
-                        print(f"Warning: Failed to delete stale URL chunk {chunk_file} for {self.job_id}: {e}")
+                        LOGGER.warning(
+                            "Failed to delete stale URL chunk %s for %s: %s",
+                            chunk_file,
+                            self.job_id,
+                            e,
+                            extra={"job_id": self.job_id},
+                        )
 
             # Write index
             await self._write_index()
 
         except Exception as e:
             # Log error but don't fail the job
-            print(f"Warning: Failed to write URL tracking state for {self.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to write URL tracking state for %s: %s",
+                self.job_id,
+                e,
+                extra={"job_id": self.job_id},
+            )
 
     async def _read_chunk(self, chunk_num: int) -> Dict[str, Dict[str, Any]]:
         """Read a specific chunk from disk."""
@@ -421,7 +452,13 @@ class URLTrackingManager:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:
-            print(f"Warning: Failed to read URL chunk {chunk_num} for {self.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to read URL chunk %s for %s: %s",
+                chunk_num,
+                self.job_id,
+                e,
+                extra={"job_id": self.job_id},
+            )
         return {}
 
     async def read_state(self) -> Dict[str, Dict[str, Any]]:
@@ -457,7 +494,12 @@ class URLTrackingManager:
                 return self.urls.copy()
 
         except Exception as e:
-            print(f"Warning: Failed to read URL tracking state for {self.job_id}: {e}")
+            LOGGER.warning(
+                "Failed to read URL tracking state for %s: %s",
+                self.job_id,
+                e,
+                extra={"job_id": self.job_id},
+            )
 
         return {}
 

@@ -147,12 +147,10 @@ class RabbitMQCommunicationService(CommunicationInterface):
         """Establish RabbitMQ connection with retry logic."""
         if self._reconnect_attempts >= self._max_reconnect_attempts:
             self.logger.error(f"Max reconnection attempts ({self._max_reconnect_attempts}) reached")
-            print(f"[RabbitMQ] Max reconnection attempts ({self._max_reconnect_attempts}) reached for job {self.job_id}", flush=True)
             return False
 
         try:
             self.logger.info(f"Connecting to RabbitMQ at {self.host}:{self.port}...")
-            print(f"[RabbitMQ] Connecting to {self.host}:{self.port}...", flush=True)
 
             # Build connection URL
             url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}/"
@@ -214,35 +212,29 @@ class RabbitMQCommunicationService(CommunicationInterface):
                 f"(exchange: {self.exchange_name}, queue: {self.queue_name})"
             )
             self.logger.info(success_msg)
-            print(f"[RabbitMQ] {success_msg}", flush=True)
             return True
 
         except AMQPException as e:
             self._reconnect_attempts += 1
             error_msg = f"Failed to connect to RabbitMQ (attempt {self._reconnect_attempts}/{self._max_reconnect_attempts}): {e}"
             self.logger.warning(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             self._connected = False
 
             if self._reconnect_attempts < self._max_reconnect_attempts:
                 retry_msg = f"Retrying in {self._reconnect_delay} seconds..."
                 self.logger.info(retry_msg)
-                print(f"[RabbitMQ] {retry_msg}", flush=True)
                 await asyncio.sleep(self._reconnect_delay)
                 return await self.connect()
 
             final_error = "RabbitMQ connection failed. Continuing without communication."
             self.logger.warning(final_error)
-            print(f"[RabbitMQ] ⚠️  {final_error}", flush=True)
             return False
 
         except Exception as e:
             error_msg = f"Unexpected error connecting to RabbitMQ: {e}"
             self.logger.warning(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             import traceback
             self.logger.error(traceback.format_exc())
-            print(traceback.format_exc(), flush=True)
             self._connected = False
             return False
 
@@ -274,7 +266,6 @@ class RabbitMQCommunicationService(CommunicationInterface):
         if not self._connected or not self.exchange:
             error_msg = f"Cannot publish event '{event}' - not connected"
             self.logger.error(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             return False
 
         try:
@@ -289,7 +280,6 @@ class RabbitMQCommunicationService(CommunicationInterface):
             # Log the event (compact format for console)
             data_str = json.dumps(data, default=str)
             self.logger.info(f"Event [{event}]: {data_str}")
-            print(f"[RabbitMQ] 📤 Publishing event [{event}] to exchange '{self.exchange_name}'", flush=True)
 
             # Create message
             message_body = json.dumps(payload, default=str).encode('utf-8')
@@ -312,26 +302,22 @@ class RabbitMQCommunicationService(CommunicationInterface):
             )
 
             self.logger.debug(f"Event '{event}' published to exchange '{self.exchange_name}' with routing key '{routing_key}'")
-            print(f"[RabbitMQ] ✅ Event [{event}] published successfully", flush=True)
             return True
 
         except AMQPException as e:
             error_msg = f"AMQP error while publishing event '{event}': {e}"
             self.logger.error(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             self._connected = False
             return False
 
         except (TypeError, ValueError) as e:
             error_msg = f"JSON serialization error for event '{event}': {e}"
             self.logger.error(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             return False
 
         except Exception as e:
             error_msg = f"Unexpected error while publishing event '{event}': {e}"
             self.logger.error(error_msg)
-            print(f"[RabbitMQ] ❌ {error_msg}", flush=True)
             import traceback
             self.logger.error(traceback.format_exc())
             return False

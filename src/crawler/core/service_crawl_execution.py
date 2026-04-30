@@ -28,7 +28,7 @@ class ServiceCrawlExecutionMixin:
 
             parsed_url = urlparse(url)
             if parsed_url.scheme not in ("http", "https"):
-                print(f"Skipping non-HTTP URL: {url}")
+                self.job_logger.info("Skipping non-HTTP URL: %s", url)
                 async with self.counter_lock:
                     if url in self.visited_urls:
                         return
@@ -61,9 +61,14 @@ class ServiceCrawlExecutionMixin:
             url_hash = generate_url_hash(url)
 
             if self.config.max_pages > 0:
-                print(f"Crawling [{current_page_number}/{self.config.max_pages}]: {url}")
+                self.job_logger.info(
+                    "Crawling [%s/%s]: %s",
+                    current_page_number,
+                    self.config.max_pages,
+                    url,
+                )
             else:
-                print(f"Crawling [{current_page_number}/unlimited]: {url}")
+                self.job_logger.info("Crawling [%s/unlimited]: %s", current_page_number, url)
 
             if self.url_tracking_manager:
                 await self.url_tracking_manager.set_processing(url, current_page_number)
@@ -73,7 +78,7 @@ class ServiceCrawlExecutionMixin:
                 await self.job_state.set_current_url(url)
 
             if self._is_video_url(url):
-                print(f"Skipping video URL: {url}")
+                self.job_logger.info("Skipping video URL: %s", url)
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.set_completed(url, None)
                 if self.progress_tracker:
@@ -349,7 +354,7 @@ class ServiceCrawlExecutionMixin:
                 and self.browser_restart_interval_seconds > 0
                 and time.monotonic() - self.browser_last_restart >= self.browser_restart_interval_seconds
             ):
-                print("Restarting browser: reached hourly restart interval")
+                self.job_logger.info("Restarting browser: reached hourly restart interval")
                 self.restart_crawler = True
                 break
             batch_size = min(self.config.max_concurrency, len(self.to_visit))
@@ -411,7 +416,7 @@ class ServiceCrawlExecutionMixin:
                     list(self._get_forbidden_hosts())
                 )
                 if removed:
-                    print(f"Removed {removed} forbidden URLs from tracking state")
+                    self.job_logger.info("Removed %s forbidden URLs from tracking state", removed)
             if self.progress_tracker:
                 await self.progress_tracker.start()
 
@@ -448,7 +453,7 @@ class ServiceCrawlExecutionMixin:
             sitemap_only = bool(getattr(self.config, "sitemap_only", False))
             if sitemap_only:
                 self.config.discovery_mode = False
-            print(f"Crawl for {start_url}")
+            self.job_logger.info("Crawl start for %s", start_url)
             if resume_urls:
                 if sitemap_only:
                     resume_urls = [
@@ -463,9 +468,13 @@ class ServiceCrawlExecutionMixin:
 
                 await self._update_total_urls(completed_count + len(self.to_visit))
 
-                print(f"Resuming job {self.job_id}: {len(self.to_visit)} URLs remaining")
+                self.job_logger.info(
+                    "Resuming job %s: %s URLs remaining",
+                    self.job_id,
+                    len(self.to_visit),
+                )
             if not resume_urls and await self.is_sitemap(start_url):
-                print(f"Detected sitemap: {start_url}")
+                self.job_logger.info("Detected sitemap: %s", start_url)
                 urls = await self.parse_sitemap(start_url)
 
                 await self._send_stage(Stage.SITEMAP_DETECTED, {"sitemap_url": start_url, "total_urls": len(urls)})
@@ -478,7 +487,11 @@ class ServiceCrawlExecutionMixin:
                 for u in self.to_visit:
                     self.url_depth[u] = 0
                     self.url_source[u] = "sitemap"
-                print(f"Found {len(urls)} URLs in sitemap, will crawl {len(self.to_visit)}")
+                self.job_logger.info(
+                    "Found %s URLs in sitemap, will crawl %s",
+                    len(urls),
+                    len(self.to_visit),
+                )
 
                 await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(urls), "total_to_crawl": len(self.to_visit)})
                 if self.job_state:
@@ -496,7 +509,11 @@ class ServiceCrawlExecutionMixin:
                     for u in self.to_visit:
                         self.url_depth[u] = 0
                         self.url_source[u] = "sitemap"
-                    print(f"Loaded {len(sitemap_urls)} URLs from sitemap file, will crawl {len(self.to_visit)}")
+                    self.job_logger.info(
+                        "Loaded %s URLs from sitemap file, will crawl %s",
+                        len(sitemap_urls),
+                        len(self.to_visit),
+                    )
 
                     await self._send_stage(
                         Stage.URLS_DISCOVERED,
@@ -514,7 +531,7 @@ class ServiceCrawlExecutionMixin:
                 for u in self.to_visit:
                     self.url_depth[u] = 0
                     self.url_source[u] = "sitemap"
-                print(f"Sitemap-only crawl: will crawl {len(self.to_visit)} URLs")
+                self.job_logger.info("Sitemap-only crawl: will crawl %s URLs", len(self.to_visit))
                 await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(self.to_visit), "total_to_crawl": len(self.to_visit)})
                 if self.job_state:
                     await self.job_state.set_total_urls(len(self.to_visit))
@@ -590,7 +607,11 @@ class ServiceCrawlExecutionMixin:
                         max_rescrape_rounds = 10
                         while failed_urls and rescrape_round < max_rescrape_rounds:
                             rescrape_round += 1
-                            print(f"Rescrape round {rescrape_round}: retrying {len(failed_urls)} failed URLs")
+                            self.job_logger.info(
+                                "Rescrape round %s: retrying %s failed URLs",
+                                rescrape_round,
+                                len(failed_urls),
+                            )
 
                             for failed_url in failed_urls:
                                 self.visited_urls.discard(failed_url)
@@ -622,7 +643,7 @@ class ServiceCrawlExecutionMixin:
                     await self.summary_manager.save_summary(formatted_summary)
                     await self._send_summary(formatted_summary)
 
-                    print("\n" + SummaryManager.format_text_summary(formatted_summary))
+                    self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
             if self.job_state:
                 await self.job_state.set_status("completed")
 
@@ -635,7 +656,7 @@ class ServiceCrawlExecutionMixin:
         except Exception as e:
             error_msg = str(e)
             self.job_logger.error("crawl exception: %s", error_msg, exc_info=True)
-            print(f"Crawl job failed: {error_msg}")
+            self.job_logger.error("Crawl job failed: %s", error_msg)
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("failed")
@@ -655,7 +676,7 @@ class ServiceCrawlExecutionMixin:
                     await self.summary_manager.save_summary(formatted_summary)
                     await self._send_summary(formatted_summary)
 
-                    print("\n" + SummaryManager.format_text_summary(formatted_summary))
+                    self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
 
             if self.job_state:
                 await self.job_state.set_error(error_msg)
