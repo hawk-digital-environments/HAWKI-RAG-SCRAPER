@@ -48,8 +48,16 @@ class FileEventPublishOutcome:
 
 
 def _env_enabled() -> bool:
-    enabled = os.getenv("COMMUNICATION_ENABLED", "true").strip().lower() == "true"
-    method = os.getenv("COMMUNICATION_METHOD", "none").strip().lower()
+    file_events_enabled_raw = os.getenv("FILE_EVENTS_ENABLED")
+    if file_events_enabled_raw is None:
+        enabled = os.getenv("COMMUNICATION_ENABLED", "true").strip().lower() == "true"
+    else:
+        enabled = file_events_enabled_raw.strip().lower() == "true"
+
+    method = os.getenv(
+        "FILE_EVENTS_TRANSPORT",
+        os.getenv("COMMUNICATION_METHOD", "none"),
+    ).strip().lower()
     return enabled and method == "rabbitmq"
 
 
@@ -239,6 +247,8 @@ class FileEventPublisher:
                 self._log_structured(
                     logging.INFO,
                     "file_event_communication_disabled",
+                    file_events_enabled=os.getenv("FILE_EVENTS_ENABLED", ""),
+                    file_events_transport=os.getenv("FILE_EVENTS_TRANSPORT", ""),
                     communication_enabled=os.getenv("COMMUNICATION_ENABLED", "true"),
                     communication_method=os.getenv("COMMUNICATION_METHOD", "none"),
                 )
@@ -291,4 +301,3 @@ class FileEventPublisher:
             publish_result=publish_result,
             error=publish_result.error,
         )
-
