@@ -154,6 +154,7 @@ Submit a crawl job with configuration.
 | `max_concurrency` | integer | 4 | Maximum number of parallel requests (1-20) |
 | `max_rpm` | integer | 60 | Maximum requests per minute |
 | `request_delay` | integer | null | Delay between requests in milliseconds (overrides RPM) |
+| `max_link_density` | number | 0.4 | Maximum allowed share of words/text that are links. `0.4` allows content where up to ~40% is link text. If useful pages are missing, raise it to `0.6` or `0.8`; if too many navigation/list pages are included, lower it to `0.2` or `0.3`. |
 | `discovery_mode` | boolean | false | Discover and crawl URLs inside the given page |
 
 **Response:**

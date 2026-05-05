@@ -163,6 +163,7 @@ curl -X POST "http://localhost:8000/crawl" \
 | `skip_images` | false | Skip downloading images |
 | `max_concurrency` | 4 | Parallel requests |
 | `max_rpm` | 60 | Requests per minute |
+| `max_link_density` | 0.4 | Allows content where up to ~40% is link text. Raise to `0.6`/`0.8` if useful pages are missing; lower to `0.2`/`0.3` if too many navigation/list pages are included. |
 
 See [README.md](README.md) for complete documentation.
 

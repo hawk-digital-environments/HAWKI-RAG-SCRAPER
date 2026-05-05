@@ -39,6 +39,8 @@
 		missed: number;
 	};
 
+	const hiddenQueueNames = new Set(['crawl_jobs', 'crawl_jobs_retry', 'failed_jobs']);
+
 	type CrawlForm = {
 		job_id: string;
 		url: string;
@@ -359,7 +361,9 @@
 				queues = [];
 				return;
 			}
-			queues = Array.isArray(payload?.queues) ? payload.queues : [];
+			queues = Array.isArray(payload?.queues)
+				? payload.queues.filter((queue: QueueEntry) => !hiddenQueueNames.has(queue.name))
+				: [];
 		} catch (error) {
 			queueError = `Queue request failed: ${error}`;
 		}
@@ -539,7 +543,11 @@
 			<div class="field"><label for="sitemap_start_page">sitemap_start_page</label><input id="sitemap_start_page" type="number" bind:value={form.sitemap_start_page} /></div>
 			<div class="field"><label for="sitemap_pages">sitemap_pages</label><input id="sitemap_pages" type="number" bind:value={form.sitemap_pages} /></div>
 			<div class="field"><label for="min_word_count">min_word_count</label><input id="min_word_count" type="number" bind:value={form.min_word_count} min="0" /></div>
-			<div class="field"><label for="max_link_density">max_link_density</label><input id="max_link_density" type="number" step="0.01" bind:value={form.max_link_density} min="0" max="1" /></div>
+			<div class="field">
+				<label for="max_link_density">max_link_density</label>
+				<input id="max_link_density" type="number" step="0.01" bind:value={form.max_link_density} min="0" max="1" />
+				<p class="hint">0.4 allows content where up to ~40% is link text. Raise to 0.6/0.8 if useful pages are missing; lower to 0.2/0.3 if too many navigation/list pages appear.</p>
+			</div>
 			<div class="field"><label for="max_link_density_words">max_link_density_words</label><input id="max_link_density_words" type="number" bind:value={form.max_link_density_words} min="0" /></div>
 			<div class="field"><label for="wait_until">wait_until</label><input id="wait_until" bind:value={form.wait_until} /></div>
 			<div class="field"><label for="page_timeout_ms">page_timeout_ms</label><input id="page_timeout_ms" type="number" bind:value={form.page_timeout_ms} min="1" /></div>
@@ -873,6 +881,13 @@
 	.muted {
 		opacity: 0.73;
 		font-size: 0.8rem;
+	}
+
+	.hint {
+		opacity: 0.72;
+		font-size: 0.72rem;
+		line-height: 1.35;
+		margin: 0.28rem 0 0;
 	}
 
 	.ok {
