@@ -116,6 +116,7 @@
 
 	let jobs: JobStatus[] = [];
 	let jobsError = '';
+	let stopStateByJob: Record<string, string> = {};
 	let selectedJobId = '';
 	let summaryCountsByJob: Record<string, SummaryCounts> = {};
 	let autoRefresh = true;
@@ -423,6 +424,29 @@
 		}
 	}
 
+	function canStopJob(job: JobStatus) {
+		return !['completed', 'failed', 'cancelled'].includes(job.status);
+	}
+
+	async function stopJob(jobId: string) {
+		stopStateByJob = { ...stopStateByJob, [jobId]: 'Stopping...' };
+		try {
+			const response = await fetch(`/api/crawler/job/${encodeURIComponent(jobId)}/cancel`, {
+				method: 'POST'
+			});
+			const payload = await response.json();
+			if (!response.ok) {
+				const detail = payload?.detail ?? payload?.error ?? 'Stop request failed';
+				stopStateByJob = { ...stopStateByJob, [jobId]: String(detail) };
+				return;
+			}
+			stopStateByJob = { ...stopStateByJob, [jobId]: payload?.message ?? 'Stop requested' };
+			await refreshJobs();
+		} catch (error) {
+			stopStateByJob = { ...stopStateByJob, [jobId]: `Stop failed: ${error}` };
+		}
+	}
+
 	function startAutoRefresh() {
 		if (typeof window === 'undefined') {
 			return;
@@ -625,6 +649,7 @@
 								<th>URLs Found</th>
 								<th>URLs Completed</th>
 								<th>URLs Missed</th>
+								<th>Action</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -635,6 +660,18 @@
 									<td>{countsForJob(job).found}</td>
 									<td>{countsForJob(job).completed}</td>
 									<td>{countsForJob(job).missed}</td>
+									<td>
+										<button
+											class="danger"
+											disabled={!canStopJob(job)}
+											on:click|stopPropagation={() => stopJob(job.job_id)}
+										>
+											Stop
+										</button>
+										{#if stopStateByJob[job.job_id]}
+											<span class="action-state">{stopStateByJob[job.job_id]}</span>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -779,6 +816,25 @@
 	button.submit {
 		background: linear-gradient(145deg, #11a5dd, #0b7ec7);
 		border-color: rgba(118, 224, 255, 0.68);
+	}
+
+	button.danger {
+		background: linear-gradient(145deg, #a83252, #7d1f3a);
+		border-color: rgba(255, 154, 180, 0.68);
+	}
+
+	button:disabled {
+		cursor: not-allowed;
+		filter: grayscale(0.6);
+		opacity: 0.5;
+		transform: none;
+	}
+
+	.action-state {
+		display: inline-block;
+		margin-left: 0.4rem;
+		color: #ffd1dc;
+		font-size: 0.7rem;
 	}
 
 	button.selected,

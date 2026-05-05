@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
 import {
 	rabbitMqMgmtApiUrl,
@@ -6,7 +7,17 @@ import {
 	rabbitMqMgmtUser
 } from '$lib/server/config';
 
-export async function GET({ fetch }) {
+type RabbitMqQueuePayload = {
+	name?: unknown;
+	vhost?: unknown;
+	state?: unknown;
+	messages?: unknown;
+	messages_ready?: unknown;
+	messages_unacknowledged?: unknown;
+	consumers?: unknown;
+};
+
+export const GET: RequestHandler = async ({ fetch }) => {
 	const auth = btoa(`${rabbitMqMgmtUser}:${rabbitMqMgmtPassword}`);
 
 	try {
@@ -35,7 +46,7 @@ export async function GET({ fetch }) {
 		}
 
 		const queues = Array.isArray(payload)
-			? payload.map((item) => ({
+			? payload.map((item: RabbitMqQueuePayload) => ({
 					name: typeof item?.name === 'string' ? item.name : 'unknown',
 					vhost: typeof item?.vhost === 'string' ? item.vhost : '/',
 					state: typeof item?.state === 'string' ? item.state : 'unknown',
@@ -58,4 +69,4 @@ export async function GET({ fetch }) {
 			{ status: 502 }
 		);
 	}
-}
+};

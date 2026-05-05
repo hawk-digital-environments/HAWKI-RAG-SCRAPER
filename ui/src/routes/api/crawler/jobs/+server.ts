@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
 import { crawlerApiBaseUrls } from '$lib/server/config';
 import { fetchCrawler } from '$lib/server/crawler-client';
 
-export async function GET({ fetch }) {
+export const GET: RequestHandler = async ({ fetch }) => {
 	try {
 		const { response, url } = await fetchCrawler(fetch, '/jobs');
 		const text = await response.text();
@@ -24,4 +25,4 @@ export async function GET({ fetch }) {
 			{ status: 502 }
 		);
 	}
-}
+};
