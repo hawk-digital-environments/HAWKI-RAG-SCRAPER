@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
 import { crawlerApiBaseUrls } from '$lib/server/config';
 import { fetchCrawler } from '$lib/server/crawler-client';
 
-export async function POST({ request, fetch }) {
+export const POST: RequestHandler = async ({ request, fetch }) => {
 	let payload: unknown;
 	try {
 		payload = await request.json();
@@ -35,4 +36,4 @@ export async function POST({ request, fetch }) {
 			{ status: 502 }
 		);
 	}
-}
+};
