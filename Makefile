@@ -17,7 +17,6 @@ RESCRAPE_FAILED ?= false
 FAILED_THRESHOLD ?= 100
 MAX_RETRY_ROUNDS ?= 4
 PYTHON ?= python3
-SIMILARITY_THRESHOLD ?= 0.95
 DISCOVERY_MODE ?= false
 SKIP_IMAGES ?= false
 
@@ -37,15 +36,7 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
-# Allow `make post-process-similarity <job_id>` as shorthand
-ifeq ($(firstword $(MAKECMDGOALS)),post-process-similarity)
-  ifneq ($(word 2,$(MAKECMDGOALS)),)
-    override JOB_ID := $(word 2,$(MAKECMDGOALS))
-    $(eval $(word 2,$(MAKECMDGOALS)):=)
-  endif
-endif
-
-.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared post-process-similarity
+.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared start-ui
 
 crawl:
 	@set -e; \
@@ -175,12 +166,9 @@ down:
 logs:
 	docker compose logs -f
 
+start-ui:
+	npm --prefix ui run dev
+
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
 	docker compose exec crawler sh -lc 'rm -rf /app/shared/$(JOB_ID)'
-
-post-process-similarity:
-	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make post-process-similarity JOB_ID=<id>"; exit 1; fi
-	docker compose exec -T crawler python3 /app/src/scripts/post_process_similarity.py \
-		--job-id "$(JOB_ID)" \
-		--threshold "$(SIMILARITY_THRESHOLD)" $(if $(DEDUPLICATE_IDENTICAL),--dedupe-identical,)
