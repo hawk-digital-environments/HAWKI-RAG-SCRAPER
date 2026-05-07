@@ -167,6 +167,7 @@ logs:
 	docker compose logs -f
 
 start-ui:
+	npm install --prefix ui
 	npm --prefix ui run dev
 
 clean-shared:
