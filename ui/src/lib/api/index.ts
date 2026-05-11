@@ -190,6 +190,10 @@ function normalizeStatus(status: unknown): JobStatus {
 	return 'running';
 }
 
+function inferProfileIdFromJobId(jobId: string): string {
+	return jobId.replace(/_\d+$/, '') || 'crawler';
+}
+
 function hasTimezone(value: string): boolean {
 	return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
 }
@@ -212,6 +216,7 @@ function getClientStart(jobId: string): string | undefined {
 function jobToUi(job: CrawlerJobStatus): Job {
 	const status = normalizeStatus(job.status);
 	const started = getClientStart(job.job_id) ?? normalizeBackendDate(job.started_at) ?? new Date().toISOString();
+	const profileId = inferProfileIdFromJobId(job.job_id);
 	const log = [
 		`[${started}] ${status.toUpperCase()} ${job.message ?? 'Crawler job status loaded'}`,
 		`Pages crawled: ${job.pages_crawled ?? 0} / ${job.total_pages ?? 0}`
@@ -219,8 +224,8 @@ function jobToUi(job: CrawlerJobStatus): Job {
 
 	return {
 		id: job.job_id,
-		taskId: 'crawler-job',
-		profileId: 'crawler',
+		taskId: `manual-${profileId}`,
+		profileId,
 		status,
 		startTime: started,
 		endTime: normalizeBackendDate(job.completed_at),
