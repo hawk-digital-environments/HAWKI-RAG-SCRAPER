@@ -25,9 +25,22 @@ type CrawlerJobStatus = {
 
 type QueueEntry = {
 	name: string;
+	vhost?: string;
 	messages?: number;
 	messages_ready?: number;
 	messages_unacknowledged?: number;
+};
+
+type TaskEntry = {
+	id: string;
+	name: string;
+	profileId: string;
+	schedule?: string;
+};
+
+type JobLogPayload = {
+	found?: boolean;
+	lines?: string[];
 };
 
 export class ApiError extends Error {
@@ -93,6 +106,7 @@ function profileToUi(entry: ProfileEntry): Profile {
 	return {
 		id: entry.name,
 		name: profileName(profile, entry.name),
+		readonlyExample: entry.readonlyExample ?? false,
 		entrypoints: sitemapBase ? [...hostEntrypoints, { type: 'sitemap', src: sitemapBase }] : hostEntrypoints,
 		discovery: { hosts: asStringArray(discovery.allowed_hosts ?? discovery.hosts) },
 		forbidden: {
@@ -107,7 +121,14 @@ function profileToUi(entry: ProfileEntry): Profile {
 		},
 		max_execution_time: typeof profile.max_execution_time === 'string' ? profile.max_execution_time : '24h',
 		max_storage_time: typeof profile.max_storage_time === 'string' ? profile.max_storage_time : '7d',
-		rescrape_failed: typeof profile.rescrape_failed === 'boolean' ? profile.rescrape_failed : false
+		rescrape_failed: typeof profile.rescrape_failed === 'boolean' ? profile.rescrape_failed : false,
+		max_concurrency: typeof profile.max_concurrency === 'number' ? profile.max_concurrency : 1,
+		max_rpm: typeof profile.max_rpm === 'number' ? profile.max_rpm : 60,
+		skip_images: typeof profile.skip_images === 'boolean' ? profile.skip_images : false,
+		max_images_per_page: typeof profile.max_images_per_page === 'number' ? profile.max_images_per_page : 30,
+		max_pages: typeof profile.max_pages === 'number' ? profile.max_pages : 100,
+		max_link_density: typeof profile.max_link_density === 'number' ? profile.max_link_density : 0.4,
+		discovery_mode: typeof profile.discovery_mode === 'boolean' ? profile.discovery_mode : false
 	};
 }
 
@@ -133,7 +154,14 @@ function profileInputToBackend(input: ProfileInput): Record<string, unknown> {
 				: undefined,
 		max_execution_time: input.max_execution_time,
 		max_storage_time: input.max_storage_time,
-		rescrape_failed: input.rescrape_failed
+		rescrape_failed: input.rescrape_failed,
+		max_concurrency: input.max_concurrency,
+		max_rpm: input.max_rpm,
+		skip_images: input.skip_images,
+		max_images_per_page: input.max_images_per_page,
+		max_pages: input.max_pages,
+		max_link_density: input.max_link_density,
+		discovery_mode: input.discovery_mode
 	};
 }
 
@@ -145,6 +173,15 @@ function taskForProfile(profile: Profile): Task {
 	};
 }
 
+function taskToUi(task: TaskEntry): Task {
+	return {
+		id: task.id,
+		name: task.name,
+		profileId: task.profileId,
+		schedule: task.schedule
+	};
+}
+
 function normalizeStatus(status: unknown): JobStatus {
 	const value = typeof status === 'string' ? status.toLowerCase() : 'running';
 	if (value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'stopping') {
@@ -153,9 +190,28 @@ function normalizeStatus(status: unknown): JobStatus {
 	return 'running';
 }
 
+function hasTimezone(value: string): boolean {
+	return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+}
+
+function normalizeBackendDate(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	return hasTimezone(value) ? value : `${value}Z`;
+}
+
+function rememberClientStart(jobId: string, startedAt: string): void {
+	if (typeof sessionStorage === 'undefined') return;
+	sessionStorage.setItem(`crawler-job-start:${jobId}`, startedAt);
+}
+
+function getClientStart(jobId: string): string | undefined {
+	if (typeof sessionStorage === 'undefined') return undefined;
+	return sessionStorage.getItem(`crawler-job-start:${jobId}`) ?? undefined;
+}
+
 function jobToUi(job: CrawlerJobStatus): Job {
 	const status = normalizeStatus(job.status);
-	const started = job.started_at ?? new Date().toISOString();
+	const started = getClientStart(job.job_id) ?? normalizeBackendDate(job.started_at) ?? new Date().toISOString();
 	const log = [
 		`[${started}] ${status.toUpperCase()} ${job.message ?? 'Crawler job status loaded'}`,
 		`Pages crawled: ${job.pages_crawled ?? 0} / ${job.total_pages ?? 0}`
@@ -167,7 +223,7 @@ function jobToUi(job: CrawlerJobStatus): Job {
 		profileId: 'crawler',
 		status,
 		startTime: started,
-		endTime: job.completed_at,
+		endTime: normalizeBackendDate(job.completed_at),
 		log,
 		failedPages: []
 	};
@@ -214,29 +270,47 @@ export async function getProfileTaskCount(profileId: string, apiFetch?: ApiFetch
 }
 
 export async function getProfileTasks(profileId: string, apiFetch?: ApiFetch): Promise<Task[]> {
-	const profile = await getProfile(profileId, apiFetch);
-	return profile ? [taskForProfile(profile)] : [];
+	return (await getAllTasks(apiFetch)).filter((task) => task.profileId === profileId);
 }
 
 export async function getAllTasks(apiFetch?: ApiFetch): Promise<Task[]> {
-	return (await getAllProfiles(apiFetch)).map(taskForProfile);
+	const [profiles, payload] = await Promise.all([
+		getAllProfiles(apiFetch),
+		request<{ tasks?: TaskEntry[] }>('/api/tasks', undefined, apiFetch).catch((error) => {
+			if (error instanceof ApiError && error.status === 404) return { tasks: [] };
+			throw error;
+		})
+	]);
+	const storedTasks = (payload.tasks ?? []).map(taskToUi);
+	const storedIds = new Set(storedTasks.map((task) => task.id));
+	const defaultTasks = profiles
+		.map(taskForProfile)
+		.filter((task) => !storedIds.has(task.id));
+	return [...defaultTasks, ...storedTasks].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getTask(id: string, apiFetch?: ApiFetch): Promise<Task | undefined> {
-	const profiles = await getAllProfiles(apiFetch);
-	const profile = profiles.find((item) => `manual-${item.id}` === id || item.id === id);
-	return profile ? taskForProfile(profile) : undefined;
+	return (await getAllTasks(apiFetch)).find((task) => task.id === id);
 }
 
 export async function createTask(input: TaskInput): Promise<Task> {
-	return { ...input, id: `manual-${input.profileId}` };
+	const task = await request<TaskEntry>('/api/tasks', {
+		method: 'POST',
+		body: JSON.stringify(input)
+	});
+	return taskToUi(task);
 }
 
 export async function updateTask(id: string, input: TaskInput): Promise<Task | undefined> {
-	return { ...input, id };
+	const task = await request<TaskEntry>(`/api/tasks/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(input)
+	});
+	return taskToUi(task);
 }
 
-export async function deleteTask(_id: string): Promise<boolean> {
+export async function deleteTask(id: string): Promise<boolean> {
+	await request(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 	return true;
 }
 
@@ -259,6 +333,22 @@ export async function getJob(id: string, apiFetch?: ApiFetch): Promise<Job | und
 	return (await getAllJobs(apiFetch)).find((job) => job.id === id);
 }
 
+export async function getJobLog(id: string, apiFetch?: ApiFetch): Promise<string[]> {
+	try {
+		const payload = await request<JobLogPayload>(
+			`/api/crawler/job/${encodeURIComponent(id)}/logs`,
+			undefined,
+			apiFetch
+		);
+		return Array.isArray(payload.lines)
+			? payload.lines.filter((line): line is string => typeof line === 'string')
+			: [];
+	} catch (error) {
+		if (error instanceof ApiError) return [];
+		throw error;
+	}
+}
+
 export async function startJob(taskId: string): Promise<Job> {
 	const task = await getTask(taskId);
 	if (!task) throw new Error(`Task ${taskId} not found`);
@@ -267,29 +357,36 @@ export async function startJob(taskId: string): Promise<Job> {
 	const profile = profileToUi(profileEntry);
 	const firstHost = profile.entrypoints.find((entry) => entry.type === 'host')?.src;
 	const firstSitemap = profile.entrypoints.find((entry) => entry.type === 'sitemap')?.src;
+	const submittedAt = new Date().toISOString();
+	const generatedJobId = `${task.profileId}_${Date.now()}`;
 	const response = await request<Record<string, unknown>>('/api/crawler/submit', {
 		method: 'POST',
 		body: JSON.stringify({
-			job_id: `${task.profileId}_${Date.now()}`,
+			job_id: generatedJobId,
 			url: firstHost ? `https://${firstHost}` : firstSitemap,
 			output_dir: 'output',
 			site_profile_path: profileEntry.containerPath,
 			rescrape_failed: profile.rescrape_failed,
 			sitemap: !!firstSitemap,
 			sitemap_base: firstSitemap,
-			max_pages: 0,
-			max_concurrency: 1,
-			max_rpm: 20
+			max_pages: profile.max_pages ?? 100,
+			max_concurrency: profile.max_concurrency ?? 1,
+			max_rpm: profile.max_rpm ?? 60,
+			skip_images: profile.skip_images ?? false,
+			max_images_per_page: profile.max_images_per_page ?? 30,
+			max_link_density: profile.max_link_density ?? 0.4,
+			discovery_mode: profile.discovery_mode ?? false
 		})
 	});
 
-	const jobId = typeof response.job_id === 'string' ? response.job_id : `${task.profileId}_${Date.now()}`;
+	const jobId = typeof response.job_id === 'string' ? response.job_id : generatedJobId;
+	rememberClientStart(jobId, submittedAt);
 	return {
 		id: jobId,
 		taskId: task.id,
 		profileId: profile.id,
 		status: 'running',
-		startTime: new Date().toISOString(),
+		startTime: submittedAt,
 		log: [`Job submitted for ${profile.name}`],
 		failedPages: []
 	};
@@ -321,6 +418,7 @@ export async function getQueues(apiFetch?: ApiFetch): Promise<Queue[]> {
 		const payload = await request<{ queues?: QueueEntry[] }>('/api/rabbitmq/queues', undefined, apiFetch);
 		return (payload.queues ?? []).map((queue) => ({
 			name: queue.name,
+			vhost: queue.vhost ?? '/',
 			ready: queue.messages_ready ?? 0,
 			unacked: queue.messages_unacknowledged ?? 0,
 			total: queue.messages ?? 0
@@ -329,4 +427,18 @@ export async function getQueues(apiFetch?: ApiFetch): Promise<Queue[]> {
 		if (error instanceof ApiError) return [];
 		throw error;
 	}
+}
+
+export async function purgeQueue(name: string, vhost = '/'): Promise<void> {
+	await request('/api/rabbitmq/queues/purge', {
+		method: 'POST',
+		body: JSON.stringify({ name, vhost })
+	});
+}
+
+export async function deleteQueue(name: string, vhost = '/'): Promise<void> {
+	await request('/api/rabbitmq/queues/delete', {
+		method: 'POST',
+		body: JSON.stringify({ name, vhost })
+	});
 }

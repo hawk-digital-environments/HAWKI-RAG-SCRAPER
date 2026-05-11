@@ -8,7 +8,7 @@
 	import PageContent from '$lib/ui/PageContent.svelte';
 	import Breadcrumb from '$lib/ui/Breadcrumb.svelte';
 	import TableWrap from '$lib/ui/TableWrap.svelte';
-	import { getJob, stopJob, finalizeStopJob, retryJob, restartJob } from '$lib/api';
+	import { getJob, getJobLog, stopJob, finalizeStopJob, retryJob, restartJob } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 
@@ -23,6 +23,13 @@
 	const isCompleteFailure = $derived(job.status === 'failed');
 
 	function formatDate(iso: string) {
+		return new Date(iso).toLocaleString('en-GB', {
+			day: '2-digit', month: 'short', year: 'numeric',
+			hour: '2-digit', minute: '2-digit', second: '2-digit'
+		});
+	}
+
+	function formatFinishedDate(iso: string) {
 		return new Date(iso).toLocaleString('en-GB', {
 			day: '2-digit', month: 'short', year: 'numeric',
 			hour: '2-digit', minute: '2-digit', second: '2-digit'
@@ -48,6 +55,7 @@
 	}
 
 	let logEl = $state<HTMLDivElement | undefined>(undefined);
+	let didLoadJobLog = $state(false);
 
 	$effect(() => {
 		job.log;
@@ -55,11 +63,29 @@
 	});
 
 	let pollInterval: ReturnType<typeof setInterval> | undefined;
+
+	async function refreshJobLog(fallbackJob = job): Promise<string[]> {
+		const lines = await getJobLog(fallbackJob.id);
+		if (lines.length > 0) {
+			job = { ...fallbackJob, log: lines };
+		}
+		return lines;
+	}
+
+	$effect(() => {
+		if (!didLoadJobLog) {
+			didLoadJobLog = true;
+			void refreshJobLog();
+		}
+	});
+
 	$effect(() => {
 		if (job.status === 'running') {
 			pollInterval = setInterval(async () => {
 				const updated = await getJob(job.id);
-				if (updated) job = { ...updated };
+				const fallback = updated ?? job;
+				const lines = await getJobLog(fallback.id);
+				job = { ...fallback, log: lines.length > 0 ? lines : fallback.log };
 			}, 5000);
 		} else {
 			clearInterval(pollInterval);
@@ -71,9 +97,10 @@
 		const updated = await stopJob(job.id);
 		if (updated) {
 			job = { ...updated };
+			await refreshJobLog(updated);
 			setTimeout(async () => {
 				const finalized = await finalizeStopJob(job.id);
-				if (finalized) job = { ...finalized };
+				if (finalized) await refreshJobLog(finalized);
 			}, 2000);
 		}
 	}
@@ -169,11 +196,11 @@
 					<span class="meta-label">Started</span>
 					<span class="meta-value">{formatDate(job.startTime)}</span>
 				</div>
+				<div class="meta-item">
+					<span class="meta-label">Finished</span>
+					<span class="meta-value">{job.endTime ? formatFinishedDate(job.endTime) : 'Not finished yet'}</span>
+				</div>
 				{#if job.endTime}
-					<div class="meta-item">
-						<span class="meta-label">Finished</span>
-						<span class="meta-value">{formatDate(job.endTime)}</span>
-					</div>
 					<div class="meta-item">
 						<span class="meta-label">Duration</span>
 						<span class="meta-value mono">{duration(job.startTime, job.endTime)}</span>

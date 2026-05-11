@@ -1,14 +1,41 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import type { Profile } from '$lib/api/types';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import TableWrap from '$lib/ui/TableWrap.svelte';
 	import PageContent from '$lib/ui/PageContent.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { deleteProfile, getAllProfiles } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 
 	let { data }: { data: PageData } = $props();
+	let profiles = $state<Profile[]>([...data.profiles]);
+	let profileToRemove = $state<Profile | undefined>(undefined);
+	let removingProfile = $state<string | undefined>(undefined);
+	let removeError = $state('');
+
+	async function refreshProfiles() {
+		profiles = await getAllProfiles();
+	}
+
+	async function confirmRemoveProfile() {
+		if (!profileToRemove) return;
+		const target = profileToRemove;
+		profileToRemove = undefined;
+		removingProfile = target.id;
+		removeError = '';
+		try {
+			await deleteProfile(target.id);
+			await refreshProfiles();
+		} catch (error) {
+			removeError = error instanceof Error ? error.message : 'Failed to remove profile';
+		} finally {
+			removingProfile = undefined;
+		}
+	}
 </script>
 
 <svelte:head><title>Profiles — RAG Interface</title></svelte:head>
@@ -21,7 +48,7 @@
 		<Button variant="primary" size="sm" href="{base}/profiles/new">+ New Profile</Button>
 	{/snippet}
 
-	{#if data.profiles.length === 0}
+	{#if profiles.length === 0}
 		<Card>
 			<EmptyState>
 				No profiles yet. <a href="{base}/profiles/new">Create a profile</a> to define a scraping configuration.
@@ -38,10 +65,11 @@
 							<th>Max execution</th>
 							<th>Max storage</th>
 							<th>Retry failed</th>
+							<th class="action-col"></th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each data.profiles as profile}
+						{#each profiles as profile}
 							<tr class="clickable" onclick={() => goto(`${base}/profiles/${profile.id}`)}>
 								<td><strong>{profile.name}</strong></td>
 								<td class="muted">
@@ -50,16 +78,53 @@
 								<td class="mono muted">{profile.max_execution_time}</td>
 								<td class="mono muted">{profile.max_storage_time}</td>
 								<td>{profile.rescrape_failed ? '✓' : '—'}</td>
+								<td class="action-col">
+									<Button
+										variant="danger"
+										size="sm"
+										disabled={profile.readonlyExample || removingProfile === profile.id}
+										title={profile.readonlyExample ? 'Readonly example profile cannot be removed' : 'Remove profile'}
+										onclick={(event) => {
+											event.stopPropagation();
+											profileToRemove = profile;
+										}}
+									>
+										{removingProfile === profile.id ? 'Removing...' : 'Remove'}
+									</Button>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</TableWrap>
 		</Card>
+		{#if removeError}
+			<p class="error-text">{removeError}</p>
+		{/if}
 	{/if}
 </PageContent>
+
+<ConfirmDialog
+	open={!!profileToRemove}
+	title="Remove profile?"
+	message={`Remove ${profileToRemove?.name ?? 'this profile'}? This deletes the profile JSON file and cannot be undone.`}
+	confirmLabel="Remove"
+	danger
+	onConfirm={confirmRemoveProfile}
+	onCancel={() => (profileToRemove = undefined)}
+/>
 
 <style>
 	.muted { color: var(--c-text-muted); }
 	.mono { font-family: var(--font-mono); font-size: 0.9em; }
+	.action-col {
+		text-align: right;
+		width: 1%;
+		white-space: nowrap;
+	}
+	.error-text {
+		margin: 8px 0 0;
+		color: var(--c-danger);
+		font-size: 13px;
+	}
 </style>

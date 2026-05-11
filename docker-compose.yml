@@ -16,7 +16,7 @@ services:
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-text}
-      - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-ERROR}
+      - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-INFO}
       # Maximum concurrent crawl tasks
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
       # Server configuration

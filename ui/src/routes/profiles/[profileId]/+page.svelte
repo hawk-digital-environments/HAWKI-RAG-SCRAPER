@@ -61,6 +61,44 @@
 		</div>
 	{/if}
 
+	<!-- Crawler configuration -->
+	<div class="mb-4">
+		<Card title="Crawler configuration">
+			<div class="meta-grid">
+				<div class="meta-item">
+					<span class="meta-label">Max concurrency</span>
+					<span class="meta-value mono">{data.profile.max_concurrency ?? 1}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Max RPM</span>
+					<span class="meta-value mono">{data.profile.max_rpm ?? 60}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Max pages</span>
+					<span class="meta-value mono">{data.profile.max_pages ?? 100}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Content density threshold</span>
+					<span class="meta-value mono">{data.profile.max_link_density ?? 0.4}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Images</span>
+					<span class="meta-value">{data.profile.skip_images ? 'Skipped' : 'Included'}</span>
+				</div>
+				{#if !data.profile.skip_images}
+					<div class="meta-item">
+						<span class="meta-label">Max images per page</span>
+						<span class="meta-value mono">{data.profile.max_images_per_page ?? 30}</span>
+					</div>
+				{/if}
+				<div class="meta-item">
+					<span class="meta-label">Discovery mode</span>
+					<span class="meta-value">{data.profile.discovery_mode ? 'Enabled' : 'Disabled'}</span>
+				</div>
+			</div>
+		</Card>
+	</div>
+
 	<!-- Behavior -->
 	<div class="mb-4">
 		<Card title="Behavior">

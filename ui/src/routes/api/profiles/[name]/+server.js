@@ -100,3 +100,24 @@ export async function PUT({ params, request }) {
 		readonlyExample: false
 	});
 }
+
+export async function DELETE({ params }) {
+	const name = normalizeName(params.name);
+	if (!name) {
+		return json({ error: 'Invalid profile name' }, { status: 400 });
+	}
+
+	const targetPath = profileFilePath(name);
+	try {
+		await fs.unlink(targetPath);
+		return json({ ok: true });
+	} catch (error) {
+		if (error && error.code === 'ENOENT') {
+			return json(
+				{ error: 'Profile file not found or is a readonly example profile' },
+				{ status: 404 }
+			);
+		}
+		return json({ error: `Profile delete failed: ${error}` }, { status: 500 });
+	}
+}
