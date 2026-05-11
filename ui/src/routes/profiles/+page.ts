@@ -1,8 +1,8 @@
 import type { PageLoad } from './$types';
 import { getAllProfiles } from '$lib/api';
 
-export const load: PageLoad = async () => {
+export const load: PageLoad = async ({ fetch }) => {
 	return {
-		profiles: await getAllProfiles()
+		profiles: await getAllProfiles(fetch)
 	};
 };
