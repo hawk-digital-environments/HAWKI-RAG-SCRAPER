@@ -8,7 +8,13 @@ export const load: PageLoad = async ({ params, fetch }) => {
 
 	const profile = await getProfile(task.profileId, fetch);
 	const jobs = (await getAllJobs(fetch))
-		.filter((j) => j.taskId === task.id)
+		.filter((j) => {
+			return (
+				j.taskId === task.id ||
+				j.profileId === task.profileId ||
+				j.id.startsWith(`${task.profileId}_`)
+			);
+		})
 		.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
 		.slice(0, 5);
 
