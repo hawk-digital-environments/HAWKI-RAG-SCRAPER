@@ -5,6 +5,7 @@ This guide covers advanced configuration options for the Crawl4AI FastAPI servic
 ## Table of Contents
 
 - [Environment Variables](#environment-variables)
+- [UI Configuration](#ui-configuration)
 - [Crawl Configuration](#crawl-configuration)
 - [Browser Configuration](#browser-configuration)
 - [Rate Limiting Strategies](#rate-limiting-strategies)
@@ -75,6 +76,46 @@ services:
       - LOG_LEVEL=INFO
       - HEADLESS_BROWSER=true
 ```
+
+---
+
+## UI Configuration
+
+The SvelteKit UI lives in `ui/` and is started from the repository root with:
+
+```bash
+make start-ui
+```
+
+The Makefile target installs UI dependencies and starts the SvelteKit dev server:
+
+```makefile
+start-ui:
+	npm install --prefix ui
+	npm --prefix ui run dev
+```
+
+### UI Environment Variables
+
+| Variable | Default | Used by | Description |
+|----------|---------|---------|-------------|
+| `PUBLIC_API_BASE_URL` | empty | `ui/src/lib/api/index.ts` | Optional browser-visible API base URL. Keep empty for same-origin `/api/...` during local development. |
+| `CRAWLER_API_BASE_URL` | `http://localhost:8040`, fallback `http://localhost:8000` | `ui/src/lib/server/config.ts` | Crawler API base URL list. Comma-separated values are supported. |
+| `RABBITMQ_MGMT_API_URL` | `http://localhost:15672/api` | `ui/src/lib/server/config.ts` | RabbitMQ management API base URL. |
+| `RABBITMQ_MGMT_USER` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management username. |
+| `RABBITMQ_MGMT_PASSWORD` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management password. |
+| `PROFILES_HOST_DIR` | `../profiles` when running from `ui/` | `ui/src/routes/api/profiles/*` | Host directory where editable profile JSON files are read/written. |
+| `PROFILES_CONTAINER_DIR` | `/app/profiles` | `ui/src/routes/api/profiles/*` | Container path sent in crawl submissions as `site_profile_path`. |
+
+### UI API Flow
+
+The browser UI calls `ui/src/lib/api/index.ts`. That client calls same-origin SvelteKit API routes by default:
+
+```text
+Browser page -> ui/src/lib/api/index.ts -> /api/... -> crawler/RabbitMQ/profile files
+```
+
+Do not import `ui/src/lib/api/stub.ts` from production routes. It is retained only as mock data for local experiments.
 
 ---
 

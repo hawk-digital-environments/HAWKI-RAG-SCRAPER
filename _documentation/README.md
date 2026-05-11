@@ -1,6 +1,6 @@
-# Crawl4AI FastAPI Service - Documentation
+# CustomCrawler Documentation
 
-Welcome to the comprehensive documentation for the Crawl4AI FastAPI service. This documentation provides detailed information about the system architecture, API reference, deployment, and development.
+Welcome to the CustomCrawler documentation. This project contains a Python crawler service, Docker/RabbitMQ support, profile-driven crawl configuration, and a SvelteKit admin UI for monitoring jobs and managing crawler profiles.
 
 ## Documentation Structure
 
@@ -10,6 +10,7 @@ Complete API endpoint documentation including:
 - Parameter descriptions
 - Example requests and responses
 - Error handling
+- SvelteKit UI proxy endpoints used by the frontend
 
 ### [Architecture](./ARCHITECTURE.md)
 System design and technical architecture:
@@ -18,6 +19,8 @@ System design and technical architecture:
 - Class diagrams
 - Design patterns
 - Technology stack
+- UI route and component responsibilities
+- UI-to-backend data mapping
 
 ### [Deployment Guide](./DEPLOYMENT.md)
 Production deployment instructions:
@@ -40,6 +43,7 @@ Advanced configuration options:
 Contributing and extending the service:
 - Development setup
 - Code structure
+- Starting the SvelteKit UI with `make start-ui`
 - Adding new features
 - Testing guidelines
 - Best practices
@@ -51,8 +55,8 @@ Contributing and extending the service:
 ## Quick Links
 
 - [Main README](../README.md)
-- [Quick Start Guide](../QUICKSTART.md)
-- [Examples](../examples/)
+- [UI README](../ui/README.md)
+- [Makefile](../Makefile)
 
 ## Getting Help
 
@@ -62,5 +66,5 @@ Contributing and extending the service:
 
 ## Version
 
-Documentation version: 1.0.0
-Last updated: 2025-03-21
+Documentation version: 2.0.0
+Last updated: 2026-05-11
