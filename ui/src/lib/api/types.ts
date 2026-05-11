@@ -24,6 +24,7 @@ export type Entrypoint = HostEntrypoint | SitemapEntrypoint;
 export interface Profile {
 	id: string;
 	name: string;
+	readonlyExample?: boolean;
 	entrypoints: Entrypoint[];
 	discovery?: { hosts?: string[] };
 	forbidden?: { hosts?: string[]; url_patterns?: string[] };
@@ -36,6 +37,13 @@ export interface Profile {
 	max_execution_time: string;
 	max_storage_time: string;
 	rescrape_failed: boolean;
+	max_concurrency?: number;
+	max_rpm?: number;
+	skip_images?: boolean;
+	max_images_per_page?: number;
+	max_pages?: number;
+	max_link_density?: number;
+	discovery_mode?: boolean;
 }
 
 export type ProfileInput = Omit<Profile, 'id'>;
@@ -63,6 +71,7 @@ export interface Job {
 
 export interface Queue {
 	name: string;
+	vhost?: string;
 	ready: number;
 	unacked: number;
 	total: number;

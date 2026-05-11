@@ -218,12 +218,17 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     job_state = JobState(job_id, base_path=base_path)
     storage_manager = StorageManager(job_id, base_path=base_path)
 
+    def _progress_total(snapshot) -> int:
+        if config.max_pages > 0:
+            return config.max_pages
+        return snapshot.total_urls or (snapshot.completed_urls + snapshot.failed_urls)
+
     async def _sync_job_progress(poll_interval: float = 1.0):
         while True:
             snapshot = await job_state.get_snapshot()
             if job_id in jobs:
                 jobs[job_id].pages_crawled = snapshot.completed_urls
-                jobs[job_id].total_pages = snapshot.completed_urls + snapshot.failed_urls
+                jobs[job_id].total_pages = _progress_total(snapshot)
                 jobs[job_id].output_directory = snapshot.output_directory or jobs[job_id].output_directory
             await asyncio.sleep(poll_interval)
 
@@ -275,7 +280,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].message = "Crawl completed successfully"
         final_snapshot = await job_state.get_snapshot()
         jobs[job_id].pages_crawled = final_snapshot.completed_urls
-        jobs[job_id].total_pages = final_snapshot.completed_urls + final_snapshot.failed_urls
+        jobs[job_id].total_pages = _progress_total(final_snapshot)
         jobs[job_id].output_directory = result['output_directory']
         jobs[job_id].completed_at = datetime.now()
 
@@ -367,6 +372,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
         job_id=job_id,
         status="pending",
         message="Crawl job submitted",
+        total_pages=config.max_pages if config.max_pages > 0 else 0,
         started_at=datetime.now()
     )
     jobs[job_id] = job_status

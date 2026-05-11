@@ -8,9 +8,10 @@
 		readonly?: boolean;
 		error?: boolean;
 		/** Extra CSS classes for layout overrides (e.g. width constraints). */
-		class?: string;
-		min?: string | number;
-		step?: string | number;
+	class?: string;
+	min?: string | number;
+	max?: string | number;
+	step?: string | number;
 		required?: boolean;
 		oninput?: (e: Event) => void;
 		onchange?: (e: Event) => void;
@@ -26,6 +27,7 @@
 		error = false,
 		class: extraClass = '',
 		min,
+		max,
 		step,
 		required = false,
 		oninput,
@@ -43,6 +45,7 @@
 	{disabled}
 	{readonly}
 	{min}
+	{max}
 	{step}
 	{required}
 	{oninput}

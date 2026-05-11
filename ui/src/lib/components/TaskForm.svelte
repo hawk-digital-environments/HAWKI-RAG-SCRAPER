@@ -138,10 +138,11 @@
 		{@const profile = profiles.find((p) => p.id === profileId)}
 		{#if profile}
 			<Alert variant="info">
-				Max execution time and storage retention are configured in the selected profile
-				(<strong>{profile.name}</strong>): execution cancels after
-				<strong>{profile.max_execution_time}</strong>, output retained for
-				<strong>{profile.max_storage_time}</strong>.
+				This task uses the <strong>{profile.name}</strong> profile. The profile controls the safety
+				limits for every job started from this task: a running job is cancelled after
+				<strong>{profile.max_execution_time}</strong>, and its output files are kept for
+				<strong>{profile.max_storage_time}</strong> after the job finishes. To change these limits,
+				edit the selected profile.
 			</Alert>
 		{/if}
 	{/if}

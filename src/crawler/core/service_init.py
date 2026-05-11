@@ -144,7 +144,7 @@ class ServiceInitMixin:
                 return
         handler = logging.FileHandler(log_path)
         handler.name = handler_name
-        handler.setLevel(parse_log_level(os.getenv("JOB_LOG_FILE_LEVEL", "ERROR"), logging.ERROR))
+        handler.setLevel(parse_log_level(os.getenv("JOB_LOG_FILE_LEVEL", "INFO"), logging.INFO))
         handler.setFormatter(
             logging.Formatter(
                 "%(asctime)s - %(name)s - %(levelname)s - %(message)s [job_id=%(job_id)s]"

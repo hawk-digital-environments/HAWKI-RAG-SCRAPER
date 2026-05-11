@@ -6,12 +6,28 @@
     import TableWrap from '$lib/ui/TableWrap.svelte';
     import PageContent from '$lib/ui/PageContent.svelte';
     import EmptyState from '$lib/ui/EmptyState.svelte';
+    import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+    import { deleteQueue, getQueues, purgeQueue } from '$lib/api';
+    import type { Queue } from '$lib/api/types';
     import {goto} from '$app/navigation';
     import { base } from '$app/paths';
 
     let {data}: { data: PageData } = $props();
 
     let queuesOpen = $state(false);
+    let queues = $state<Queue[]>([...data.queues]);
+    let queueToPurge = $state<Queue | undefined>(undefined);
+    let purgingQueue = $state<string | undefined>(undefined);
+    let queueError = $state('');
+
+    const protectedQueueNames = new Set([
+        'crawl_jobs',
+        'crawl_jobs_retry',
+        'failed_jobs',
+        'rag_ingestion_failed_jobs',
+        'rag_ingestion_jobs',
+        'rag_ingestion_jobs_retry'
+    ]);
 
     const profileMap = $derived(new Map(data.profiles.map((p) => [p.id, p])));
     const taskMap = $derived(new Map(data.tasks.map((t) => [t.id, t])));
@@ -23,6 +39,38 @@
         const hrs = Math.floor(mins / 60);
         if (hrs < 24) return `${hrs}h ago`;
         return `${Math.floor(hrs / 24)}d ago`;
+    }
+
+    async function refreshQueues() {
+        queues = await getQueues();
+    }
+
+    async function confirmPurgeQueue() {
+        if (!queueToPurge) return;
+        const target = queueToPurge;
+        queueToPurge = undefined;
+        if (protectedQueueNames.has(target.name)) {
+            queueError = `${target.name} is a default system queue and cannot be removed from the UI.`;
+            return;
+        }
+        purgingQueue = target.name;
+        queueError = '';
+        try {
+            if (target.ready > 0) {
+                await purgeQueue(target.name, target.vhost ?? '/');
+            }
+            await deleteQueue(target.name, target.vhost ?? '/');
+            queues = queues.filter((queue) => queue.name !== target.name || queue.vhost !== target.vhost);
+            await refreshQueues();
+        } catch (error) {
+            await refreshQueues();
+            queueError =
+                target.unacked > 0
+                    ? 'Ready messages were purged, but RabbitMQ cannot delete a queue while messages are unacked. Stop the consumer or wait until they are requeued, then purge again.'
+                    : error instanceof Error ? error.message : 'Failed to purge and delete queue';
+        } finally {
+            purgingQueue = undefined;
+        }
     }
 </script>
 
@@ -91,25 +139,51 @@
                                 <th class="number">Ready</th>
                                 <th class="number">Unacked</th>
                                 <th class="number">Total</th>
+                                <th class="action-col"></th>
                             </tr>
                             </thead>
                             <tbody>
-                            {#each data.queues as q}
+                            {#each queues as q}
+                                {@const isProtectedQueue = protectedQueueNames.has(q.name)}
                                 <tr>
                                     <td class="mono">{q.name}</td>
                                     <td class="number">{q.ready}</td>
                                     <td class="number" class:busy={q.unacked > 0}>{q.unacked}</td>
                                     <td class="number total-col">{q.total}</td>
+                                    <td class="action-col">
+                                        <Button
+                                            variant="danger"
+                                            size="sm"
+                                            disabled={isProtectedQueue || purgingQueue === q.name}
+                                            title={isProtectedQueue ? 'Default system queue; cannot be purged or deleted here' : 'Purge ready messages and delete the queue if it is empty'}
+                                            onclick={() => (queueToPurge = q)}
+                                        >
+                                            {purgingQueue === q.name ? 'Purging...' : 'Purge'}
+                                        </Button>
+                                    </td>
                                 </tr>
                             {/each}
                             </tbody>
                         </table>
                     </TableWrap>
                 </Card>
+                {#if queueError}
+                    <p class="error-text">{queueError}</p>
+                {/if}
             </div>
         {/if}
     </div>
 </PageContent>
+
+<ConfirmDialog
+    open={!!queueToPurge}
+    title="Purge and delete queue?"
+    message={`This removes ${queueToPurge?.ready ?? 0} ready message${(queueToPurge?.ready ?? 0) === 1 ? '' : 's'} from ${queueToPurge?.name ?? 'this queue'}, then deletes the queue if it is empty. Unacked messages cannot be removed until RabbitMQ requeues them.`}
+    confirmLabel="Purge"
+    danger
+    onConfirm={confirmPurgeQueue}
+    onCancel={() => (queueToPurge = undefined)}
+/>
 
 <style>
     .mb-6 {
@@ -141,4 +215,17 @@
     .total-col {
         font-weight: 600;
     }
+
+    .action-col {
+        text-align: right;
+        width: 1%;
+        white-space: nowrap;
+    }
+
+    .error-text {
+        margin: 8px 0 0;
+        color: var(--c-danger);
+        font-size: 13px;
+    }
+
 </style>

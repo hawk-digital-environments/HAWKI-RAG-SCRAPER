@@ -32,6 +32,15 @@
 	let noisePatterns = $state<string[]>(initialData.content?.noise_patterns ?? []);
 	let tagSelectors = $state<string[]>(initialData.content?.tag_selectors ?? []);
 
+	// Crawler configuration
+	let maxConcurrency = $state(initialData.max_concurrency ?? 1);
+	let maxRpm = $state(initialData.max_rpm ?? 60);
+	let includeImages = $state(!(initialData.skip_images ?? false));
+	let maxImagesPerPage = $state(initialData.max_images_per_page ?? 30);
+	let maxPages = $state(initialData.max_pages ?? 100);
+	let maxLinkDensity = $state(initialData.max_link_density ?? 0.4);
+	let discoveryMode = $state(initialData.discovery_mode ?? false);
+
 	// Behavior
 	let maxExecutionTime = $state(initialData.max_execution_time ?? '24h');
 	let maxStorageTime = $state(initialData.max_storage_time ?? '7d');
@@ -61,6 +70,15 @@
 		}
 		if (!maxExecutionTime) e.maxExecution = 'Max execution time is required.';
 		if (!maxStorageTime) e.maxStorage = 'Max storage time is required.';
+		if (Number(maxConcurrency) < 1) e.maxConcurrency = 'Use at least 1 parallel request.';
+		if (Number(maxRpm) < 1) e.maxRpm = 'Use at least 1 request per minute.';
+		if (Number(maxPages) < 0) e.maxPages = 'Use 0 or a positive number.';
+		if (includeImages && (Number(maxImagesPerPage) < 0 || Number(maxImagesPerPage) > 50)) {
+			e.maxImagesPerPage = 'Use a value between 0 and 50.';
+		}
+		if (Number(maxLinkDensity) < 0 || Number(maxLinkDensity) > 1) {
+			e.maxLinkDensity = 'Use a value between 0 and 1.';
+		}
 		errors = e;
 		return Object.keys(e).length === 0;
 	}
@@ -90,6 +108,13 @@
 							tag_selectors: tagSelectors.filter(Boolean)
 						}
 					: undefined,
+			max_concurrency: Number(maxConcurrency),
+			max_rpm: Number(maxRpm),
+			skip_images: !includeImages,
+			max_images_per_page: includeImages ? Number(maxImagesPerPage) : 0,
+			max_pages: Number(maxPages),
+			max_link_density: Number(maxLinkDensity),
+			discovery_mode: discoveryMode,
 			max_execution_time: maxExecutionTime,
 			max_storage_time: maxStorageTime,
 			rescrape_failed: rescrapeFailed
@@ -238,6 +263,124 @@
 				</FormGroup>
 			</div>
 		{/if}
+	</section>
+
+	<!-- ===================== CRAWLER CONFIGURATION ===================== -->
+	<section class="form-section">
+		<h3 class="section-heading">Crawler configuration</h3>
+		<p class="section-desc">
+			These settings control how aggressively this profile runs when a task starts a crawl.
+			Use conservative values for large public sites or when the target server is sensitive to load.
+		</p>
+
+		<FormGroup
+			label="Max concurrency"
+			for="max-concurrency"
+			error={errors.maxConcurrency}
+			hint="Number of page requests the crawler may run in parallel. Higher values can finish faster, but they also increase load on the target site. Start with 1 or 2 unless you know the site can handle more."
+		>
+			<TextInput
+				id="max-concurrency"
+				type="number"
+				min={1}
+				step={1}
+				bind:value={maxConcurrency}
+				error={!!errors.maxConcurrency}
+			/>
+		</FormGroup>
+
+		<FormGroup
+			label="Max RPM"
+			for="max-rpm"
+			error={errors.maxRpm}
+			hint="Maximum requests per minute across this crawl. The backend default is 60, which is about one request per second. Lower this for polite crawls on sensitive sites; raise it only when the target can handle the traffic."
+		>
+			<TextInput
+				id="max-rpm"
+				type="number"
+				min={1}
+				step={1}
+				bind:value={maxRpm}
+				error={!!errors.maxRpm}
+			/>
+		</FormGroup>
+
+		<FormGroup
+			label="Max pages"
+			for="max-pages"
+			error={errors.maxPages}
+			hint="Maximum number of pages to crawl. Use 0 for unlimited. Be careful with discovery mode: unlimited + discovery can crawl a very large site."
+		>
+			<TextInput
+				id="max-pages"
+				type="number"
+				min={0}
+				step={1}
+				bind:value={maxPages}
+				error={!!errors.maxPages}
+			/>
+		</FormGroup>
+
+		<FormGroup
+			label="Content density threshold"
+			for="max-link-density"
+			error={errors.maxLinkDensity}
+			hint="Maximum allowed link density for extracted content. Lower values reject navigation-heavy blocks more aggressively. 0.4 is a balanced default; use values between 0 and 1."
+		>
+			<TextInput
+				id="max-link-density"
+				type="number"
+				min={0}
+				step={0.05}
+				bind:value={maxLinkDensity}
+				error={!!errors.maxLinkDensity}
+			/>
+		</FormGroup>
+
+		<FormGroup>
+			<label class="checkbox-label">
+				<input type="checkbox" bind:checked={includeImages} />
+				<span>
+					<span class="label-inline">Include images</span>
+					<span class="hint-block">
+						When enabled, the crawler downloads images found in accepted content areas. Turn this
+						off for faster text-only crawls or when image files are not needed.
+					</span>
+				</span>
+			</label>
+		</FormGroup>
+
+		{#if includeImages}
+			<FormGroup
+				label="Max images per page"
+				for="max-images-per-page"
+				error={errors.maxImagesPerPage}
+				hint="Maximum number of images to keep from each crawled page. The backend default is 30 and the allowed range is 0 to 50. Lower this for lighter output, or raise it when image-heavy pages are important."
+			>
+				<TextInput
+					id="max-images-per-page"
+					type="number"
+					min={0}
+					max={50}
+					step={1}
+					bind:value={maxImagesPerPage}
+					error={!!errors.maxImagesPerPage}
+				/>
+			</FormGroup>
+		{/if}
+
+		<FormGroup>
+			<label class="checkbox-label">
+				<input type="checkbox" bind:checked={discoveryMode} />
+				<span>
+					<span class="label-inline">Discovery mode</span>
+					<span class="hint-block">
+						When enabled, the crawler follows discovered links from crawled pages. Leave it off
+						when you want the crawl limited to sitemap URLs or explicitly configured entrypoints.
+					</span>
+				</span>
+			</label>
+		</FormGroup>
 	</section>
 
 	<!-- ===================== BEHAVIOR ===================== -->
