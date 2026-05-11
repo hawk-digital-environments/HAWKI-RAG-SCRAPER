@@ -1,81 +1,137 @@
 # Architecture
 
-This document describes the system architecture, design patterns, and technical decisions behind the Crawl4AI FastAPI service.
+This document describes the current CustomCrawler architecture: the Python crawler service, profile-driven crawl configuration, RabbitMQ visibility, and the SvelteKit admin UI.
 
 ## Overview
 
-The Crawl4AI FastAPI service is a web scraping and crawling service that provides a REST API interface to the crawl4ai library. It supports intelligent web crawling with features like sitemap parsing, URL discovery, rate limiting, and structured data extraction.
+CustomCrawler is a web scraping and crawling system. The backend accepts crawl jobs, manages crawler execution, stores output in shared volumes, and exposes job state. The UI is a SvelteKit application under `ui/` that gives operators a structured admin surface for running jobs, editing profile JSON files, viewing queue state, and inspecting job details.
+
+The UI replacement in this branch is source-based SvelteKit, not generated `.svelte-kit` output. Generated files under `ui/.svelte-kit/` are build artifacts and should not be edited.
 
 ## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Client Layer                          │
-│  (HTTP Clients, Browsers, Python Scripts, cURL)             │
+│                        Operator Layer                        │
+│  Browser UI, cURL, Make targets, Python scripts             │
 └───────────────────────────┬─────────────────────────────────┘
                             │
-                            │ HTTP/REST
+                            │ HTTP
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│                     FastAPI Application                      │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              API Endpoints (main.py)                 │   │
-│  │  • POST /crawl    • GET /status/{job_id}           │   │
-│  │  • GET /jobs      • DELETE /jobs/{job_id}           │   │
-│  │  • GET /health                                       │   │
-│  └────────────┬────────────────────────────┬───────────┘   │
-│               │                            │                │
-│               │                            │                │
-│  ┌────────────▼──────────┐   ┌────────────▼──────────┐    │
-│  │   Data Models         │   │   Background Tasks    │    │
-│  │   (models.py)         │   │   (asyncio)           │    │
-│  │  • CrawlConfig        │   │  • run_crawl_job()    │    │
-│  │  • CrawlStatus        │   │  • Job Management     │    │
-│  │  • PageData           │   └───────────┬───────────┘    │
-│  └───────────────────────┘               │                │
-└──────────────────────────────────────────┼────────────────┘
-                                           │
-                           ┌───────────────▼───────────────┐
-                           │    CrawlerService             │
-                           │    (crawler_service.py)       │
-                           │  ┌──────────────────────┐    │
-                           │  │  • URL Management     │    │
-                           │  │  • Rate Limiting      │    │
-                           │  │  • Sitemap Parsing    │    │
-                           │  │  • URL Discovery      │    │
-                           │  │  • Data Extraction    │    │
-                           │  │  • File Management    │    │
-                           │  └──────────┬───────────┘    │
-                           └─────────────┼────────────────┘
-                                         │
-                  ┌──────────────────────┼──────────────────────┐
-                  │                      │                      │
-         ┌────────▼────────┐   ┌────────▼────────┐   ┌───────▼───────┐
-         │  Crawl4AI Lib   │   │   aiohttp       │   │ BeautifulSoup │
-         │  (AsyncWebCrawler)  │  (HTTP Client)  │   │ (HTML Parser) │
-         └────────┬────────┘   └────────┬────────┘   └───────────────┘
-                  │                      │
-         ┌────────▼────────┐   ┌────────▼────────┐
-         │   Playwright    │   │  Target Website │
-         │  (Browser)      │   │  (Images, etc)  │
-         └─────────────────┘   └─────────────────┘
-                  │
-         ┌────────▼────────┐
-         │ Target Website  │
-         │   (Content)     │
-         └─────────────────┘
-
-                  ┌────────────────┐
-                  │  File System   │
-                  │  • JSON files  │
-                  │  • MD files    │
-                  │  • Images      │
-                  └────────────────┘
+│                     SvelteKit UI (`ui/`)                    │
+│  Pages: /, /jobs/[jobId], /profiles, /tasks                 │
+│  Components: ui/, components/, utils/                       │
+│  Client facade: src/lib/api/index.ts                        │
+└───────────────┬───────────────────────────────┬─────────────┘
+                │ same-origin /api by default   │ optional PUBLIC_API_BASE_URL
+                │                               │
+┌───────────────▼───────────────────────────────▼─────────────┐
+│                 SvelteKit API Routes (`ui/src/routes/api`)   │
+│  • /api/profiles             profile file read/write         │
+│  • /api/crawler/submit       proxy to crawler /crawl         │
+│  • /api/crawler/jobs         proxy to crawler /jobs          │
+│  • /api/crawler/job/...      cancel and summary helpers      │
+│  • /api/rabbitmq/queues      proxy to RabbitMQ management    │
+└───────────────┬───────────────────────────────┬─────────────┘
+                │                               │
+┌───────────────▼──────────────┐     ┌──────────▼─────────────┐
+│ Python Crawler API/Service    │     │ RabbitMQ Management API │
+│ POST /crawl, GET /jobs,       │     │ Queue depth/consumer    │
+│ POST /jobs/{jobId}/cancel     │     │ state                   │
+└───────────────┬──────────────┘     └────────────────────────┘
+                │
+┌───────────────▼─────────────────────────────────────────────┐
+│ Crawler runtime, profile loading, sitemap parsing,          │
+│ URL discovery, page extraction, file output, shared volumes  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Component Details
 
-### 1. FastAPI Application (main.py)
+### 1. SvelteKit UI (`ui/`)
+
+**Responsibility**: Browser-facing admin interface for operators.
+
+**Key files**:
+
+| File or folder | Responsibility |
+|----------------|----------------|
+| `ui/src/app.css` | Global design tokens, colors, typography, reset, and shared layout variables. |
+| `ui/src/routes/+layout.svelte` | Fixed sidebar, route navigation, active route detection, app shell. |
+| `ui/src/routes/+layout.ts` | Disables SSR for the UI shell with `ssr = false`; the UI runs as a browser app against API routes. |
+| `ui/src/lib/api/index.ts` | Real fetch-based typed API client. All production UI data access goes through this file. |
+| `ui/src/lib/api/types.ts` | UI-facing TypeScript models: `Profile`, `Task`, `Job`, `Queue`, entrypoints, status enums. |
+| `ui/src/lib/api/stub.ts` | Mock/in-memory API retained for local experiments only; not imported by production routes. |
+| `ui/src/lib/ui/` | Reusable visual primitives such as buttons, cards, badges, forms, page layout, tables, alerts. |
+| `ui/src/lib/components/` | Domain components for crawler workflows: profile form, task form, dynamic lists, duration inputs, dialogs. |
+| `ui/src/lib/utils/` | Small shared helpers, currently duration parsing/formatting. |
+
+### 2. UI Route Responsibilities
+
+| Route | Files | Responsibility |
+|-------|-------|----------------|
+| `/` | `ui/src/routes/+page.ts`, `+page.svelte` | Running jobs dashboard. Loads running jobs, profiles, derived tasks, and RabbitMQ queues. Rows link to job details. |
+| `/jobs/[jobId]` | `ui/src/routes/jobs/[jobId]/+page.ts`, `+page.svelte` | Job detail page. Reads `jobId` from route params, loads the matching job through the API client, shows status metadata and log-like status lines, polls while running, and can send stop requests. |
+| `/profiles` | `ui/src/routes/profiles/+page.ts`, `+page.svelte` | Profile list. Loads profile JSON files through `/api/profiles`, shows entrypoint and retention summary, links to profile detail. |
+| `/profiles/new` | `ui/src/routes/profiles/new/+page.svelte` | Profile creation form. Uses `ProfileForm` and posts through `createProfile()`. |
+| `/profiles/[profileId]` | `ui/src/routes/profiles/[profileId]/+page.ts`, `+page.svelte` | Profile detail. Shows behavior, entrypoints, discovery, forbidden, content extraction settings, JSON preview, and create-task/edit actions. |
+| `/profiles/[profileId]/edit` | `ui/src/routes/profiles/[profileId]/edit/+page.ts`, `+page.svelte` | Profile editing form. Uses `updateProfile()` and preserves the existing profile id/path. |
+| `/tasks` | `ui/src/routes/tasks/+page.ts`, `+page.svelte` | Derived task list. Current backend has no persistent task API, so the UI derives one manual task per profile. Start buttons submit crawler jobs. |
+| `/tasks/new` | `ui/src/routes/tasks/new/+page.ts`, `+page.svelte` | Task form surface. It creates a UI task object, but persistence is currently derived from profiles until a backend task API exists. |
+| `/tasks/[taskId]` | `ui/src/routes/tasks/[taskId]/+page.ts`, `+page.svelte` | Derived task detail. Shows linked profile and recent jobs where available, and can start a crawl. |
+| `/tasks/[taskId]/edit` | `ui/src/routes/tasks/[taskId]/edit/+page.ts`, `+page.svelte` | Task editing surface for future task persistence. Currently returns an updated UI task object only. |
+
+### 3. UI Element Responsibilities
+
+| Component | Responsibility |
+|-----------|----------------|
+| `PageContent.svelte` | Blue title band plus elevated white content panel used by every main UI screen. |
+| `Button.svelte` | Shared button/link styling for primary, secondary, danger, ghost, and small/icon variants. |
+| `Card.svelte` | Section wrapper with optional title, actions, footer, and no-padding table mode. |
+| `TableWrap.svelte` | Responsive table wrapper and consistent table cell/header styling. |
+| `Badge.svelte` | Status labels for running, stopping, completed, failed, cancelled, manual, scheduled. |
+| `Alert.svelte` | Info, warning, success, and danger callouts. |
+| `Breadcrumb.svelte` | Hierarchical navigation within detail/edit screens. |
+| `EmptyState.svelte` | Standard empty list/message presentation. |
+| `FormGroup.svelte` | Label, hint, error, and spacing wrapper for form controls. |
+| `TextInput.svelte` / `SelectInput.svelte` | Typed, styled form controls used by profile/task forms. |
+| `ProfileForm.svelte` | Builds `ProfileInput`: name, entrypoints, discovery hosts, forbidden rules, content extraction, retention, retry behavior. |
+| `TaskForm.svelte` | Builds `TaskInput`: name, profile selection, optional cron schedule. |
+| `EntrypointList.svelte` | Edits host/sitemap entrypoints and sitemap conflict-resolution metadata. |
+| `DynamicList.svelte` | Reusable string-list editor for hosts, URL patterns, selectors, and phrases. |
+| `DurationInput.svelte` | Splits duration strings such as `24h` or `7d` into amount/unit controls. |
+| `ConfirmDialog.svelte` | Reusable destructive-action confirmation modal. |
+
+### 4. SvelteKit API Routes
+
+**Responsibility**: Keep browser code simple and protect backend details behind same-origin endpoints.
+
+| Endpoint | File | Responsibility |
+|----------|------|----------------|
+| `GET /api/profiles` | `ui/src/routes/api/profiles/+server.js` | Lists profile JSON and `.json.example` files from `PROFILES_HOST_DIR`. |
+| `POST /api/profiles` | `ui/src/routes/api/profiles/+server.js` | Validates a profile name and writes JSON to `PROFILES_HOST_DIR`. |
+| `GET /api/profiles/[name]` | `ui/src/routes/api/profiles/[name]/+server.js` | Reads one profile JSON file, falling back to `.json.example`. |
+| `PUT /api/profiles/[name]` | `ui/src/routes/api/profiles/[name]/+server.js` | Updates one writable profile JSON file. |
+| `POST /api/crawler/submit` | `ui/src/routes/api/crawler/submit/+server.ts` | Proxies UI crawl submissions to crawler `POST /crawl`. |
+| `GET /api/crawler/jobs` | `ui/src/routes/api/crawler/jobs/+server.ts` | Proxies crawler `GET /jobs`. |
+| `POST /api/crawler/job/[jobId]/cancel` | `ui/src/routes/api/crawler/job/[jobId]/cancel/+server.ts` | Proxies crawler job cancellation. |
+| `GET /api/crawler/job/[jobId]/summary` | `ui/src/routes/api/crawler/job/[jobId]/summary/+server.ts` | Reads crawler file APIs and derives URL counts for a job. |
+| `GET /api/rabbitmq/queues` | `ui/src/routes/api/rabbitmq/queues/+server.ts` | Proxies RabbitMQ management queue state. |
+
+### 5. UI API Client
+
+`ui/src/lib/api/index.ts` is the only production import surface for UI pages and components. It:
+
+- Reads `PUBLIC_API_BASE_URL` from public environment variables.
+- Uses same-origin `/api/...` when `PUBLIC_API_BASE_URL` is unset.
+- Throws `ApiError` for non-2xx responses.
+- Maps backend profile file shapes into UI `Profile` objects.
+- Maps crawler job payloads into UI `Job` objects.
+- Maps RabbitMQ queue payloads into UI `Queue` objects.
+- Derives manual tasks from profiles because the current backend has no persistent task API.
+
+### 6. Python Crawler Application
 
 **Responsibility**: HTTP request handling, routing, and API endpoint management.
 

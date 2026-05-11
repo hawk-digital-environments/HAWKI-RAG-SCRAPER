@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide helps developers understand the codebase, contribute to the project, and extend the Crawl4AI FastAPI service with new features.
+This guide helps developers understand the CustomCrawler codebase, including the Python crawler backend and the SvelteKit admin UI in `ui/`.
 
 ## Table of Contents
 
@@ -21,29 +21,32 @@ This guide helps developers understand the codebase, contribute to the project, 
 ### 1. Prerequisites
 
 - Python 3.9 or higher
+- Node.js and npm for the SvelteKit UI
+- Docker and Docker Compose for the crawler/RabbitMQ stack
+- GNU Make for project shortcuts
 - Git
 - Code editor (VS Code recommended)
-- Basic understanding of FastAPI and asyncio
+- Basic understanding of Python async code, Docker, SvelteKit, and TypeScript
 
 ### 2. Clone Repository
 
 ```bash
 git clone <repository-url>
-cd crawler
+cd CustomCrawler
 ```
 
 ### 3. Create Virtual Environment
 
 ```bash
 # Create virtual environment
-python3 -m venv env
+python3 -m venv .venv
 
 # Activate virtual environment
 # On macOS/Linux:
-source env/bin/activate
+source .venv/bin/activate
 
 # On Windows:
-env\Scripts\activate
+.venv\Scripts\activate
 ```
 
 ### 4. Install Dependencies
@@ -111,52 +114,135 @@ Create `.vscode/settings.json`:
 }
 ```
 
-### 7. Run Development Server
+### 7. Run Backend Stack
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+make up
 ```
+
+The crawler API is proxied by the UI through `ui/src/routes/api/crawler/*`. By default the UI server tries `CRAWLER_API_BASE_URL`, then falls back to `http://localhost:8040` and `http://localhost:8000`.
+
+### 8. Run the UI
+
+Use the Makefile target from the repository root:
+
+```bash
+make start-ui
+```
+
+`make start-ui` runs:
+
+```bash
+npm install --prefix ui
+npm --prefix ui run dev
+```
+
+This starts the SvelteKit development server for `ui/`. You can also run the commands manually:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Useful UI environment variables:
+
+```bash
+PUBLIC_API_BASE_URL=
+CRAWLER_API_BASE_URL=http://localhost:8040
+RABBITMQ_MGMT_API_URL=http://localhost:15672/api
+RABBITMQ_MGMT_USER=guest
+RABBITMQ_MGMT_PASSWORD=guest
+PROFILES_HOST_DIR=../profiles
+PROFILES_CONTAINER_DIR=/app/profiles
+```
+
+Leave `PUBLIC_API_BASE_URL` empty for normal local development so browser calls use the same-origin SvelteKit API routes.
 
 ---
 
 ## Project Structure
 
-```
-crawler/
-├── main.py                 # FastAPI application and API endpoints
-├── models.py              # Pydantic data models
-├── crawler_service.py     # Core crawler logic
-├── example_client.py      # Example API client
-├── requirements.txt       # Python dependencies
-├── Dockerfile            # Docker configuration
-├── docker-compose.yml    # Docker Compose configuration
-├── .env.example          # Example environment variables
-├── .gitignore           # Git ignore rules
-├── README.md            # Project overview and quick start
-├── QUICKSTART.md        # Quick start guide
-├── _documentation/      # Comprehensive documentation
-│   ├── README.md
-│   ├── API_REFERENCE.md
-│   ├── ARCHITECTURE.md
-│   ├── DEPLOYMENT.md
-│   ├── CONFIGURATION.md
-│   └── DEVELOPER_GUIDE.md
-├── tests/               # Test suite
-│   ├── __init__.py
-│   ├── test_api.py
-│   ├── test_crawler.py
-│   └── test_models.py
-└── output/              # Default crawl output directory
+```text
+CustomCrawler/
+├── Makefile                         # Root developer/operator shortcuts
+├── docker-compose.yml               # Service orchestration
+├── profiles/                        # Crawler profile JSON files
+├── src/                             # Python crawler/backend modules
+│   ├── app/main.py
+│   ├── crawler/
+│   ├── common/
+│   ├── rabbitmq/
+│   └── services/
+├── ui/                              # SvelteKit admin UI
+│   ├── package.json
+│   ├── src/app.css
+│   ├── src/lib/api/
+│   ├── src/lib/components/
+│   ├── src/lib/server/
+│   ├── src/lib/ui/
+│   └── src/routes/
+└── _documentation/                  # Project documentation
 ```
 
 ### File Responsibilities
 
-| File | Purpose |
-|------|---------|
-| `main.py` | API endpoints, request handling, background task management |
-| `models.py` | Data validation, serialization, type definitions |
-| `crawler_service.py` | Crawling logic, rate limiting, data extraction |
-| `example_client.py` | Usage examples, client library reference |
+| File or folder | Purpose |
+|----------------|---------|
+| `Makefile` | Project shortcuts for crawling, Docker lifecycle, job cancellation, shared-output cleanup, and UI startup. |
+| `src/app/main.py` | Python crawler API entrypoint. |
+| `src/crawler/` | Crawling logic, profile loading, sitemap parsing, URL policy, content parsing, storage, progress tracking. |
+| `src/common/` | Shared job schemas, logging setup, pipeline event definitions. |
+| `src/rabbitmq/` | RabbitMQ producer/communication helpers. |
+| `profiles/` | JSON profile files used by crawler jobs and editable from the UI. |
+| `ui/src/routes/` | SvelteKit UI pages and SvelteKit API routes. |
+| `ui/src/lib/api/index.ts` | Production UI HTTP client. All UI API calls should go through this file. |
+| `ui/src/lib/api/types.ts` | Shared TypeScript models for UI pages and components. |
+| `ui/src/lib/api/stub.ts` | Mock data layer for local experiments only; do not import by default. |
+| `ui/src/lib/ui/` | Generic UI primitives such as buttons, badges, tables, cards, alerts, and page layout. |
+| `ui/src/lib/components/` | Crawler-specific forms and widgets such as `ProfileForm`, `TaskForm`, `EntrypointList`, and `ConfirmDialog`. |
+| `ui/src/lib/server/` | Server-only SvelteKit helpers for crawler/RabbitMQ API configuration and fetch fallback. |
+
+### UI Route Responsibilities
+
+| Route | Responsibility |
+|-------|----------------|
+| `/` | Running jobs dashboard and RabbitMQ queue overview. |
+| `/jobs/[jobId]` | Job detail page. Reads `jobId` from params, loads job state, polls while running, and sends cancel requests. |
+| `/profiles` | Lists profile JSON files. |
+| `/profiles/new` | Creates a new profile JSON file. |
+| `/profiles/[profileId]` | Shows one profile, including entrypoints, discovery, forbidden rules, content settings, and JSON preview. |
+| `/profiles/[profileId]/edit` | Edits one profile JSON file. |
+| `/tasks` | Lists derived manual crawl tasks, one per profile. |
+| `/tasks/new` | Task creation form surface. Current backend does not persist tasks, so tasks are derived until that API exists. |
+| `/tasks/[taskId]` | Task detail and start-now action. |
+| `/tasks/[taskId]/edit` | Task edit surface for future task persistence. |
+
+### UI API Route Responsibilities
+
+| Endpoint | Responsibility |
+|----------|----------------|
+| `GET /api/profiles` | Lists profile files from `PROFILES_HOST_DIR`. |
+| `POST /api/profiles` | Writes a new profile JSON file. |
+| `GET /api/profiles/[name]` | Reads one profile file or `.json.example`. |
+| `PUT /api/profiles/[name]` | Updates one profile file. |
+| `POST /api/crawler/submit` | Proxies to crawler `POST /crawl`. |
+| `GET /api/crawler/jobs` | Proxies to crawler `GET /jobs`. |
+| `POST /api/crawler/job/[jobId]/cancel` | Proxies a job cancel request. |
+| `GET /api/crawler/job/[jobId]/summary` | Reads crawler output metadata and derives URL counts. |
+| `GET /api/rabbitmq/queues` | Proxies RabbitMQ management queue state. |
+
+### UI Component Responsibilities
+
+| Component | Responsibility |
+|-----------|----------------|
+| `PageContent` | Shared page header and white content panel. |
+| `Button`, `Card`, `Badge`, `Alert`, `TableWrap`, `Breadcrumb`, `EmptyState` | Generic visual primitives used by all routes. |
+| `FormGroup`, `TextInput`, `SelectInput` | Shared form structure and controls. |
+| `ProfileForm` | Builds profile input data for profile create/edit screens. |
+| `TaskForm` | Builds task input data and validates optional cron expressions. |
+| `EntrypointList`, `DynamicList`, `DurationInput` | Reusable nested form controls for profile/task editing. |
+| `ConfirmDialog` | Confirmation UI for destructive actions. |
 
 ---
 
@@ -877,6 +963,48 @@ refactor: Extract URL discovery into separate method
 ---
 
 ## Common Development Tasks
+
+### Start the UI
+
+```bash
+make start-ui
+```
+
+### Check the UI
+
+```bash
+npm --prefix ui run check
+```
+
+### Build the UI
+
+```bash
+npm --prefix ui run build
+```
+
+### Start Backend Services
+
+```bash
+make up
+```
+
+### Stop Backend Services
+
+```bash
+make down
+```
+
+### Submit a Sample Crawl
+
+```bash
+make crawl-sample
+```
+
+### Cancel a Job
+
+```bash
+make cancel JOB_ID=<job_id>
+```
 
 ### Add a New API Endpoint
 

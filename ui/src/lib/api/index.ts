@@ -1,6 +1,8 @@
 import { env } from '$env/dynamic/public';
 import type { Job, JobStatus, Profile, ProfileInput, Queue, Task, TaskInput } from './types';
 
+type ApiFetch = typeof fetch;
+
 type ProfileEntry = {
 	name: string;
 	hostPath: string;
@@ -45,8 +47,8 @@ function endpoint(path: string): string {
 	return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(endpoint(path), {
+async function request<T>(path: string, init?: RequestInit, apiFetch: ApiFetch = fetch): Promise<T> {
+	const response = await apiFetch(endpoint(path), {
 		...init,
 		headers: {
 			...(init?.body ? { 'content-type': 'application/json' } : {}),
@@ -171,14 +173,14 @@ function jobToUi(job: CrawlerJobStatus): Job {
 	};
 }
 
-export async function getAllProfiles(): Promise<Profile[]> {
-	const payload = await request<{ profiles?: ProfileEntry[] }>('/api/profiles');
+export async function getAllProfiles(apiFetch?: ApiFetch): Promise<Profile[]> {
+	const payload = await request<{ profiles?: ProfileEntry[] }>('/api/profiles', undefined, apiFetch);
 	return (payload.profiles ?? []).map(profileToUi);
 }
 
-export async function getProfile(id: string): Promise<Profile | undefined> {
+export async function getProfile(id: string, apiFetch?: ApiFetch): Promise<Profile | undefined> {
 	try {
-		const entry = await request<ProfileEntry>(`/api/profiles/${encodeURIComponent(id)}`);
+		const entry = await request<ProfileEntry>(`/api/profiles/${encodeURIComponent(id)}`, undefined, apiFetch);
 		return profileToUi(entry);
 	} catch (error) {
 		if (error instanceof ApiError && error.status === 404) return undefined;
@@ -207,21 +209,21 @@ export async function deleteProfile(id: string): Promise<boolean> {
 	return true;
 }
 
-export async function getProfileTaskCount(profileId: string): Promise<number> {
-	return (await getProfileTasks(profileId)).length;
+export async function getProfileTaskCount(profileId: string, apiFetch?: ApiFetch): Promise<number> {
+	return (await getProfileTasks(profileId, apiFetch)).length;
 }
 
-export async function getProfileTasks(profileId: string): Promise<Task[]> {
-	const profile = await getProfile(profileId);
+export async function getProfileTasks(profileId: string, apiFetch?: ApiFetch): Promise<Task[]> {
+	const profile = await getProfile(profileId, apiFetch);
 	return profile ? [taskForProfile(profile)] : [];
 }
 
-export async function getAllTasks(): Promise<Task[]> {
-	return (await getAllProfiles()).map(taskForProfile);
+export async function getAllTasks(apiFetch?: ApiFetch): Promise<Task[]> {
+	return (await getAllProfiles(apiFetch)).map(taskForProfile);
 }
 
-export async function getTask(id: string): Promise<Task | undefined> {
-	const profiles = await getAllProfiles();
+export async function getTask(id: string, apiFetch?: ApiFetch): Promise<Task | undefined> {
+	const profiles = await getAllProfiles(apiFetch);
 	const profile = profiles.find((item) => `manual-${item.id}` === id || item.id === id);
 	return profile ? taskForProfile(profile) : undefined;
 }
@@ -238,9 +240,9 @@ export async function deleteTask(_id: string): Promise<boolean> {
 	return true;
 }
 
-export async function getAllJobs(): Promise<Job[]> {
+export async function getAllJobs(apiFetch?: ApiFetch): Promise<Job[]> {
 	try {
-		const payload = await request<{ jobs?: Record<string, CrawlerJobStatus> | CrawlerJobStatus[] }>('/api/crawler/jobs');
+		const payload = await request<{ jobs?: Record<string, CrawlerJobStatus> | CrawlerJobStatus[] }>('/api/crawler/jobs', undefined, apiFetch);
 		const jobs = Array.isArray(payload.jobs) ? payload.jobs : Object.values(payload.jobs ?? {});
 		return jobs.filter((job): job is CrawlerJobStatus => !!job?.job_id).map(jobToUi);
 	} catch (error) {
@@ -249,12 +251,12 @@ export async function getAllJobs(): Promise<Job[]> {
 	}
 }
 
-export async function getRunningJobs(): Promise<Job[]> {
-	return (await getAllJobs()).filter((job) => job.status === 'running' || job.status === 'stopping');
+export async function getRunningJobs(apiFetch?: ApiFetch): Promise<Job[]> {
+	return (await getAllJobs(apiFetch)).filter((job) => job.status === 'running' || job.status === 'stopping');
 }
 
-export async function getJob(id: string): Promise<Job | undefined> {
-	return (await getAllJobs()).find((job) => job.id === id);
+export async function getJob(id: string, apiFetch?: ApiFetch): Promise<Job | undefined> {
+	return (await getAllJobs(apiFetch)).find((job) => job.id === id);
 }
 
 export async function startJob(taskId: string): Promise<Job> {
@@ -314,9 +316,9 @@ export async function restartJob(originalJobId: string): Promise<Job> {
 	throw new Error('Restarting jobs is not supported by the current crawler API.');
 }
 
-export async function getQueues(): Promise<Queue[]> {
+export async function getQueues(apiFetch?: ApiFetch): Promise<Queue[]> {
 	try {
-		const payload = await request<{ queues?: QueueEntry[] }>('/api/rabbitmq/queues');
+		const payload = await request<{ queues?: QueueEntry[] }>('/api/rabbitmq/queues', undefined, apiFetch);
 		return (payload.queues ?? []).map((queue) => ({
 			name: queue.name,
 			ready: queue.messages_ready ?? 0,

@@ -1,18 +1,148 @@
 # API Reference
 
-Complete reference for all API endpoints provided by the Crawl4AI FastAPI service.
+Complete reference for the crawler API and the SvelteKit UI proxy endpoints.
 
-## Base URL
+## Base URLs
 
-```
-http://localhost:8000
-```
+| Surface | Default URL | Notes |
+|---------|-------------|-------|
+| SvelteKit UI | `http://localhost:5173` | Started with `make start-ui` or `npm --prefix ui run dev`. |
+| UI API routes | Same origin as UI, `/api/...` | Browser-facing routes used by `ui/src/lib/api/index.ts`. |
+| Crawler API | `http://localhost:8040`, fallback `http://localhost:8000` | Configured with `CRAWLER_API_BASE_URL`. |
+| RabbitMQ management API | `http://localhost:15672/api` | Configured with `RABBITMQ_MGMT_API_URL`. |
 
-For production, replace with your actual domain.
+For production, replace these with the deployment domains or set the environment variables described below.
 
 ## Authentication
 
 Currently, the API does not require authentication. For production deployments, consider adding API key authentication or OAuth2.
+
+The UI server authenticates to RabbitMQ management with `RABBITMQ_MGMT_USER` and `RABBITMQ_MGMT_PASSWORD`.
+
+## SvelteKit UI API Routes
+
+The frontend does not call the crawler and RabbitMQ services directly by default. Production UI pages and components call `ui/src/lib/api/index.ts`, and that client calls these SvelteKit API routes.
+
+### UI Environment Variables
+
+| Variable | Default | Responsibility |
+|----------|---------|----------------|
+| `PUBLIC_API_BASE_URL` | empty | Optional browser-visible API base. Leave empty for same-origin `/api/...`. |
+| `CRAWLER_API_BASE_URL` | `http://localhost:8040,http://localhost:8000` fallback list | Backend crawler API base URL(s). Comma-separated values are supported. |
+| `RABBITMQ_MGMT_API_URL` | `http://localhost:15672/api` | RabbitMQ management API base URL. |
+| `RABBITMQ_MGMT_USER` | `guest` | RabbitMQ management user. |
+| `RABBITMQ_MGMT_PASSWORD` | `guest` | RabbitMQ management password. |
+| `PROFILES_HOST_DIR` | `../profiles` from `ui/` | Host path for editable profile JSON files. |
+| `PROFILES_CONTAINER_DIR` | `/app/profiles` | Container path written into crawl submissions. |
+
+### GET /api/profiles
+
+Lists profile JSON files and `.json.example` templates.
+
+**Response**
+
+```json
+{
+  "profiles": [
+    {
+      "name": "hawk",
+      "hostPath": "/path/to/profiles/hawk.json",
+      "containerPath": "/app/profiles/hawk.json",
+      "match_hosts": ["hawk.de", "*.hawk.de"],
+      "profile": {},
+      "readonlyExample": false
+    }
+  ]
+}
+```
+
+### POST /api/profiles
+
+Creates or overwrites a writable profile JSON file.
+
+**Request**
+
+```json
+{
+  "name": "hawk",
+  "profile": {
+    "name": "hawk",
+    "match_hosts": ["hawk.de"],
+    "sitemap": {
+      "enabled": true,
+      "base_url": "https://www.hawk.de/sitemaps/main/sitemap.xml"
+    }
+  }
+}
+```
+
+### GET /api/profiles/[name]
+
+Reads one profile JSON file. If `<name>.json` does not exist, the route attempts `<name>.json.example` and marks it as read-only.
+
+### PUT /api/profiles/[name]
+
+Updates one writable profile JSON file.
+
+**Request**
+
+```json
+{
+  "profile": {
+    "name": "hawk",
+    "match_hosts": ["hawk.de"]
+  }
+}
+```
+
+### POST /api/crawler/submit
+
+Proxies a crawl submission to crawler `POST /crawl`.
+
+### GET /api/crawler/jobs
+
+Proxies crawler `GET /jobs`.
+
+### POST /api/crawler/job/[jobId]/cancel
+
+Proxies crawler job cancellation to `POST /jobs/{jobId}/cancel`.
+
+### GET /api/crawler/job/[jobId]/summary
+
+Reads crawler output/file metadata and derives URL counters for the UI. The UI can use this for found/completed/missed counts where available.
+
+### GET /api/rabbitmq/queues
+
+Proxies RabbitMQ management queue state and normalizes it for UI display.
+
+**Response**
+
+```json
+{
+  "queues": [
+    {
+      "name": "rag_ingestion_jobs",
+      "vhost": "/",
+      "state": "running",
+      "messages": 12,
+      "messages_ready": 10,
+      "messages_unacknowledged": 2,
+      "consumers": 1
+    }
+  ]
+}
+```
+
+## UI Client Data Models
+
+`ui/src/lib/api/index.ts` maps backend responses into `ui/src/lib/api/types.ts`.
+
+| UI type | Responsibility |
+|---------|----------------|
+| `Profile` | Display and edit crawler profile data. Profile ids map to profile file names. |
+| `Task` | UI task abstraction. Current backend has no persistent task API, so tasks are derived from profiles. |
+| `Job` | UI job abstraction mapped from crawler job status payloads. |
+| `Queue` | UI queue abstraction mapped from RabbitMQ management payloads. |
 
 ## Common Response Codes
 
