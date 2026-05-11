@@ -18,5 +18,9 @@
 		"svelte-check": "^4.2.1",
 		"typescript": "^5.8.3",
 		"vite": "^6.3.5"
+	},
+	"dependencies": {
+		"cron-validator": "^1.4.0",
+		"cronstrue": "^3.14.0"
 	}
 }
