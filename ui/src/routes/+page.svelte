@@ -66,8 +66,8 @@
             await refreshQueues();
             queueError =
                 target.unacked > 0
-                    ? 'Ready messages were purged, but RabbitMQ cannot delete a queue while messages are unacked. Stop the consumer or wait until they are requeued, then purge again.'
-                    : error instanceof Error ? error.message : 'Failed to purge and delete queue';
+                    ? 'Ready messages were removed, but RabbitMQ cannot delete a queue while messages are unacked. Stop the consumer or wait until they are requeued, then remove again.'
+                    : error instanceof Error ? error.message : 'Failed to remove queue';
         } finally {
             purgingQueue = undefined;
         }
@@ -155,10 +155,10 @@
                                             variant="danger"
                                             size="sm"
                                             disabled={isProtectedQueue || purgingQueue === q.name}
-                                            title={isProtectedQueue ? 'Default system queue; cannot be purged or deleted here' : 'Purge ready messages and delete the queue if it is empty'}
+                                            title={isProtectedQueue ? 'Default system queue; cannot be removed here' : 'Remove ready messages and delete the queue if it is empty'}
                                             onclick={() => (queueToPurge = q)}
                                         >
-                                            {purgingQueue === q.name ? 'Purging...' : 'Purge'}
+                                            {purgingQueue === q.name ? 'Removing...' : 'Remove'}
                                         </Button>
                                     </td>
                                 </tr>
@@ -177,9 +177,9 @@
 
 <ConfirmDialog
     open={!!queueToPurge}
-    title="Purge and delete queue?"
+    title="Remove queue?"
     message={`This removes ${queueToPurge?.ready ?? 0} ready message${(queueToPurge?.ready ?? 0) === 1 ? '' : 's'} from ${queueToPurge?.name ?? 'this queue'}, then deletes the queue if it is empty. Unacked messages cannot be removed until RabbitMQ requeues them.`}
-    confirmLabel="Purge"
+    confirmLabel="Remove"
     danger
     onConfirm={confirmPurgeQueue}
     onCancel={() => (queueToPurge = undefined)}
