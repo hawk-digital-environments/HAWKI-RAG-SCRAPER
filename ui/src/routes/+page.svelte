@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
     import type {PageData} from './$types';
     import Badge from '$lib/ui/Badge.svelte';
     import Button from '$lib/ui/Button.svelte';
@@ -13,9 +14,10 @@
     import { base } from '$app/paths';
 
     let {data}: { data: PageData } = $props();
+    const initialData = untrack(() => data);
 
     let queuesOpen = $state(false);
-    let queues = $state<Queue[]>([...data.queues]);
+    let queues = $state<Queue[]>([...initialData.queues]);
     let queueToPurge = $state<Queue | undefined>(undefined);
     let purgingQueue = $state<string | undefined>(undefined);
     let queueError = $state('');

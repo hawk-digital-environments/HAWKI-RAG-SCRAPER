@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { isValidCron } from 'cron-validator';
 	import type { Profile, TaskInput } from '$lib/api/types';
 	import Button from '$lib/ui/Button.svelte';
@@ -22,11 +23,13 @@
 		submitLabel = 'Save',
 		onSubmit
 	}: Props = $props();
+	const initial = untrack(() => initialData);
+	const initialProfiles = untrack(() => profiles);
 
-	let name = $state(initialData.name ?? '');
-	let profileId = $state(initialData.profileId ?? (profiles[0]?.id ?? ''));
-	let scheduleEnabled = $state(!!initialData.schedule);
-	let schedule = $state(initialData.schedule ?? '');
+	let name = $state(initial.name ?? '');
+	let profileId = $state(initial.profileId ?? (initialProfiles[0]?.id ?? ''));
+	let scheduleEnabled = $state(!!initial.schedule);
+	let schedule = $state(initial.schedule ?? '');
 
 	let submitted = $state(false);
 

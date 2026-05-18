@@ -30,7 +30,8 @@ class ServiceInitMixin:
         job_id: Optional[str] = None,
         communication_service: Optional[Any] = None,
         job_state: Optional[JobState] = None,
-        storage_manager: Optional[Any] = None
+        storage_manager: Optional[Any] = None,
+        pause_event: Optional[asyncio.Event] = None
     ):
         self.config = config
         self.visited_urls: Set[str] = set()
@@ -47,6 +48,8 @@ class ServiceInitMixin:
         self.abort_crawl = False
         self.abort_reason: Optional[str] = None
         self.abort_lock = asyncio.Lock()
+        self.pause_event = pause_event
+        self.pause_logged = False
         self.consecutive_5xx = 0
         self.consecutive_5xx_lock = asyncio.Lock()
         self.restart_crawler = False

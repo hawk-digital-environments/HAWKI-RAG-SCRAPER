@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import TextInput from '$lib/ui/TextInput.svelte';
 	import SelectInput from '$lib/ui/SelectInput.svelte';
 	import { parseDuration, formatDuration, DURATION_UNITS } from '$lib/utils/duration';
@@ -12,10 +13,10 @@
 
 	let { value, onchange, id, required = false }: Props = $props();
 
-	const parsed = $derived(parseDuration(value) ?? { amount: 24, unit: 'h' as const });
+	const initialParsed = untrack(() => parseDuration(value) ?? { amount: 24, unit: 'h' as const });
 
-	let amount = $state(parsed.amount);
-	let unit = $state(parsed.unit);
+	let amount = $state(initialParsed.amount);
+	let unit = $state(initialParsed.unit);
 
 	$effect(() => {
 		const p = parseDuration(value);

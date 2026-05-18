@@ -184,7 +184,7 @@ function taskToUi(task: TaskEntry): Task {
 
 function normalizeStatus(status: unknown): JobStatus {
 	const value = typeof status === 'string' ? status.toLowerCase() : 'running';
-	if (value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'stopping') {
+	if (value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'stopping' || value === 'paused') {
 		return value;
 	}
 	return 'running';
@@ -331,7 +331,7 @@ export async function getAllJobs(apiFetch?: ApiFetch): Promise<Job[]> {
 }
 
 export async function getRunningJobs(apiFetch?: ApiFetch): Promise<Job[]> {
-	return (await getAllJobs(apiFetch)).filter((job) => job.status === 'running' || job.status === 'stopping');
+	return (await getAllJobs(apiFetch)).filter((job) => job.status === 'running' || job.status === 'paused' || job.status === 'stopping');
 }
 
 export async function getJob(id: string, apiFetch?: ApiFetch): Promise<Job | undefined> {
@@ -400,6 +400,18 @@ export async function startJob(taskId: string): Promise<Job> {
 export async function stopJob(id: string): Promise<Job | undefined> {
 	await request(`/api/crawler/job/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 	return getJob(id);
+}
+
+export async function pauseJob(id: string): Promise<Job | undefined> {
+	await request(`/api/crawler/job/${encodeURIComponent(id)}/pause`, { method: 'POST' });
+	const job = await getJob(id);
+	return job ? { ...job, status: 'paused' } : undefined;
+}
+
+export async function resumeJob(id: string): Promise<Job | undefined> {
+	await request(`/api/crawler/job/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+	const job = await getJob(id);
+	return job ? { ...job, status: 'running' } : undefined;
 }
 
 export async function finalizeStopJob(id: string): Promise<Job | undefined> {

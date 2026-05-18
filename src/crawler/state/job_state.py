@@ -215,7 +215,7 @@ class JobState:
         async with self._lock:
             self._data.status = status
 
-            if status in ["completed", "failed"]:
+            if status in ["completed", "failed", "cancelled"]:
                 self._data.completed_at = datetime.utcnow().isoformat() + "Z"
 
             await self._update_timestamp_and_persist()

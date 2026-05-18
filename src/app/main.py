@@ -69,6 +69,9 @@ async def startup_event():
 jobs: Dict[str, CrawlStatus] = {}
 # Track running tasks for cancellation
 tasks: Dict[str, asyncio.Task] = {}
+# Track pause controls and state objects for running jobs
+pause_events: Dict[str, asyncio.Event] = {}
+job_states: Dict[str, JobState] = {}
 
 
 async def extract_page_content(url: str, skip_images: bool = False, date_selector: str = None) -> Dict:
@@ -216,6 +219,8 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
 
     communication_service = CommunicationFactory.create(job_id)
     job_state = JobState(job_id, base_path=base_path)
+    pause_event = pause_events.setdefault(job_id, asyncio.Event())
+    pause_event.set()
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     def _progress_total(snapshot) -> int:
@@ -238,6 +243,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         logger.info(f"[Job {job_id}] Initializing state manager...")
         # Initialize state manager (creates job directory and initial state file)
         await job_state.initialize()
+        job_states[job_id] = job_state
         logger.info(f"[Job {job_id}] State manager initialized")
         sync_task = asyncio.create_task(_sync_job_progress())
 
@@ -269,7 +275,8 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
             job_id=job_id,
             communication_service=communication_service,
             job_state=job_state,
-            storage_manager=storage_manager
+            storage_manager=storage_manager,
+            pause_event=pause_event
         )
 
         logger.info(f"[{job_id}] CrawlerService created. Starting crawl...")
@@ -288,6 +295,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         jobs[job_id].status = "cancelled"
         jobs[job_id].message = "Crawl cancelled"
         jobs[job_id].completed_at = datetime.now()
+        await job_state.set_status("cancelled")
         # Propagate cancellation after cleanup
         raise
     except Exception as e:
@@ -314,6 +322,8 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
                 await crawler.file_event_publisher.close()
             except Exception:
                 pass
+        pause_events.pop(job_id, None)
+        job_states.pop(job_id, None)
         tasks.pop(job_id, None)
 
 
@@ -545,6 +555,60 @@ async def cancel_job(job_id: str):
     return {
         "success": True,
         "message": f"Cancel requested for job {job_id}"
+    }
+
+
+@app.post("/jobs/{job_id}/pause")
+async def pause_job(job_id: str):
+    """
+    Pause a running crawl job after the current URL/batch finishes.
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    task = tasks.get(job_id)
+    if not task or task.done():
+        raise HTTPException(status_code=400, detail="Job is not running or already finished")
+
+    event = pause_events.setdefault(job_id, asyncio.Event())
+    event.clear()
+    jobs[job_id].status = "paused"
+    jobs[job_id].message = "Crawl paused"
+
+    state = job_states.get(job_id)
+    if state:
+        await state.set_status("paused")
+
+    return {
+        "success": True,
+        "message": f"Pause requested for job {job_id}"
+    }
+
+
+@app.post("/jobs/{job_id}/resume")
+async def resume_job(job_id: str):
+    """
+    Resume a paused crawl job from its current in-memory URL queue.
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    task = tasks.get(job_id)
+    if not task or task.done():
+        raise HTTPException(status_code=400, detail="Job is not running or already finished")
+
+    event = pause_events.setdefault(job_id, asyncio.Event())
+    event.set()
+    jobs[job_id].status = "running"
+    jobs[job_id].message = "Crawling in progress..."
+
+    state = job_states.get(job_id)
+    if state:
+        await state.set_status("running")
+
+    return {
+        "success": True,
+        "message": f"Resume requested for job {job_id}"
     }
 
 

@@ -21,6 +21,49 @@ function isNoisyAccessLog(line: string): boolean {
 	);
 }
 
+async function readJobState(fetch: typeof globalThis.fetch, jobId: string): Promise<Record<string, unknown> | undefined> {
+	const encodedPath = segmentEncode('job_state.json');
+	const { response } = await fetchCrawler(
+		fetch,
+		`/jobs/${encodeURIComponent(jobId)}/files/${encodedPath}`
+	);
+	if (!response.ok) return undefined;
+
+	try {
+		return await response.json();
+	} catch {
+		return undefined;
+	}
+}
+
+function getNumber(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function progressLineFromState(state: Record<string, unknown> | undefined): string | undefined {
+	if (!state) return undefined;
+	const status = typeof state.status === 'string' ? state.status.toLowerCase() : '';
+	if (status && status !== 'running' && status !== 'paused') return undefined;
+	const completedUrls = getNumber(state.completed_urls);
+	const totalUrls = getNumber(state.total_urls);
+	return `[Progress]: crawling ${completedUrls}/${totalUrls}`;
+}
+
+function lifecycleLineFromState(state: Record<string, unknown> | undefined): string | undefined {
+	if (!state) return undefined;
+	const status = typeof state.status === 'string' ? state.status.toLowerCase() : '';
+	if (status === 'running') return '[Info]: task is started';
+	if (status === 'paused') return '[Pause]: task is paused';
+	if (status === 'cancelled' || status === 'stopping') return '[Info]: task is stopped';
+	return undefined;
+}
+
+function withSyntheticLines(lines: string[], state: Record<string, unknown> | undefined): string[] {
+	const lifecycleLine = lifecycleLineFromState(state);
+	const progressLine = progressLineFromState(state);
+	return [lifecycleLine, progressLine, ...lines].filter((line): line is string => !!line);
+}
+
 export const GET: RequestHandler = async ({ fetch, params }) => {
 	const { jobId } = params;
 	if (!jobId) {
@@ -28,12 +71,13 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 	}
 
 	try {
+		const jobState = await readJobState(fetch, jobId);
 		const { response: filesResponse } = await fetchCrawler(
 			fetch,
 			`/jobs/${encodeURIComponent(jobId)}/files`
 		);
 		if (!filesResponse.ok) {
-			return json({ found: false, lines: [] }, { status: 200 });
+			return json({ found: false, lines: withSyntheticLines([], jobState) }, { status: 200 });
 		}
 
 		const filesPayload = await filesResponse.json();
@@ -46,7 +90,7 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 		});
 
 		if (!logFile || typeof logFile.path !== 'string') {
-			return json({ found: false, lines: [] }, { status: 200 });
+			return json({ found: false, lines: withSyntheticLines([], jobState) }, { status: 200 });
 		}
 
 		const encodedPath = segmentEncode(logFile.path);
@@ -55,7 +99,7 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 			`/jobs/${encodeURIComponent(jobId)}/files/${encodedPath}`
 		);
 		if (!logResponse.ok) {
-			return json({ found: false, lines: [] }, { status: 200 });
+			return json({ found: false, lines: withSyntheticLines([], jobState) }, { status: 200 });
 		}
 
 		const text = await logResponse.text();
@@ -64,7 +108,7 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 			.filter((line) => line.trim().length > 0)
 			.filter((line) => !isNoisyAccessLog(line));
 
-		return json({ found: true, lines }, { status: 200 });
+		return json({ found: true, lines: withSyntheticLines(lines, jobState) }, { status: 200 });
 	} catch (error) {
 		return json(
 			{

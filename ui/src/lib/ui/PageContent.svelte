@@ -98,11 +98,6 @@
         align-items: center;
     }
 
-    /* Content area — sections flow here */
-    .pc-content {
-        /* padding-top only needed when there is no top bar */
-    }
-
     .pc-bar + .pc-content {
         padding-top: 0;
     }

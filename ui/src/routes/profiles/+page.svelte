@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
 	import type { Profile } from '$lib/api/types';
 	import Button from '$lib/ui/Button.svelte';
@@ -12,7 +13,8 @@
 	import { base } from '$app/paths';
 
 	let { data }: { data: PageData } = $props();
-	let profiles = $state<Profile[]>([...data.profiles]);
+	const initialData = untrack(() => data);
+	let profiles = $state<Profile[]>([...initialData.profiles]);
 	let profileToRemove = $state<Profile | undefined>(undefined);
 	let removingProfile = $state<string | undefined>(undefined);
 	let removeError = $state('');

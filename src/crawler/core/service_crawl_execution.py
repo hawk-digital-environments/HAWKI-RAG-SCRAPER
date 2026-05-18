@@ -15,9 +15,33 @@ from src.crawler.storage.page_output import build_page_metadata
 
 
 class ServiceCrawlExecutionMixin:
+    def _is_pause_requested(self) -> bool:
+        return bool(self.pause_event and not self.pause_event.is_set())
+
+    async def _wait_if_paused(self) -> None:
+        """Pause between crawl units without discarding queued URLs."""
+        if not self._is_pause_requested():
+            return
+
+        if not self.pause_logged:
+            self.job_logger.info("Crawl paused")
+            self.pause_logged = True
+            if self.job_state:
+                await self.job_state.set_status("paused")
+
+        while self._is_pause_requested() and not self.abort_crawl:
+            await asyncio.sleep(1)
+
+        if self.pause_logged and not self.abort_crawl:
+            self.job_logger.info("Crawl resumed")
+            self.pause_logged = False
+            if self.job_state:
+                await self.job_state.set_status("running")
+
     async def crawl_page(self, url: str, crawler: AsyncWebCrawler, crawl_result: Optional[object] = None):
         """Crawl a single page"""
         async with self.semaphore:
+            await self._wait_if_paused()
             if self.abort_crawl:
                 return
 
@@ -338,6 +362,9 @@ class ServiceCrawlExecutionMixin:
             or self.page_counter < self.config.max_pages
             or self.allow_over_max_pages
         ):
+            await self._wait_if_paused()
+            if self.abort_crawl:
+                break
             if self.enable_memory_watchdog:
                 ratio = self._get_memory_usage_ratio()
                 if ratio is not None and ratio >= self.memory_restart_threshold:
@@ -357,9 +384,14 @@ class ServiceCrawlExecutionMixin:
                 self.job_logger.info("Restarting browser: reached hourly restart interval")
                 self.restart_crawler = True
                 break
-            batch_size = min(self.config.max_concurrency, len(self.to_visit))
+            batch_size = 1 if self._is_pause_requested() else min(self.config.max_concurrency, len(self.to_visit))
             batch = self.to_visit[:batch_size]
             self.to_visit = self.to_visit[batch_size:]
+
+            if self._is_pause_requested():
+                self.to_visit = batch + self.to_visit
+                await self._wait_if_paused()
+                continue
 
             batch_html = [url for url in batch if not self._looks_like_file_url(url)]
             batch_direct = [url for url in batch if url not in batch_html]
