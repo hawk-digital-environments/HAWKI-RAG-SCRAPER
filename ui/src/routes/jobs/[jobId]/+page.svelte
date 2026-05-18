@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
 	import type { Job } from '$lib/api/types';
 	import Badge from '$lib/ui/Badge.svelte';
@@ -8,15 +9,19 @@
 	import PageContent from '$lib/ui/PageContent.svelte';
 	import Breadcrumb from '$lib/ui/Breadcrumb.svelte';
 	import TableWrap from '$lib/ui/TableWrap.svelte';
-	import { getJob, getJobLog, stopJob, finalizeStopJob, retryJob, restartJob } from '$lib/api';
+	import { getJob, getJobLog, stopJob, finalizeStopJob, retryJob, restartJob, pauseJob, resumeJob } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 
 	let { data }: { data: PageData } = $props();
+	const initialData = untrack(() => data);
 
-	let job = $state<Job>({ ...data.job });
+	let job = $state<Job>({ ...initialData.job });
+
+	type LogKind = 'progress' | 'pause' | 'info' | 'debug';
 
 	const isRunning = $derived(job.status === 'running');
+	const isPaused = $derived(job.status === 'paused');
 	const isStopping = $derived(job.status === 'stopping');
 	const isTerminal = $derived(['completed', 'failed', 'cancelled'].includes(job.status));
 	const hasFailedPages = $derived((job.failedPages?.length ?? 0) > 0);
@@ -47,15 +52,31 @@
 		return `${secs}s`;
 	}
 
-	function getLogClass(line: string): string {
-		if (line.includes(' FATAL ') || line.includes('FATAL')) return 'log-line-fatal';
-		if (line.includes(' ERROR ') || line.includes('Error') || line.includes('error')) return 'log-line-error';
-		if (line.includes(' WARN ') || line.includes('Warning')) return 'log-line-warn';
-		return '';
+	function getLogKind(line: string): LogKind {
+		if (line.startsWith('[Progress]:')) return 'progress';
+		if (line.startsWith('[Pause]:')) return 'pause';
+		if (/(?:\bFATAL\b|\bERROR\b|\bError\b|\berror\b|\bException\b|\bTraceback\b|\bfailed\b|\bfailure\b|Cannot connect)/.test(line)) {
+			return 'debug';
+		}
+		return 'info';
+	}
+
+	function getLogLabel(kind: LogKind): string {
+		if (kind === 'progress') return '[Progress]';
+		if (kind === 'pause') return '[Pause]';
+		if (kind === 'debug') return '[Debug]';
+		return '[Info]';
+	}
+
+	function getLogMessage(line: string, kind: LogKind): string {
+		if (kind === 'progress') return line.replace(/^\[Progress\]:\s*/, '');
+		if (kind === 'pause') return line.replace(/^\[Pause\]:\s*/, '');
+		return line.replace(/^\[Info\]:\s*/, '');
 	}
 
 	let logEl = $state<HTMLDivElement | undefined>(undefined);
 	let didLoadJobLog = $state(false);
+	const visibleLogLines = $derived(job.log.slice(-1000));
 
 	$effect(() => {
 		job.log;
@@ -80,7 +101,7 @@
 	});
 
 	$effect(() => {
-		if (job.status === 'running') {
+		if (job.status === 'running' || job.status === 'paused') {
 			pollInterval = setInterval(async () => {
 				const updated = await getJob(job.id);
 				const fallback = updated ?? job;
@@ -105,6 +126,22 @@
 		}
 	}
 
+	async function handlePause() {
+		const current = job;
+		const updated = await pauseJob(job.id);
+		const paused = updated ?? { ...current, status: 'paused' as const };
+		job = { ...paused };
+		await refreshJobLog(paused);
+	}
+
+	async function handleResume() {
+		const current = job;
+		const updated = await resumeJob(job.id);
+		const running = updated ?? { ...current, status: 'running' as const };
+		job = { ...running };
+		await refreshJobLog(running);
+	}
+
 	async function handleRetry() {
 		const newJob = await retryJob(job.id);
 		await goto(`${base}/jobs/${newJob.id}`);
@@ -124,6 +161,11 @@
 	{/snippet}
 	{#snippet actions()}
 		{#if isRunning}
+			<Button variant="secondary" onclick={handlePause}>⏸ Pause job</Button>
+			<Button variant="danger" onclick={handleStop}>⏹ Stop job</Button>
+		{/if}
+		{#if isPaused}
+			<Button variant="secondary" onclick={handleResume}>▶ Resume job</Button>
 			<Button variant="danger" onclick={handleStop}>⏹ Stop job</Button>
 		{/if}
 		{#if isStopping}
@@ -234,11 +276,18 @@
 			{#if isRunning}
 				<span class="live-indicator">● Live</span>
 			{/if}
+			{#if isPaused}
+				<span class="paused-indicator">Paused</span>
+			{/if}
 		{/snippet}
 		{#snippet children()}
 			<div class="log-block" bind:this={logEl}>
-				{#each job.log as line}
-					<div class={getLogClass(line)}>{line}</div>
+				{#each visibleLogLines as line}
+					{@const kind = getLogKind(line)}
+					<div class={`log-line log-line-${kind}`}>
+						<span class="log-flag">{getLogLabel(kind)}</span>
+						<span class="log-message">{getLogMessage(line, kind)}</span>
+					</div>
 				{/each}
 				{#if isRunning || isStopping}
 					<div class="log-cursor">▌</div>
@@ -302,6 +351,12 @@
 		animation: pulse 2s infinite;
 	}
 
+	.paused-indicator {
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--c-warning);
+	}
+
 	@keyframes pulse {
 		0%, 100% { opacity: 1; }
 		50% { opacity: 0.4; }
@@ -315,16 +370,34 @@
 		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 		padding: 14px 16px;
 		overflow-y: auto;
-		max-height: 420px;
+		height: min(72vh, 900px);
+		min-height: 620px;
 		white-space: pre-wrap;
 		word-break: break-all;
 		line-height: 1.7;
 	}
 
+	.log-line {
+		display: grid;
+		grid-template-columns: 88px minmax(0, 1fr);
+		column-gap: 8px;
+		align-items: start;
+	}
+
+	.log-flag {
+		font-weight: 700;
+		white-space: nowrap;
+	}
+
+	.log-message {
+		min-width: 0;
+	}
+
 	.log-cursor { animation: blink 1s step-end infinite; color: var(--c-success); }
 	@keyframes blink { 50% { opacity: 0; } }
 
-	:global(.log-line-warn) { color: #fbbf24; }
-	:global(.log-line-error) { color: #f87171; }
-	:global(.log-line-fatal) { color: #ef4444; font-weight: 600; }
+	.log-line-progress { color: #86efac; }
+	.log-line-pause { color: #fbbf24; }
+	.log-line-info { color: #facc15; }
+	.log-line-debug { color: #f87171; }
 </style>

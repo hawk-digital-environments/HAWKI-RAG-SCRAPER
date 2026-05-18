@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import DynamicList from './DynamicList.svelte';
 	import EntrypointList from './EntrypointList.svelte';
 	import DurationInput from './DurationInput.svelte';
@@ -14,46 +15,50 @@
 	}
 
 	let { initialData = {}, submitLabel = 'Save', onSubmit }: Props = $props();
+	const initial = untrack(() => initialData);
 
 	// Basic
-	let name = $state(initialData.name ?? '');
-	let entrypoints = $state<Entrypoint[]>(initialData.entrypoints ?? []);
+	let name = $state(initial.name ?? '');
+	let entrypoints = $state<Entrypoint[]>(initial.entrypoints ?? []);
 
 	// Discovery
-	let discoveryHosts = $state<string[]>(initialData.discovery?.hosts ?? []);
+	let discoveryHosts = $state<string[]>(initial.discovery?.hosts ?? []);
 
 	// Forbidden
-	let forbiddenHosts = $state<string[]>(initialData.forbidden?.hosts ?? []);
-	let forbiddenPatterns = $state<string[]>(initialData.forbidden?.url_patterns ?? []);
+	let forbiddenHosts = $state<string[]>(initial.forbidden?.hosts ?? []);
+	let forbiddenPatterns = $state<string[]>(initial.forbidden?.url_patterns ?? []);
 
 	// Content
-	let contentSelectors = $state<string[]>(initialData.content?.content_selectors ?? []);
-	let noisePhrases = $state<string[]>(initialData.content?.noise_phrases ?? []);
-	let noisePatterns = $state<string[]>(initialData.content?.noise_patterns ?? []);
-	let tagSelectors = $state<string[]>(initialData.content?.tag_selectors ?? []);
+	let contentSelectors = $state<string[]>(initial.content?.content_selectors ?? []);
+	let noisePhrases = $state<string[]>(initial.content?.noise_phrases ?? []);
+	let noisePatterns = $state<string[]>(initial.content?.noise_patterns ?? []);
+	let tagSelectors = $state<string[]>(initial.content?.tag_selectors ?? []);
 
 	// Crawler configuration
-	let maxConcurrency = $state(initialData.max_concurrency ?? 1);
-	let maxRpm = $state(initialData.max_rpm ?? 60);
-	let includeImages = $state(!(initialData.skip_images ?? false));
-	let maxImagesPerPage = $state(initialData.max_images_per_page ?? 30);
-	let maxPages = $state(initialData.max_pages ?? 100);
-	let maxLinkDensity = $state(initialData.max_link_density ?? 0.4);
-	let discoveryMode = $state(initialData.discovery_mode ?? false);
+	let maxConcurrency = $state(initial.max_concurrency ?? 1);
+	let maxRpm = $state(initial.max_rpm ?? 60);
+	let includeImages = $state(!(initial.skip_images ?? false));
+	let maxImagesPerPage = $state(initial.max_images_per_page ?? 30);
+	let maxPages = $state(initial.max_pages ?? 100);
+	let maxLinkDensity = $state(initial.max_link_density ?? 0.4);
+	let discoveryMode = $state(initial.discovery_mode ?? false);
 
 	// Behavior
-	let maxExecutionTime = $state(initialData.max_execution_time ?? '24h');
-	let maxStorageTime = $state(initialData.max_storage_time ?? '7d');
-	let rescrapeFailed = $state(initialData.rescrape_failed ?? false);
+	let maxExecutionTime = $state(initial.max_execution_time ?? '24h');
+	let maxStorageTime = $state(initial.max_storage_time ?? '7d');
+	let rescrapeFailed = $state(initial.rescrape_failed ?? false);
 
 	// Section visibility
-	let showDiscovery = $state(discoveryHosts.length > 0);
-	let showForbidden = $state(forbiddenHosts.length > 0 || forbiddenPatterns.length > 0);
+	let showDiscovery = $state((initial.discovery?.hosts ?? []).length > 0);
+	let showForbidden = $state(
+		(initial.forbidden?.hosts ?? []).length > 0 ||
+			(initial.forbidden?.url_patterns ?? []).length > 0
+	);
 	let showContent = $state(
-		contentSelectors.length > 0 ||
-			noisePhrases.length > 0 ||
-			noisePatterns.length > 0 ||
-			tagSelectors.length > 0
+		(initial.content?.content_selectors ?? []).length > 0 ||
+			(initial.content?.noise_phrases ?? []).length > 0 ||
+			(initial.content?.noise_patterns ?? []).length > 0 ||
+			(initial.content?.tag_selectors ?? []).length > 0
 	);
 
 	let errors = $state<Record<string, string>>({});
