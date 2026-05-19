@@ -20,7 +20,7 @@ class ServiceCrawlRuntimeMixin:
     needed, tracking memory pressure, and writing crawl output to storage.
     """
 
-    def _looks_like_file_url(self: "CrawlerServiceProtocol", url: str) -> bool:
+    def looks_like_file_url(self: "CrawlerServiceProtocol", url: str) -> bool:
         """Return True for URLs that should be downloaded instead of rendered."""
         parsed = urlparse(url)
         path = parsed.path.lower()
@@ -38,7 +38,7 @@ class ServiceCrawlRuntimeMixin:
             return True
         return False
 
-    async def _trigger_safe_stop(self: "CrawlerServiceProtocol", reason: str) -> None:
+    async def trigger_safe_stop(self: "CrawlerServiceProtocol", reason: str) -> None:
         """Stop future crawl work and remember why the job was aborted."""
         async with self.abort_lock:
             if self.abort_crawl:
@@ -58,7 +58,7 @@ class ServiceCrawlRuntimeMixin:
             self.restart_crawler = True
             self.restart_reason = "browser_closed"
 
-    def _get_memory_usage_ratio(self: "CrawlerServiceProtocol") -> Optional[float]:
+    def get_memory_usage_ratio(self: "CrawlerServiceProtocol") -> Optional[float]:
         """Return memory usage ratio based on cgroup limits, or None if unavailable."""
         paths = [
             ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
@@ -81,13 +81,13 @@ class ServiceCrawlRuntimeMixin:
                 continue
         return None
 
-    async def _wait_for_memory_relief(self: "CrawlerServiceProtocol") -> None:
+    async def wait_for_memory_relief(self: "CrawlerServiceProtocol") -> None:
         """Wait for container memory usage to drop before restarting browser work."""
         if not self.enable_memory_watchdog:
             return
         deadline = time.monotonic() + self.memory_restart_wait_seconds
         while True:
-            ratio = self._get_memory_usage_ratio()
+            ratio = self.get_memory_usage_ratio()
             if ratio is None or ratio <= self.memory_resume_threshold:
                 return
             if time.monotonic() >= deadline:
@@ -98,7 +98,7 @@ class ServiceCrawlRuntimeMixin:
                 return
             await asyncio.sleep(5)
 
-    async def _update_total_urls(self: "CrawlerServiceProtocol", new_total: int) -> None:
+    async def update_total_urls(self: "CrawlerServiceProtocol", new_total: int) -> None:
         """Increase total URL counts when discovery finds more work."""
         if new_total <= 0:
             return

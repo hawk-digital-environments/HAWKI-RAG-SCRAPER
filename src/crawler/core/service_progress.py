@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 
 class ServiceProgressMixin:
-    async def _send_stage(
+    async def send_stage(
         self: "CrawlerServiceProtocol",
         stage: Stage,
         details: Optional[Dict[str, Any]] = None
@@ -16,12 +16,12 @@ class ServiceProgressMixin:
             return
         await self.communication_service.send_stage(stage, details)
 
-    async def _send_report_progress(self: "CrawlerServiceProtocol", progress_data: Dict[str, Any]):
+    async def send_report_progress(self: "CrawlerServiceProtocol", progress_data: Dict[str, Any]):
         if not self.communication_service:
             return
         await self.communication_service.send_report_progress(progress_data)
 
-    async def _send_summary(self: "CrawlerServiceProtocol", summary_data: Dict[str, Any]):
+    async def send_summary(self: "CrawlerServiceProtocol", summary_data: Dict[str, Any]):
         if not self.communication_service:
             return
         await self.communication_service.send_summary(summary_data)

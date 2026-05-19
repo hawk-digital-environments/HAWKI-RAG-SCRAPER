@@ -47,7 +47,7 @@ class ServiceSitemapMixin:
             )
         return normalized
 
-    def _get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+    def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
         """Return the sitemap date from a sitemap entry when available."""
         if not entry:
             return None
@@ -60,7 +60,7 @@ class ServiceSitemapMixin:
             or entry.get("published_at")
         )
 
-    def _load_sitemap_map(self: "CrawlerServiceProtocol", path: str) -> Dict[str, Dict[str, str]]:
+    def load_sitemap_map(self: "CrawlerServiceProtocol", path: str) -> Dict[str, Dict[str, str]]:
         """Load sitemap JSON into a normalized dict; silent fallback to empty."""
         if not path:
             return {}
@@ -79,7 +79,7 @@ class ServiceSitemapMixin:
         except Exception:
             return {}
 
-    def _load_sitemap_urls(self: "CrawlerServiceProtocol", path: str) -> List[str]:
+    def load_sitemap_urls(self: "CrawlerServiceProtocol", path: str) -> List[str]:
         """Load sitemap JSON and preserve full URLs for crawl seeding."""
         if not path:
             return []
@@ -92,28 +92,28 @@ class ServiceSitemapMixin:
             for url in raw.keys():
                 if not isinstance(url, str):
                     continue
-                if self._is_forbidden_url(url):
+                if self.is_forbidden_url(url):
                     continue
                 urls.append(url)
             return urls
         except Exception:
             return []
 
-    def _lookup_sitemap_entry(self: "CrawlerServiceProtocol", url: str) -> Optional[Dict[str, str]]:
+    def lookup_sitemap_entry(self: "CrawlerServiceProtocol", url: str) -> Optional[Dict[str, str]]:
         key = self._normalize_url_key(url)
         if not key:
             return None
         return self.sitemap_map.get(key)
 
-    def _first_sitemap_entry(self: "CrawlerServiceProtocol", *urls: str) -> Optional[Dict[str, str]]:
+    def first_sitemap_entry(self: "CrawlerServiceProtocol", *urls: str) -> Optional[Dict[str, str]]:
         """Return the first sitemap entry found for the provided URLs."""
         for u in urls:
-            entry = self._lookup_sitemap_entry(u)
+            entry = self.lookup_sitemap_entry(u)
             if entry:
                 return entry
         return None
 
-    def _parse_http_date(self, date_str: Optional[str]) -> Optional[str]:
+    def parse_http_date(self, date_str: Optional[str]) -> Optional[str]:
         if not date_str:
             return None
         try:
@@ -124,7 +124,7 @@ class ServiceSitemapMixin:
             return None
         return None
 
-    async def _run_sitemap_scrape(self: "CrawlerServiceProtocol"):
+    async def run_sitemap_scrape(self: "CrawlerServiceProtocol"):
         """Optionally scrape the sitemap JSON before crawling."""
         if not getattr(self.config, "sitemap", False):
             return
@@ -145,8 +145,8 @@ class ServiceSitemapMixin:
                 profile=(getattr(self, "site_profile", {}) or {}),
             )
             await scraper.scrape()
-            self.sitemap_map = self._load_sitemap_map(str(output_path))
-            self.sitemap_urls = self._load_sitemap_urls(str(output_path))
+            self.sitemap_map = self.load_sitemap_map(str(output_path))
+            self.sitemap_urls = self.load_sitemap_urls(str(output_path))
         except Exception as e:
             LOGGER.error("Error scraping sitemap: %s", e, extra={"job_id": getattr(self, "job_id", None)})
 
@@ -187,10 +187,10 @@ class ServiceSitemapMixin:
                             data = json.loads(content.decode("utf-8"))
                             urls = []
                             for url, meta in data.items():
-                                if self._is_forbidden_url(url):
+                                if self.is_forbidden_url(url):
                                     continue
                                 normalized_meta = self._normalize_sitemap_meta(meta)
-                                lastmod_date = self._get_sitemap_date(normalized_meta)
+                                lastmod_date = self.get_sitemap_date(normalized_meta)
                                 if lastmod_date:
                                     self.sitemap_lastmod[url] = lastmod_date
                                 urls_with_dates.append((url, lastmod_date))
@@ -233,7 +233,7 @@ class ServiceSitemapMixin:
                             if not loc or not loc.text:
                                 continue
                             url = loc.text.strip()
-                            if self._is_forbidden_url(url):
+                            if self.is_forbidden_url(url):
                                 continue
                             lastmod_tag = url_tag.find('lastmod')
                             lastmod_date = None
@@ -250,7 +250,7 @@ class ServiceSitemapMixin:
                     lines = [
                         line.strip()
                         for line in content_text.splitlines()
-                        if line.strip() and not self._is_forbidden_url(line.strip())
+                        if line.strip() and not self.is_forbidden_url(line.strip())
                     ]
                     return lines
 
@@ -276,7 +276,7 @@ class ServiceSitemapMixin:
                 continue
             absolute = urljoin(base_url, href)
             absolute = self.normalize_url(absolute)
-            if not self._is_discovery_url_allowed(absolute):
+            if not self.is_discovery_url_allowed(absolute):
                 continue
             if absolute not in links:
                 links.append(absolute)

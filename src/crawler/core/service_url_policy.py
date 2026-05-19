@@ -21,7 +21,7 @@ class ServiceUrlPolicyMixin:
         ])
         return candidates
 
-    def _get_forbidden_hosts(self: "CrawlerServiceProtocol") -> set:
+    def get_forbidden_hosts(self: "CrawlerServiceProtocol") -> set:
         """Load forbidden hosts from forbidden_urls.txt."""
         candidates = self._get_forbidden_file_candidates()
         hosts = set((getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("hosts", []))
@@ -69,7 +69,7 @@ class ServiceUrlPolicyMixin:
         if not host:
             return True
         host = host.lower()
-        forbidden_hosts = self._get_forbidden_hosts()
+        forbidden_hosts = self.get_forbidden_hosts()
         if host in forbidden_hosts:
             return True
         for forbidden in forbidden_hosts:
@@ -77,7 +77,7 @@ class ServiceUrlPolicyMixin:
                 return True
         return False
 
-    def _is_forbidden_url(self: "CrawlerServiceProtocol", url: str) -> bool:
+    def is_forbidden_url(self: "CrawlerServiceProtocol", url: str) -> bool:
         """Return True when a specific URL should never be crawled."""
         if not url:
             return True
@@ -104,7 +104,7 @@ class ServiceUrlPolicyMixin:
         crawl_host = (self.crawl_host or "").lower()
         return [crawl_host] if crawl_host else []
 
-    def _is_discovery_url_allowed(self: "CrawlerServiceProtocol", url: str) -> bool:
+    def is_discovery_url_allowed(self: "CrawlerServiceProtocol", url: str) -> bool:
         """Allow only configured discovery hosts for crawl expansion."""
         if not url:
             return False
@@ -114,14 +114,14 @@ class ServiceUrlPolicyMixin:
         host = (parsed.hostname or "").lower()
         if not host:
             return False
-        if self._is_forbidden_url(url):
+        if self.is_forbidden_url(url):
             return False
         for allowed in self._allowed_discovery_hosts():
             if host == allowed or host.endswith(f".{allowed}"):
                 return True
         return False
 
-    def _is_video_url(self, url: str) -> bool:
+    def is_video_url(self, url: str) -> bool:
         return url.lower().split('?')[0].endswith((
             ".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv", ".wmv",
             ".m4v", ".3gp", ".3g2", ".ts"
