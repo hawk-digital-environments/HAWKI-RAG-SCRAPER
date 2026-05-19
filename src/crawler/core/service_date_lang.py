@@ -1,6 +1,9 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
 from bs4 import BeautifulSoup
 from email.utils import parsedate_to_datetime
+
+if TYPE_CHECKING:
+    from src.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceDateLangMixin:
@@ -70,7 +73,7 @@ class ServiceDateLangMixin:
         }
 
     def detect_language(
-        self,
+        self: "CrawlerServiceProtocol",
         html_content: Optional[str],
         head_headers: Optional[Dict[str, str]],
         url: Optional[str] = None,

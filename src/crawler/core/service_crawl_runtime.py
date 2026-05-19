@@ -1,16 +1,27 @@
 import asyncio
 import json
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiofiles
 
 from src.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
 
+if TYPE_CHECKING:
+    from src.crawler.core.protocols import CrawlerServiceProtocol
+
 
 class ServiceCrawlRuntimeMixin:
-    def _looks_like_file_url(self, url: str) -> bool:
+    """Runtime helpers used while a crawl job is active.
+
+    These methods do not decide which URLs to crawl. They support the running
+    job by classifying URL types, stopping safely, restarting browser work when
+    needed, tracking memory pressure, and writing crawl output to storage.
+    """
+
+    def _looks_like_file_url(self: "CrawlerServiceProtocol", url: str) -> bool:
+        """Return True for URLs that should be downloaded instead of rendered."""
         parsed = urlparse(url)
         path = parsed.path.lower()
         if path.endswith(".exe"):
@@ -27,15 +38,18 @@ class ServiceCrawlRuntimeMixin:
             return True
         return False
 
-    async def _trigger_safe_stop(self, reason: str) -> None:
+    async def _trigger_safe_stop(self: "CrawlerServiceProtocol", reason: str) -> None:
+        """Stop future crawl work and remember why the job was aborted."""
         async with self.abort_lock:
             if self.abort_crawl:
                 return
             self.abort_crawl = True
             self.abort_reason = reason
+            # Clearing the queue prevents new URLs from being scheduled after a fatal condition.
             self.to_visit.clear()
 
-    async def _request_browser_restart(self, url: str) -> None:
+    async def _request_browser_restart(self: "CrawlerServiceProtocol", url: str) -> None:
+        """Ask the outer crawl loop to restart the browser before retrying a URL."""
         if not self.enable_browser_restarts:
             return
         async with self.restart_lock:
@@ -44,7 +58,7 @@ class ServiceCrawlRuntimeMixin:
             self.restart_crawler = True
             self.restart_reason = "browser_closed"
 
-    def _get_memory_usage_ratio(self) -> Optional[float]:
+    def _get_memory_usage_ratio(self: "CrawlerServiceProtocol") -> Optional[float]:
         """Return memory usage ratio based on cgroup limits, or None if unavailable."""
         paths = [
             ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
@@ -67,8 +81,8 @@ class ServiceCrawlRuntimeMixin:
                 continue
         return None
 
-    async def _wait_for_memory_relief(self) -> None:
-        """Block until memory usage drops below resume threshold."""
+    async def _wait_for_memory_relief(self: "CrawlerServiceProtocol") -> None:
+        """Wait for container memory usage to drop before restarting browser work."""
         if not self.enable_memory_watchdog:
             return
         deadline = time.monotonic() + self.memory_restart_wait_seconds
@@ -84,7 +98,8 @@ class ServiceCrawlRuntimeMixin:
                 return
             await asyncio.sleep(5)
 
-    async def _update_total_urls(self, new_total: int) -> None:
+    async def _update_total_urls(self: "CrawlerServiceProtocol", new_total: int) -> None:
+        """Increase total URL counts when discovery finds more work."""
         if new_total <= 0:
             return
         if self.job_state:
@@ -96,12 +111,24 @@ class ServiceCrawlRuntimeMixin:
             if new_total > progress["total_urls"]:
                 await self.progress_tracker.set_total_urls(new_total)
 
-    async def save_page_data(self, page_data: Dict, page_number: int, url_hash: Optional[str] = None):
-        """Save page data to JSON and markdown files in hash-based directory"""
+    async def save_page_data(
+        self: "CrawlerServiceProtocol",
+        page_data: Dict,
+        page_number: int,
+        url_hash: Optional[str] = None
+    ):
+        """Persist page metadata/content and optional diagnostics.
+
+        Newer jobs store pages by URL hash so the same URL has a stable output
+        location. The fallback branches keep compatibility with older page-number
+        storage or tests that run without a storage manager.
+        """
         low_quality_content = page_data.get('low_quality_content')
         raw_html = page_data.get('html_content')
+        # Keep raw HTML when extraction produced weak or empty markdown; it helps debug bad pages later.
         should_save_raw = bool(raw_html) and (low_quality_content or not page_data.get('markdown'))
         if self.storage_manager and url_hash:
+            # Preferred path: save under the URL hash directory.
             self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
             await self.storage_manager.save_hash_json(url_hash, page_data['data'])
             await self.storage_manager.save_hash_content(url_hash, page_data['markdown'] if page_data['markdown'] else "")
@@ -119,6 +146,7 @@ class ServiceCrawlRuntimeMixin:
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
                     await f.write(raw_html)
         elif self.storage_manager:
+            # Compatibility path: save under page_N directories when no URL hash is available.
             page_dir = await self.create_page_directory(page_number)
             await self.storage_manager.save_page_json(page_number, page_data['data'])
             await self.storage_manager.save_page_content(page_number, page_data['markdown'] if page_data['markdown'] else "")
@@ -136,6 +164,7 @@ class ServiceCrawlRuntimeMixin:
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
                     await f.write(raw_html)
         else:
+            # Last-resort path for simple/local runs without the storage manager abstraction.
             page_dir = await self.create_page_directory(page_number)
             json_filename = page_dir / "data.json"
             async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:

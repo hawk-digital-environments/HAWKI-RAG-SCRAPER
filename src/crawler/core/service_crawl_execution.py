@@ -1,7 +1,7 @@
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiohttp
@@ -13,13 +13,29 @@ from src.crawler.storage.url_tracking_manager import generate_url_hash
 from src.crawler.storage.summary_manager import SummaryManager
 from src.crawler.storage.page_output import build_page_metadata
 
+if TYPE_CHECKING:
+    from src.crawler.core.protocols import CrawlerServiceProtocol
+
 
 class ServiceCrawlExecutionMixin:
-    def _is_pause_requested(self) -> bool:
+    """Main crawl workflow for one crawler job.
+
+    This mixin owns the high-level crawl loop: pick URLs, crawl or download
+    them, update progress/state, discover new URLs, and finish or fail the job.
+    It expects the final CrawlerService class to provide shared state such as
+    config, queues, trackers, storage, logging, and helper methods.
+    """
+
+    def _is_pause_requested(self: "CrawlerServiceProtocol") -> bool:
+        """Return True when the API has asked this job to pause."""
         return bool(self.pause_event and not self.pause_event.is_set())
 
-    async def _wait_if_paused(self) -> None:
-        """Pause between crawl units without discarding queued URLs."""
+    async def _wait_if_paused(self: "CrawlerServiceProtocol") -> None:
+        """Wait while the job is paused, without losing queued URLs.
+
+        Pause is cooperative: active network/browser work is allowed to finish,
+        then the crawler waits here before taking more URLs from the queue.
+        """
         if not self._is_pause_requested():
             return
 
@@ -38,8 +54,18 @@ class ServiceCrawlExecutionMixin:
             if self.job_state:
                 await self.job_state.set_status("running")
 
-    async def crawl_page(self, url: str, crawler: AsyncWebCrawler, crawl_result: Optional[object] = None):
-        """Crawl a single page"""
+    async def crawl_page(
+        self: "CrawlerServiceProtocol",
+        url: str,
+        crawler: AsyncWebCrawler,
+        crawl_result: Optional[object] = None
+    ):
+        """Process one URL and update all job state around it.
+
+        Depending on the URL/resource type, this may skip the URL, download a
+        PDF/file directly, render an HTML page with crawl4ai, save output, mark
+        success/failure, and optionally discover more URLs.
+        """
         async with self.semaphore:
             await self._wait_if_paused()
             if self.abort_crawl:
@@ -154,6 +180,7 @@ class ServiceCrawlExecutionMixin:
 
             page_data = None
             if await self.is_pdf_resource(url, head_status, head_headers):
+                # Direct PDF URLs are saved as file metadata without rendering a page.
                 pdf_entry = await self.fetch_and_save_pdf(
                     url,
                     current_page_number,
@@ -192,6 +219,7 @@ class ServiceCrawlExecutionMixin:
                         'html_content': ''
                     }
             elif await self.is_file_resource(url, head_status, head_headers):
+                # Office documents and other supported files are downloaded directly.
                 file_entry = await self.fetch_and_save_file(
                     url,
                     current_page_number,
@@ -230,6 +258,7 @@ class ServiceCrawlExecutionMixin:
                         'html_content': ''
                     }
             else:
+                # HTML pages are rendered/extracted by crawl4ai.
                 try:
                     page_data = await self.extract_page_data(
                         url,
@@ -257,6 +286,7 @@ class ServiceCrawlExecutionMixin:
                     raise
 
             if page_data:
+                # Save the page and any linked files discovered in its HTML.
                 pdf_entries = page_data['data'].get('pdfs', [])
                 file_entries = page_data['data'].get('files', [])
 
@@ -318,6 +348,7 @@ class ServiceCrawlExecutionMixin:
                     await self.job_state.increment_completed()
 
                 if self.config.discovery_mode and not self.abort_crawl:
+                    # Discovery mode grows the queue from links found on crawled pages.
                     new_urls = await self.discover_urls(page_data['html_content'], url)
                     for new_url in new_urls:
                         if self.abort_crawl:
@@ -339,6 +370,7 @@ class ServiceCrawlExecutionMixin:
                                 )
                             await self._update_total_urls(len(self.visited_urls) + len(self.to_visit))
             else:
+                # No usable page data means this URL failed, but the job can continue.
                 error_msg = "Extraction failed"
 
                 if self.url_tracking_manager:
@@ -355,8 +387,8 @@ class ServiceCrawlExecutionMixin:
                 async with self.counter_lock:
                     self.page_counter -= 1
 
-    async def _run_crawl_batches(self, crawler: AsyncWebCrawler):
-        """Process crawl batches for the current to_visit list."""
+    async def _run_crawl_batches(self: "CrawlerServiceProtocol", crawler: AsyncWebCrawler):
+        """Drain the URL queue in batches until paused, stopped, or finished."""
         while self.to_visit and not self.abort_crawl and (
             self.config.max_pages == 0
             or self.page_counter < self.config.max_pages
@@ -384,11 +416,14 @@ class ServiceCrawlExecutionMixin:
                 self.job_logger.info("Restarting browser: reached hourly restart interval")
                 self.restart_crawler = True
                 break
+
+            # Do not remove more URLs from the queue if a pause request arrived.
             batch_size = 1 if self._is_pause_requested() else min(self.config.max_concurrency, len(self.to_visit))
             batch = self.to_visit[:batch_size]
             self.to_visit = self.to_visit[batch_size:]
 
             if self._is_pause_requested():
+                # Put the selected URL back so resume continues from the same place.
                 self.to_visit = batch + self.to_visit
                 await self._wait_if_paused()
                 continue
@@ -425,8 +460,8 @@ class ServiceCrawlExecutionMixin:
             if self.restart_crawler:
                 break
 
-    async def crawl(self) -> Dict:
-        """Main crawl method"""
+    async def crawl(self: "CrawlerServiceProtocol") -> Dict:
+        """Run the complete crawl job from initialization through final summary."""
         try:
             if self.http_session is None or self.http_session.closed:
                 connector = aiohttp.TCPConnector(
@@ -442,6 +477,7 @@ class ServiceCrawlExecutionMixin:
             await self._run_sitemap_scrape()
             await self.setup_directories()
 
+            # URL tracking lets cancelled/failed jobs resume from unfinished URLs.
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
                 removed = await self.url_tracking_manager.purge_forbidden_hosts(
@@ -456,6 +492,7 @@ class ServiceCrawlExecutionMixin:
             resume_current_url: Optional[str] = None
             completed_count = 0
             if self.url_tracking_manager:
+                # Rebuild the in-memory queue from persisted URL state.
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
@@ -487,6 +524,7 @@ class ServiceCrawlExecutionMixin:
                 self.config.discovery_mode = False
             self.job_logger.info("Crawl start for %s", start_url)
             if resume_urls:
+                # Resume jobs prefer the URL that was current when the old run stopped.
                 if sitemap_only:
                     resume_urls = [
                         url for url in resume_urls if self._lookup_sitemap_entry(url)
@@ -506,6 +544,7 @@ class ServiceCrawlExecutionMixin:
                     len(self.to_visit),
                 )
             if not resume_urls and await self.is_sitemap(start_url):
+                # Sitemap entrypoint: parse the sitemap and seed the crawl queue.
                 self.job_logger.info("Detected sitemap: %s", start_url)
                 urls = await self.parse_sitemap(start_url)
 
@@ -531,6 +570,7 @@ class ServiceCrawlExecutionMixin:
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(len(self.to_visit))
             elif not resume_urls and getattr(self.config, "sitemap", False):
+                # Profile-driven sitemap: use the already scraped sitemap file.
                 sitemap_urls = list(getattr(self, "sitemap_urls", []) or [])
                 if sitemap_urls:
                     if sitemap_only:
@@ -556,6 +596,7 @@ class ServiceCrawlExecutionMixin:
                     if self.progress_tracker:
                         await self.progress_tracker.set_total_urls(len(self.to_visit))
             elif sitemap_only and not resume_urls:
+                # Sitemap-only mode crawls only URLs that have sitemap metadata.
                 sitemap_urls = list(self.sitemap_map.keys()) if self.sitemap_map else []
                 if not sitemap_urls:
                     raise RuntimeError("Sitemap-only crawl requested but no sitemap URLs are available.")
@@ -599,6 +640,7 @@ class ServiceCrawlExecutionMixin:
             )
 
             while True:
+                # The browser can be restarted between batches if memory or browser health requires it.
                 async with AsyncWebCrawler(config=browser_config) as crawler:
                     self.browser_last_restart = time.monotonic()
                     await self._run_crawl_batches(crawler)
@@ -632,6 +674,7 @@ class ServiceCrawlExecutionMixin:
                         self.to_visit.insert(0, retry_url)
 
                 if self.config.rescrape_failed and self.url_tracking_manager:
+                    # Optional cleanup pass: retry failed URLs for this job.
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
                     failed_urls = [url for url in failed_urls if not self._is_forbidden_url(url)]
                     if len(failed_urls) > 1:

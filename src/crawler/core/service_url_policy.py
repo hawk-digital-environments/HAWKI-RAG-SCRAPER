@@ -1,11 +1,14 @@
 import os
 from pathlib import Path
-from typing import List
+from typing import List, TYPE_CHECKING
 from urllib.parse import urlparse, parse_qs
+
+if TYPE_CHECKING:
+    from src.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceUrlPolicyMixin:
-    def _get_forbidden_file_candidates(self) -> List[Path]:
+    def _get_forbidden_file_candidates(self: "CrawlerServiceProtocol") -> List[Path]:
         profile_file = (getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("rules_file")
         candidates = []
         if profile_file:
@@ -18,7 +21,7 @@ class ServiceUrlPolicyMixin:
         ])
         return candidates
 
-    def _get_forbidden_hosts(self) -> set:
+    def _get_forbidden_hosts(self: "CrawlerServiceProtocol") -> set:
         """Load forbidden hosts from forbidden_urls.txt."""
         candidates = self._get_forbidden_file_candidates()
         hosts = set((getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("hosts", []))
@@ -40,7 +43,7 @@ class ServiceUrlPolicyMixin:
                 continue
         return hosts
 
-    def _get_forbidden_url_patterns(self) -> List[str]:
+    def _get_forbidden_url_patterns(self: "CrawlerServiceProtocol") -> List[str]:
         """Load forbidden URL patterns from forbidden_urls.txt."""
         candidates = self._get_forbidden_file_candidates()
         patterns: List[str] = list((getattr(self, "site_profile", {}) or {}).get("forbidden", {}).get("url_patterns", []))
@@ -61,7 +64,7 @@ class ServiceUrlPolicyMixin:
                 continue
         return patterns
 
-    def _is_forbidden_host(self, host: str) -> bool:
+    def _is_forbidden_host(self: "CrawlerServiceProtocol", host: str) -> bool:
         """Return True when a host should never be crawled."""
         if not host:
             return True
@@ -74,7 +77,7 @@ class ServiceUrlPolicyMixin:
                 return True
         return False
 
-    def _is_forbidden_url(self, url: str) -> bool:
+    def _is_forbidden_url(self: "CrawlerServiceProtocol", url: str) -> bool:
         """Return True when a specific URL should never be crawled."""
         if not url:
             return True
@@ -94,14 +97,14 @@ class ServiceUrlPolicyMixin:
                 return True
         return False
 
-    def _allowed_discovery_hosts(self) -> List[str]:
+    def _allowed_discovery_hosts(self: "CrawlerServiceProtocol") -> List[str]:
         profile_hosts = (getattr(self, "site_profile", {}) or {}).get("discovery", {}).get("allowed_hosts") or []
         if profile_hosts:
             return [str(host).lower() for host in profile_hosts]
         crawl_host = (self.crawl_host or "").lower()
         return [crawl_host] if crawl_host else []
 
-    def _is_discovery_url_allowed(self, url: str) -> bool:
+    def _is_discovery_url_allowed(self: "CrawlerServiceProtocol", url: str) -> bool:
         """Allow only configured discovery hosts for crawl expansion."""
         if not url:
             return False
