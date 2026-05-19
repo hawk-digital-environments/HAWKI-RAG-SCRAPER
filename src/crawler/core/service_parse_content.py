@@ -1,7 +1,7 @@
 import hashlib
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
@@ -15,9 +15,12 @@ from src.crawler.core.service_helpers import finalize_markdown_content, normaliz
 from src.crawler.core.service_utils import assess_content_quality, detect_language_confidence
 from src.crawler.storage.page_output import build_page_metadata
 
+if TYPE_CHECKING:
+    from src.crawler.core.protocols import CrawlerServiceProtocol
+
 
 class ServiceParseContentMixin:
-    def _site_profile_extractors(self) -> Dict[str, List[str]]:
+    def _site_profile_extractors(self: "CrawlerServiceProtocol") -> Dict[str, List[str]]:
         profile = (getattr(self, "site_profile", {}) or {}).get("content", {})
         return {
             "selectors": profile.get("content_selectors") or [],
@@ -57,7 +60,7 @@ class ServiceParseContentMixin:
         repaired_score = repaired.count("Ã") + repaired.count("â")
         return repaired if repaired_score < original_score else text
 
-    def _build_run_config(self) -> CrawlerRunConfig:
+    def _build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
         return CrawlerRunConfig(
             word_count_threshold=0,
             exclude_external_links=False,
@@ -70,7 +73,7 @@ class ServiceParseContentMixin:
         )
 
     async def extract_page_data(
-        self,
+        self: "CrawlerServiceProtocol",
         url: str,
         crawler: AsyncWebCrawler,
         page_number: int,
