@@ -59,6 +59,30 @@ class ServiceParseContentMixin:
         repaired_score = repaired.count("Ã") + repaired.count("â")
         return repaired if repaired_score < original_score else text
 
+    def _extract_result_markdown(self, result: Any) -> str:
+        """Return Crawl4AI markdown text regardless of whether it is stored as str or object."""
+        markdown = getattr(result, "markdown", None)
+        if not markdown:
+            return ""
+        if isinstance(markdown, str):
+            return markdown
+        for attr in ("raw_markdown", "fit_markdown", "markdown"):
+            value = getattr(markdown, attr, None)
+            if value:
+                return str(value)
+        return str(markdown)
+
+    def _clean_markdown_output(
+        self: "CrawlerServiceProtocol",
+        markdown: str,
+        noise_phrases: List[str],
+    ) -> tuple[str, List[str]]:
+        """Apply crawler-specific markdown cleanup to any markdown source."""
+        markdown = self._fix_mojibake(markdown)
+        markdown = filter_markdown_lines(markdown, site_noise_phrases=noise_phrases)
+        markdown = normalize_whitespace(markdown.replace("\n", "\n")).replace(" \n", "\n")
+        return finalize_markdown_content(markdown, site_noise_phrases=noise_phrases)
+
     async def extract_page_data(
         self: "CrawlerServiceProtocol",
         url: str,
@@ -108,6 +132,16 @@ class ServiceParseContentMixin:
             fallback_used = False
 
             if not markdown_content or len(markdown_content.strip()) <= 1:
+                crawl4ai_markdown = self._extract_result_markdown(result)
+                if crawl4ai_markdown.strip():
+                    fallback_used = True
+                    self.job_logger.info(
+                        "html2text produced empty output, using Crawl4AI markdown for %s",
+                        url,
+                    )
+                    markdown_content = crawl4ai_markdown
+
+            if not markdown_content or len(markdown_content.strip()) <= 1:
                 fallback_used = True
                 self.job_logger.warning(
                     "html2text produced empty output, using BeautifulSoup text extraction for %s",
@@ -119,15 +153,9 @@ class ServiceParseContentMixin:
                 lines = [line.strip() for line in text_content.split('\n') if line.strip()]
                 markdown_content = '\n\n'.join(lines)
 
-            markdown_content = self._fix_mojibake(markdown_content)
-            markdown_content = filter_markdown_lines(
+            markdown_content, markdown_cleanup_warnings = self._clean_markdown_output(
                 markdown_content,
-                site_noise_phrases=extractor_profile["noise_phrases"],
-            )
-            markdown_content = normalize_whitespace(markdown_content.replace("\n", "\n")).replace(" \n", "\n")
-            markdown_content, markdown_cleanup_warnings = finalize_markdown_content(
-                markdown_content,
-                site_noise_phrases=extractor_profile["noise_phrases"],
+                extractor_profile["noise_phrases"],
             )
             low_quality_content = None
             soup = BeautifulSoup(result.html, 'html.parser')
@@ -151,8 +179,35 @@ class ServiceParseContentMixin:
                 or (quality_classification == "partial" and quality_word_count < 45)
             )
             if should_demote:
-                low_quality_content = markdown_content
-                markdown_content = ""
+                crawl4ai_markdown = self._extract_result_markdown(result)
+                fallback_markdown, fallback_warnings = self._clean_markdown_output(
+                    crawl4ai_markdown,
+                    extractor_profile["noise_phrases"],
+                )
+                fallback_quality = assess_content_quality(
+                    fallback_markdown,
+                    self.config.min_word_count,
+                    language_confidence=detect_language_confidence(lang=None, markdown=fallback_markdown),
+                )
+                fallback_classification = fallback_quality.get("content_classification")
+                fallback_word_count = int((fallback_quality.get("signals") or {}).get("word_count") or 0)
+                if (
+                    fallback_markdown
+                    and fallback_markdown != markdown_content
+                    and fallback_classification not in ("empty", "partial")
+                    and fallback_word_count >= 45
+                ):
+                    fallback_used = True
+                    self.job_logger.info(
+                        "Using Crawl4AI markdown fallback after low-quality extraction for %s",
+                        url,
+                    )
+                    markdown_content = fallback_markdown
+                    markdown_cleanup_warnings.extend(fallback_warnings)
+                    quality = fallback_quality
+                else:
+                    low_quality_content = markdown_content
+                    markdown_content = ""
 
             title = None
             title_tag = soup.find('title')
