@@ -5,6 +5,7 @@ from typing import Dict, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiofiles
+from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
 from src.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
 
@@ -37,6 +38,19 @@ class ServiceCrawlRuntimeMixin:
         if "/media/" in path and not path.endswith(".pdf"):
             return True
         return False
+
+    def build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
+        """Build the shared Crawl4AI run config for single-page and batch crawls."""
+        return CrawlerRunConfig(
+            word_count_threshold=0,
+            exclude_external_links=False,
+            process_iframes=False,
+            remove_overlay_elements=False,
+            cache_mode=CacheMode.BYPASS,
+            wait_until=self.config.wait_until,
+            page_timeout=self.config.page_timeout_ms,
+            delay_before_return_html=5.0
+        )
 
     async def trigger_safe_stop(self: "CrawlerServiceProtocol", reason: str) -> None:
         """Stop future crawl work and remember why the job was aborted."""
@@ -115,19 +129,19 @@ class ServiceCrawlRuntimeMixin:
         self: "CrawlerServiceProtocol",
         page_data: Dict,
         page_number: int,
-        url_hash: Optional[str] = None
+        url_hash: str
     ):
         """Persist page metadata/content and optional diagnostics.
 
         Newer jobs store pages by URL hash so the same URL has a stable output
-        location. The fallback branches keep compatibility with older page-number
-        storage or tests that run without a storage manager.
+        location. The page-number fallback is only for runs without a storage
+        manager, such as lightweight local tests.
         """
         low_quality_content = page_data.get('low_quality_content')
         raw_html = page_data.get('html_content')
         # Keep raw HTML when extraction produced weak or empty markdown; it helps debug bad pages later.
         should_save_raw = bool(raw_html) and (low_quality_content or not page_data.get('markdown'))
-        if self.storage_manager and url_hash:
+        if self.storage_manager:
             # Preferred path: save under the URL hash directory.
             self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
             await self.storage_manager.save_hash_json(url_hash, page_data['data'])
@@ -141,24 +155,6 @@ class ServiceCrawlRuntimeMixin:
                     await f.write(low_quality_content)
             if should_save_raw:
                 diagnostics_dir = self.storage_manager.get_hash_directory(url_hash) / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                raw_file = diagnostics_dir / "raw.html"
-                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
-                    await f.write(raw_html)
-        elif self.storage_manager:
-            # Compatibility path: save under page_N directories when no URL hash is available.
-            page_dir = await self.create_page_directory(page_number)
-            await self.storage_manager.save_page_json(page_number, page_data['data'])
-            await self.storage_manager.save_page_content(page_number, page_data['markdown'] if page_data['markdown'] else "")
-            await self.storage_manager.upsert_completed_url_record(page_data['data'], page_number=page_number)
-            if low_quality_content:
-                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                low_q_file = diagnostics_dir / "low_q.txt"
-                async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
-                    await f.write(low_quality_content)
-            if should_save_raw:
-                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
                 diagnostics_dir.mkdir(exist_ok=True)
                 raw_file = diagnostics_dir / "raw.html"
                 async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:

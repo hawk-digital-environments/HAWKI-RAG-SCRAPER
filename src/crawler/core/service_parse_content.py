@@ -8,7 +8,6 @@ import aiohttp
 from bs4 import BeautifulSoup
 import html2text
 from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import CrawlerRunConfig, CacheMode
 
 from src.crawler.core.service_helpers import clean_html_for_markdown, filter_markdown_lines
 from src.crawler.core.service_helpers import finalize_markdown_content, normalize_whitespace
@@ -59,18 +58,6 @@ class ServiceParseContentMixin:
         original_score = text.count("Ã") + text.count("â")
         repaired_score = repaired.count("Ã") + repaired.count("â")
         return repaired if repaired_score < original_score else text
-
-    def build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
-        return CrawlerRunConfig(
-            word_count_threshold=0,
-            exclude_external_links=False,
-            process_iframes=False,
-            remove_overlay_elements=False,
-            cache_mode=CacheMode.BYPASS,
-            wait_until=self.config.wait_until,
-            page_timeout=self.config.page_timeout_ms,
-            delay_before_return_html=5.0
-        )
 
     async def extract_page_data(
         self: "CrawlerServiceProtocol",

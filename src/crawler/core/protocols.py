@@ -128,7 +128,7 @@ class CrawlerServiceProtocol(Protocol):
         self,
         page_data: Dict[str, Any],
         page_number: int,
-        url_hash: Optional[str] = None,
+        url_hash: str,
     ) -> None: ...
 
     async def trigger_safe_stop(self, reason: str) -> None: ...
