@@ -89,7 +89,7 @@ class ServiceCrawlExecutionMixin:
                     if was_failed:
                         await self.progress_tracker.decrement_failed()
                     await self.progress_tracker.increment_completed()
-                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                    await self.send_report_progress(await self.progress_tracker.get_progress())
                 if self.job_state:
                     if was_failed:
                         await self.job_state.decrement_failed()
@@ -127,7 +127,7 @@ class ServiceCrawlExecutionMixin:
             if self.job_state:
                 await self.job_state.set_current_url(url)
 
-            if self._is_video_url(url):
+            if self.is_video_url(url):
                 self.job_logger.info("Skipping video URL: %s", url)
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.set_completed(url, None)
@@ -135,7 +135,7 @@ class ServiceCrawlExecutionMixin:
                     if was_failed:
                         await self.progress_tracker.decrement_failed()
                     await self.progress_tracker.increment_completed()
-                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                    await self.send_report_progress(await self.progress_tracker.get_progress())
                 if self.job_state:
                     if was_failed:
                         await self.job_state.decrement_failed()
@@ -163,14 +163,14 @@ class ServiceCrawlExecutionMixin:
                     f"Aborting crawl: received {consecutive_5xx} consecutive HTTP 5xx responses "
                     f"(last was {head_status})"
                 )
-                await self._trigger_safe_stop(error_msg)
+                await self.trigger_safe_stop(error_msg)
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.set_failed(url, error_msg)
                 if self.progress_tracker:
                     if not was_failed:
                         await self.progress_tracker.increment_failed()
                     await self.progress_tracker.increment_errors()
-                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                    await self.send_report_progress(await self.progress_tracker.get_progress())
                 if self.job_state:
                     if not was_failed:
                         await self.job_state.increment_failed()
@@ -189,9 +189,9 @@ class ServiceCrawlExecutionMixin:
                 )
                 if pdf_entry:
                     pdf_lang = self.detect_language(None, head_headers, url=url)
-                    sitemap_entry = self._lookup_sitemap_entry(url) or {}
+                    sitemap_entry = self.lookup_sitemap_entry(url) or {}
                     fetched_at = datetime.now().isoformat()
-                    updated_at = self._get_sitemap_date(sitemap_entry) or self._parse_http_date((head_headers or {}).get("last-modified"))
+                    updated_at = self.get_sitemap_date(sitemap_entry) or self.parse_http_date((head_headers or {}).get("last-modified"))
                     page_data = {
                         'data': build_page_metadata(
                             url=url,
@@ -200,7 +200,7 @@ class ServiceCrawlExecutionMixin:
                             title="",
                             lang=pdf_lang,
                             fetched_at=fetched_at,
-                            published_at=self._get_sitemap_date(sitemap_entry),
+                            published_at=self.get_sitemap_date(sitemap_entry),
                             updated_at=updated_at,
                             tags=[],
                             images=[],
@@ -228,9 +228,9 @@ class ServiceCrawlExecutionMixin:
                 )
                 if file_entry:
                     file_lang = self.detect_language(None, head_headers, url=url)
-                    sitemap_entry = self._lookup_sitemap_entry(url) or {}
+                    sitemap_entry = self.lookup_sitemap_entry(url) or {}
                     fetched_at = datetime.now().isoformat()
-                    updated_at = self._get_sitemap_date(sitemap_entry) or self._parse_http_date((head_headers or {}).get("last-modified"))
+                    updated_at = self.get_sitemap_date(sitemap_entry) or self.parse_http_date((head_headers or {}).get("last-modified"))
                     page_data = {
                         'data': build_page_metadata(
                             url=url,
@@ -239,7 +239,7 @@ class ServiceCrawlExecutionMixin:
                             title="",
                             lang=file_lang,
                             fetched_at=fetched_at,
-                            published_at=self._get_sitemap_date(sitemap_entry),
+                            published_at=self.get_sitemap_date(sitemap_entry),
                             updated_at=updated_at,
                             tags=[],
                             images=[],
@@ -341,7 +341,7 @@ class ServiceCrawlExecutionMixin:
                         await self.progress_tracker.increment_pdfs(len(pdf_entries))
                     if not self.config.skip_images and page_data['data'].get('images'):
                         await self.progress_tracker.increment_images(len(page_data['data']['images']))
-                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                    await self.send_report_progress(await self.progress_tracker.get_progress())
                 if self.job_state:
                     if was_failed:
                         await self.job_state.decrement_failed()
@@ -362,13 +362,13 @@ class ServiceCrawlExecutionMixin:
                             self.url_source[new_url] = "discovery"
 
                             if self.url_tracking_manager:
-                                sitemap_entry = self._lookup_sitemap_entry(new_url) or {}
+                                sitemap_entry = self.lookup_sitemap_entry(new_url) or {}
                                 await self.url_tracking_manager.add_url(
                                     new_url,
                                     source="discovery",
-                                    sitemap_date=self._get_sitemap_date(sitemap_entry)
+                                    sitemap_date=self.get_sitemap_date(sitemap_entry)
                                 )
-                            await self._update_total_urls(len(self.visited_urls) + len(self.to_visit))
+                            await self.update_total_urls(len(self.visited_urls) + len(self.to_visit))
             else:
                 # No usable page data means this URL failed, but the job can continue.
                 error_msg = "Extraction failed"
@@ -379,7 +379,7 @@ class ServiceCrawlExecutionMixin:
                     if not was_failed:
                         await self.progress_tracker.increment_failed()
                     await self.progress_tracker.increment_errors()
-                    await self._send_report_progress(await self.progress_tracker.get_progress())
+                    await self.send_report_progress(await self.progress_tracker.get_progress())
                 if self.job_state:
                     if not was_failed:
                         await self.job_state.increment_failed()
@@ -398,7 +398,7 @@ class ServiceCrawlExecutionMixin:
             if self.abort_crawl:
                 break
             if self.enable_memory_watchdog:
-                ratio = self._get_memory_usage_ratio()
+                ratio = self.get_memory_usage_ratio()
                 if ratio is not None and ratio >= self.memory_restart_threshold:
                     self.job_logger.error(
                         "memory watchdog triggered: usage %.1f%% >= %.1f%%",
@@ -428,12 +428,12 @@ class ServiceCrawlExecutionMixin:
                 await self._wait_if_paused()
                 continue
 
-            batch_html = [url for url in batch if not self._looks_like_file_url(url)]
+            batch_html = [url for url in batch if not self.looks_like_file_url(url)]
             batch_direct = [url for url in batch if url not in batch_html]
 
             results_by_url = {}
             if batch_html:
-                run_config = self._build_run_config()
+                run_config = self.build_run_config()
                 try:
                     results = await crawler.arun_many(batch_html, config=run_config)
                     if hasattr(results, "__aiter__"):
@@ -474,14 +474,14 @@ class ServiceCrawlExecutionMixin:
                     timeout=aiohttp.ClientTimeout(total=120)
                 )
 
-            await self._run_sitemap_scrape()
+            await self.run_sitemap_scrape()
             await self.setup_directories()
 
             # URL tracking lets cancelled/failed jobs resume from unfinished URLs.
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
                 removed = await self.url_tracking_manager.purge_forbidden_hosts(
-                    list(self._get_forbidden_hosts())
+                    list(self.get_forbidden_hosts())
                 )
                 if removed:
                     self.job_logger.info("Removed %s forbidden URLs from tracking state", removed)
@@ -496,7 +496,7 @@ class ServiceCrawlExecutionMixin:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
-                        if self._is_forbidden_url(url):
+                        if self.is_forbidden_url(url):
                             continue
                         status = (meta or {}).get("status")
                         if status in ("pending", "failed", "processing"):
@@ -516,7 +516,7 @@ class ServiceCrawlExecutionMixin:
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("initialization")
-            await self._send_stage(Stage.INITIALIZATION)
+            await self.send_stage(Stage.INITIALIZATION)
 
             start_url = str(self.config.url)
             sitemap_only = bool(getattr(self.config, "sitemap_only", False))
@@ -527,7 +527,7 @@ class ServiceCrawlExecutionMixin:
                 # Resume jobs prefer the URL that was current when the old run stopped.
                 if sitemap_only:
                     resume_urls = [
-                        url for url in resume_urls if self._lookup_sitemap_entry(url)
+                        url for url in resume_urls if self.lookup_sitemap_entry(url)
                     ]
                 self.to_visit = resume_urls
                 for u in self.to_visit:
@@ -536,7 +536,7 @@ class ServiceCrawlExecutionMixin:
                 if completed_count:
                     self.page_counter = completed_count
 
-                await self._update_total_urls(completed_count + len(self.to_visit))
+                await self.update_total_urls(completed_count + len(self.to_visit))
 
                 self.job_logger.info(
                     "Resuming job %s: %s URLs remaining",
@@ -548,7 +548,7 @@ class ServiceCrawlExecutionMixin:
                 self.job_logger.info("Detected sitemap: %s", start_url)
                 urls = await self.parse_sitemap(start_url)
 
-                await self._send_stage(Stage.SITEMAP_DETECTED, {"sitemap_url": start_url, "total_urls": len(urls)})
+                await self.send_stage(Stage.SITEMAP_DETECTED, {"sitemap_url": start_url, "total_urls": len(urls)})
 
                 if sitemap_only:
                     urls_to_crawl = urls
@@ -564,7 +564,7 @@ class ServiceCrawlExecutionMixin:
                     len(self.to_visit),
                 )
 
-                await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(urls), "total_to_crawl": len(self.to_visit)})
+                await self.send_stage(Stage.URLS_DISCOVERED, {"discovered": len(urls), "total_to_crawl": len(self.to_visit)})
                 if self.job_state:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
@@ -587,7 +587,7 @@ class ServiceCrawlExecutionMixin:
                         len(self.to_visit),
                     )
 
-                    await self._send_stage(
+                    await self.send_stage(
                         Stage.URLS_DISCOVERED,
                         {"discovered": len(sitemap_urls), "total_to_crawl": len(self.to_visit)}
                     )
@@ -605,7 +605,7 @@ class ServiceCrawlExecutionMixin:
                     self.url_depth[u] = 0
                     self.url_source[u] = "sitemap"
                 self.job_logger.info("Sitemap-only crawl: will crawl %s URLs", len(self.to_visit))
-                await self._send_stage(Stage.URLS_DISCOVERED, {"discovered": len(self.to_visit), "total_to_crawl": len(self.to_visit)})
+                await self.send_stage(Stage.URLS_DISCOVERED, {"discovered": len(self.to_visit), "total_to_crawl": len(self.to_visit)})
                 if self.job_state:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
@@ -616,11 +616,11 @@ class ServiceCrawlExecutionMixin:
                 self.url_source[start_url] = "seed"
 
                 if self.url_tracking_manager:
-                    sitemap_entry = self._lookup_sitemap_entry(start_url) or {}
+                    sitemap_entry = self.lookup_sitemap_entry(start_url) or {}
                     await self.url_tracking_manager.add_url(
                         start_url,
                         source="seed",
-                        sitemap_date=self._get_sitemap_date(sitemap_entry)
+                        sitemap_date=self.get_sitemap_date(sitemap_entry)
                     )
                 if self.job_state:
                     await self.job_state.set_total_urls(1)
@@ -628,11 +628,11 @@ class ServiceCrawlExecutionMixin:
                     await self.progress_tracker.set_total_urls(1)
 
             total_to_crawl = len(self.to_visit) if not self.config.discovery_mode else self.config.max_pages
-            await self._send_stage(Stage.CRAWLING_STARTED, {"total_to_crawl": total_to_crawl})
+            await self.send_stage(Stage.CRAWLING_STARTED, {"total_to_crawl": total_to_crawl})
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("scraping")
-            await self._send_stage(Stage.CRAWLING_STARTED)
+            await self.send_stage(Stage.CRAWLING_STARTED)
 
             browser_config = BrowserConfig(
                 headless=True,
@@ -665,10 +665,10 @@ class ServiceCrawlExecutionMixin:
                     raise RuntimeError("Aborting crawl: exceeded maximum browser restarts")
 
                 if restart_reason == "memory":
-                    await self._wait_for_memory_relief()
+                    await self.wait_for_memory_relief()
 
                 for retry_url in restart_urls:
-                    if self._is_forbidden_url(retry_url):
+                    if self.is_forbidden_url(retry_url):
                         continue
                     if retry_url not in self.to_visit:
                         self.to_visit.insert(0, retry_url)
@@ -676,7 +676,7 @@ class ServiceCrawlExecutionMixin:
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     # Optional cleanup pass: retry failed URLs for this job.
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
-                    failed_urls = [url for url in failed_urls if not self._is_forbidden_url(url)]
+                    failed_urls = [url for url in failed_urls if not self.is_forbidden_url(url)]
                     if len(failed_urls) > 1:
                         rescrape_round = 0
                         max_rescrape_rounds = 10
@@ -702,7 +702,7 @@ class ServiceCrawlExecutionMixin:
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("completed")
-            await self._send_stage(Stage.COMPLETED)
+            await self.send_stage(Stage.COMPLETED)
             if self.progress_tracker:
                 await self.progress_tracker.stop()
 
@@ -716,7 +716,7 @@ class ServiceCrawlExecutionMixin:
                         error=None
                     )
                     await self.summary_manager.save_summary(formatted_summary)
-                    await self._send_summary(formatted_summary)
+                    await self.send_summary(formatted_summary)
 
                     self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
             if self.job_state:
@@ -735,7 +735,7 @@ class ServiceCrawlExecutionMixin:
 
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("failed")
-            await self._send_stage(Stage.FAILED)
+            await self.send_stage(Stage.FAILED)
             if self.progress_tracker:
                 await self.progress_tracker.stop()
 
@@ -749,7 +749,7 @@ class ServiceCrawlExecutionMixin:
                         error=error_msg
                     )
                     await self.summary_manager.save_summary(formatted_summary)
-                    await self._send_summary(formatted_summary)
+                    await self.send_summary(formatted_summary)
 
                     self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
 

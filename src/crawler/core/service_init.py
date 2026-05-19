@@ -34,24 +34,48 @@ class ServiceInitMixin:
         pause_event: Optional[asyncio.Event] = None
     ):
         self.config = config
+        self._init_queue_state()
+        self._init_crawl_limits(config)
+        self._init_stop_and_pause_state(pause_event)
+        self._init_browser_restart_state()
+        self._init_memory_watchdog_state()
+        self._init_external_services(communication_service, job_state, storage_manager, job_id)
+        self._init_job_logger()
+        self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
+        self._init_job_helpers(job_id)
+        self._init_runtime_clients()
+        self._init_sitemap_state()
+        self._init_http_headers()
+        self._init_output_paths(config)
+
+    def _init_queue_state(self) -> None:
+        """State shared by the crawl loop while it decides what to visit next."""
         self.visited_urls: Set[str] = set()
         self.to_visit: List[str] = []
         self.url_depth: Dict[str, int] = {}
         self.url_source: Dict[str, str] = {}
-        self.sitemap_lastmod: Dict[str, str] = {}
         self.pages_data: List[Dict] = []
+
+    def _init_crawl_limits(self, config: CrawlConfig) -> None:
+        """Counters, locks, and rate limits used while pages are being processed."""
         self.rate_limiter = RateLimiter(config.max_rpm, config.request_delay)
         self.semaphore = asyncio.Semaphore(config.max_concurrency)
         self.page_counter = 0
         self.counter_lock = asyncio.Lock()
         self.allow_over_max_pages = False
+        self.consecutive_5xx = 0
+        self.consecutive_5xx_lock = asyncio.Lock()
+
+    def _init_stop_and_pause_state(self, pause_event: Optional[asyncio.Event]) -> None:
+        """Flags used by stop, pause, and resume without losing queued URLs."""
         self.abort_crawl = False
         self.abort_reason: Optional[str] = None
         self.abort_lock = asyncio.Lock()
         self.pause_event = pause_event
         self.pause_logged = False
-        self.consecutive_5xx = 0
-        self.consecutive_5xx_lock = asyncio.Lock()
+
+    def _init_browser_restart_state(self) -> None:
+        """Browser-restart bookkeeping owned by the crawl execution mixin."""
         self.restart_crawler = False
         self.restart_urls: List[str] = []
         self.restart_lock = asyncio.Lock()
@@ -60,22 +84,38 @@ class ServiceInitMixin:
         self.browser_restart_interval_seconds = 3600
         self.browser_last_restart = time.monotonic()
         self.enable_browser_restarts = False
+        self.restart_reason: Optional[str] = None
+
+    def _init_memory_watchdog_state(self) -> None:
+        """Memory watchdog thresholds used by the runtime mixin."""
         self.enable_memory_watchdog = True
         self.memory_restart_threshold = 0.9
         self.memory_resume_threshold = 0.1
         self.memory_restart_wait_seconds = 300
-        self.restart_reason: Optional[str] = None
+
+    def _init_external_services(
+        self,
+        communication_service: Optional[Any],
+        job_state: Optional[JobState],
+        storage_manager: Optional[Any],
+        job_id: Optional[str],
+    ) -> None:
+        """References passed in from the API/job layer."""
         self.communication_service = communication_service
         self.job_state = job_state
         self.storage_manager = storage_manager
         self.job_id = job_id
+
+    def _init_job_logger(self) -> None:
+        """Start with the shared crawler logger; job file logging may replace it."""
         base_crawler_logger = logging.getLogger("crawler")
         self.job_logger = logging.LoggerAdapter(
             base_crawler_logger,
             {"job_id": self.job_id or "unknown"},
         )
-        self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
 
+    def _init_job_helpers(self, job_id: Optional[str]) -> None:
+        """Create per-job helpers only when a persistent job directory exists."""
         self.progress_tracker = None
         self.url_tracking_manager = None
         self.summary_manager = None
@@ -99,8 +139,13 @@ class ServiceInitMixin:
             )
             self._setup_job_error_logger()
 
+    def _init_runtime_clients(self) -> None:
+        """Clients that are opened lazily and closed after the crawl."""
         self.http_session: Optional[aiohttp.ClientSession] = None
 
+    def _init_sitemap_state(self) -> None:
+        """Sitemap input and lookup state used by sitemap-related mixins."""
+        self.sitemap_lastmod: Dict[str, str] = {}
         default_sitemap_path = None
         if self.job_id and self.storage_manager:
             default_sitemap_path = str(self.storage_manager.get_job_directory() / "sitemap.json")
@@ -110,12 +155,14 @@ class ServiceInitMixin:
             or os.getenv("SITEMAP_JSON")
             or default_sitemap_path
         )
-        self.sitemap_map = self._load_sitemap_map(self.sitemap_path)
-        self.sitemap_urls = self._load_sitemap_urls(self.sitemap_path)
+        self.sitemap_map = self.load_sitemap_map(self.sitemap_path)
+        self.sitemap_urls = self.load_sitemap_urls(self.sitemap_path)
         profile_sitemap = self.site_profile.get("sitemap", {})
         self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", profile_sitemap.get("base_url", DEFAULT_SITEMAP_BASE))
         self.crawl_host = urlparse(str(self.config.url)).hostname
 
+    def _init_http_headers(self) -> None:
+        """Default request headers used by HTTP and browser fetches."""
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -124,6 +171,8 @@ class ServiceInitMixin:
             'Connection': 'keep-alive',
         }
 
+    def _init_output_paths(self, config: CrawlConfig) -> None:
+        """Resolve the label and output directory after job storage is known."""
         if not config.label:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             domain = urlparse(str(config.url)).netloc.replace(".", "_")

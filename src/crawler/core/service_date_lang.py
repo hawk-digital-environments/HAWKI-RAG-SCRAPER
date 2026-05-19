@@ -83,7 +83,7 @@ class ServiceDateLangMixin:
         Prefer sitemap JSON language when available; fallback to headers/HTML lang.
         Returns an uppercased language code when found.
         """
-        entry = sitemap_entry or (self._lookup_sitemap_entry(url) if url else None)
+        entry = sitemap_entry or (self.lookup_sitemap_entry(url) if url else None)
         if entry and entry.get("language"):
             return entry["language"].upper()
 

@@ -60,7 +60,7 @@ class ServiceParseContentMixin:
         repaired_score = repaired.count("Ã") + repaired.count("â")
         return repaired if repaired_score < original_score else text
 
-    def _build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
+    def build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
         return CrawlerRunConfig(
             word_count_threshold=0,
             exclude_external_links=False,
@@ -88,7 +88,7 @@ class ServiceParseContentMixin:
         try:
             if crawl_result is None:
                 await self.rate_limiter.acquire()
-                run_config = self._build_run_config()
+                run_config = self.build_run_config()
                 result = await crawler.arun(url=url, config=run_config)
             else:
                 result = crawl_result
@@ -177,7 +177,7 @@ class ServiceParseContentMixin:
                 canonical_url = urljoin(url, canonical_tag['href'])
 
             final_url = getattr(result, 'final_url', None) or getattr(result, 'page_url', None)
-            entry = self._first_sitemap_entry(url, final_url)
+            entry = self.first_sitemap_entry(url, final_url)
 
             meta_img_url = None
             og_image = soup.find('meta', property='og:image')
@@ -186,7 +186,7 @@ class ServiceParseContentMixin:
 
             lang = self.detect_language(result.html, head_headers, url=final_url or url, sitemap_entry=entry)
             quality["signals"]["language_confidence"] = detect_language_confidence(lang, low_quality_content or markdown_content)
-            sitemap_date = self._get_sitemap_date(entry)
+            sitemap_date = self.get_sitemap_date(entry)
             if not sitemap_date and self.url_tracking_manager:
                 url_state = await self.url_tracking_manager.get_url_state(final_url or url)
                 if not url_state and final_url and final_url != url:
@@ -194,7 +194,7 @@ class ServiceParseContentMixin:
                 if url_state:
                     sitemap_date = url_state.get("sitemap_date")
             published_at = sitemap_date
-            updated_at = sitemap_date or self._parse_http_date((head_headers or {}).get("last-modified"))
+            updated_at = sitemap_date or self.parse_http_date((head_headers or {}).get("last-modified"))
 
             tags = self._extract_tags(soup, extractor_profile["tag_selectors"])
 
