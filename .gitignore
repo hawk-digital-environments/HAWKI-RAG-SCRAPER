@@ -32,7 +32,6 @@ venv.bak/
 crawl4ai-env/
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -56,6 +55,8 @@ Thumbs.db
 .playwright/
 
 # Test files
-test_*.py
-*_test.py
 data/jobs
+
+# IDE with debug examples
+!.vscode/*
+!.devcontainer/*

@@ -79,10 +79,10 @@ def example_sitemap_crawl():
     job_id = str(uuid.uuid4())
     config = {
         "job_id": job_id,
-        "url": "https://www.python.org/sitemap.xml",
-        "max_pages": 10,
+        "url": "https://www.hawk.de/sitemaps/main/sitemap.xml",
+        "max_pages": 1,
         "skip_images": True,
-        "max_concurrency": 3,
+        "max_concurrency": 1,
         "max_rpm": 30
     }
 
