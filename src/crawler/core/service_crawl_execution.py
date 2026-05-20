@@ -57,7 +57,6 @@ class ServiceCrawlExecutionMixin:
     async def crawl_page(
         self: "CrawlerServiceProtocol",
         url: str,
-        crawler: AsyncWebCrawler,
         crawl_result: Optional[object] = None
     ):
         """Process one URL and update all job state around it.
@@ -262,14 +261,13 @@ class ServiceCrawlExecutionMixin:
                 try:
                     page_data = await self.extract_page_data(
                         url,
-                        crawler,
                         current_page_number,
+                        crawl_result=crawl_result,
                         head_headers=head_headers,
                         head_status=head_status,
                         depth=self.url_depth.get(url, 0),
                         source_type=self.url_source.get(url, 'seed'),
                         url_hash=url_hash,
-                        crawl_result=crawl_result
                     )
                 except RuntimeError as exc:
                     if str(exc).startswith("browser_closed:"):
@@ -438,7 +436,8 @@ class ServiceCrawlExecutionMixin:
                     results = await crawler.arun_many(batch_html, config=run_config)
                     if hasattr(results, "__aiter__"):
                         results = [r async for r in results]
-                    for result in results:
+                    for requested_url, result in zip(batch_html, results):
+                        results_by_url.setdefault(requested_url, result)
                         for key in (
                             getattr(result, "url", None),
                             getattr(result, "page_url", None),
@@ -450,10 +449,10 @@ class ServiceCrawlExecutionMixin:
                     self.job_logger.error("crawl4ai arun_many failed: %s", exc)
 
             tasks = [
-                self.crawl_page(url, crawler, crawl_result=results_by_url.get(url))
+                self.crawl_page(url, crawl_result=results_by_url.get(url))
                 for url in batch_html
             ]
-            tasks.extend(self.crawl_page(url, crawler) for url in batch_direct)
+            tasks.extend(self.crawl_page(url) for url in batch_direct)
             await asyncio.gather(*tasks, return_exceptions=True)
             if self.abort_crawl:
                 break
