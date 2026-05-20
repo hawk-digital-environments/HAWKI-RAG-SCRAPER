@@ -7,7 +7,6 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 import html2text
-from crawl4ai import AsyncWebCrawler
 
 from src.crawler.core.service_helpers import clean_html_for_markdown, filter_markdown_lines
 from src.crawler.core.service_helpers import finalize_markdown_content, normalize_whitespace
@@ -86,23 +85,21 @@ class ServiceParseContentMixin:
     async def extract_page_data(
         self: "CrawlerServiceProtocol",
         url: str,
-        crawler: AsyncWebCrawler,
         page_number: int,
+        *,
+        crawl_result: Any,
         head_headers: Optional[Dict[str, str]] = None,
         head_status: Optional[int] = None,
         depth: int = 0,
         source_type: str = "seed",
         url_hash: Optional[str] = None,
-        crawl_result: Optional[Any] = None
     ) -> Optional[Dict]:
-        """Extract data from a single page"""
+        """Extract metadata/content from a Crawl4AI result that was fetched upstream."""
         try:
             if crawl_result is None:
-                await self.rate_limiter.acquire()
-                run_config = self.build_run_config()
-                result = await crawler.arun(url=url, config=run_config)
-            else:
-                result = crawl_result
+                self.job_logger.error("Missing Crawl4AI result for %s", url)
+                return None
+            result = crawl_result
 
             if self.progress_tracker:
                 await self.progress_tracker.increment_requests()

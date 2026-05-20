@@ -45,7 +45,7 @@ class ServiceCrawlRuntimeMixin:
             word_count_threshold=0,
             exclude_external_links=False,
             process_iframes=False,
-            remove_overlay_elements=False,
+            remove_overlay_elements=True,
             cache_mode=CacheMode.BYPASS,
             wait_until=self.config.wait_until,
             page_timeout=self.config.page_timeout_ms,
