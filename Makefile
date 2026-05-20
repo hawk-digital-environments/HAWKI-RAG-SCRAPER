@@ -20,6 +20,8 @@ PYTHON ?= python3
 DISCOVERY_MODE ?= false
 SKIP_IMAGES ?= false
 
+.DEFAULT_GOAL := help
+
 # Allow `make cancel <job_id>` as shorthand
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
   ifneq ($(word 2,$(MAKECMDGOALS)),)
@@ -36,7 +38,7 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
-.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared start-ui
+.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared start-ui ci-test
 
 crawl:
 	@set -e; \
@@ -173,3 +175,24 @@ start-ui:
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
 	docker compose exec crawler sh -lc 'rm -rf /app/shared/$(JOB_ID)'
+
+ci-test:
+	docker build --target test -t crawler-test . && docker run crawler-test 
+
+help:
+	@echo "COMMAND             DESCRIPTION"
+	@echo "------------------------------------------------------------"
+	@printf "%-20s %s\n" "crawl-sitemap"       "To run crawler service against a site map."
+	@printf "%-20s %s\n" "crawl-test"          "Send test command to crawler service."
+	@printf "%-20s %s\n" "crawl-full"          "TODO: explain"
+	@printf "%-20s %s\n" "crawl-project"       "Display this help message"
+	@printf "%-20s %s\n" "jobs"                "Display all jobs"
+	@printf "%-20s %s\n" "cancel"              "Cancel a job via `JOB_ID` variable."
+	@printf "%-20s %s\n" "build"               "Build the crawler service."
+	@printf "%-20s %s\n" "up"                  "Start the crawler service."
+	@printf "%-20s %s\n" "down"                "Stop the crawler service without removing volumes."
+	@printf "%-20s %s\n" "teardown"            "Teardown compose project and remove all connected resources."
+	@printf "%-20s %s\n" "logs"                "Show live service logs."
+	@printf "%-20s %s\n" "virtualenv"          "Setup virtualenv."
+	@printf "%-20s %s\n" "setup"               "Setup requirements"
+	@printf "%-20s %s\n" "help"                "Display this help message"

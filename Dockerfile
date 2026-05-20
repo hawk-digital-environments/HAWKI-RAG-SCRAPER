@@ -41,13 +41,71 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     libappindicator3-1 \
     xdg-utils \
+    # Add mime types like docx etc 
+    media-types \
     && rm -rf /var/lib/apt/lists/*
+
+
+FROM base as development
+
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+
+RUN pip3 install pipx && python3 -m pipx ensurepath
+
+# Install sudo and create user
+RUN apt-get update \
+    && apt-get install -y sudo \
+    && groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+USER $USERNAME
+
+
+FROM base as test
+
+WORKDIR /tests
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+
+COPY pyproject.toml uv.lock .
+
+RUN uv venv && uv sync --all-groups
+RUN uv run playwright install --with-deps chromium
+
+COPY src ./src
+COPY tests tests
+
+ENV PYTHONPATH="/tests:${PYTHONPATH}"
+
+CMD ["uv", "run", "pytest", "-vvv"]
+
+
+FROM development as requirements
+
+USER root
+
+WORKDIR /build-requirements
+COPY pyproject.toml uv.lock .
+RUN uv export --no-dev --no-hashes --no-emit-project -o requirements.txt > requirements.txt
+
+
+FROM base as production
 
 # Set working directory
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY --from=requirements /build-requirements/requirements.txt requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
