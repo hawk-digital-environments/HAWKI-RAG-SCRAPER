@@ -29,18 +29,13 @@ Lifecycle:
 - No explicit cleanup needed (files persist on disk)
 """
 
-import json
-import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import aiofiles
 
+from hawki_crawler.crawler.storage.asset_store import AssetStore
 from hawki_crawler.crawler.storage.completed_manifest import CompletedUrlManifestStore
-from hawki_crawler.crawler.storage.page_output import (
-    CONTENT_FILENAME,
-    METADATA_FILENAME,
-    PAGE_ROOT_DIRNAME,
-)
+from hawki_crawler.crawler.storage.file_browser import FileBrowser
+from hawki_crawler.crawler.storage.page_store import PageStore
 
 
 class StorageManager:
@@ -64,6 +59,12 @@ class StorageManager:
         self.job_id = job_id
         self.base_path = Path(base_path)
         self.job_dir = self.base_path / job_id
+        self.page_store = PageStore(job_dir=self.job_dir)
+        self.asset_store = AssetStore(
+            get_hash_directory=self.get_hash_directory,
+            get_page_directory=self.get_page_directory,
+        )
+        self.file_browser = FileBrowser(job_dir=self.job_dir)
         self.completed_manifest = CompletedUrlManifestStore(
             job_id=job_id,
             job_dir=self.job_dir,
@@ -94,11 +95,7 @@ class StorageManager:
         Returns:
             Path to hash-based directory
         """
-        if len(url_hash) < 4:
-            # Fallback for invalid hashes
-            return self.job_dir / url_hash
-
-        return self.job_dir / PAGE_ROOT_DIRNAME / url_hash[0] / url_hash[1] / url_hash[2] / url_hash[3] / url_hash
+        return self.page_store.get_hash_directory(url_hash)
 
     def get_page_directory(self, page_number: int) -> Path:
         """
@@ -110,7 +107,7 @@ class StorageManager:
         Returns:
             Path to page directory
         """
-        return self.job_dir / PAGE_ROOT_DIRNAME / f"page_{page_number:05d}"
+        return self.page_store.get_page_directory(page_number)
 
     def create_hash_directory(
         self,
@@ -129,18 +126,11 @@ class StorageManager:
         Returns:
             Path to created hash directory
         """
-        hash_dir = self.get_hash_directory(url_hash)
-        hash_dir.mkdir(parents=True, exist_ok=True)
-
-        if create_images_dir:
-            images_dir = hash_dir / "images"
-            images_dir.mkdir(exist_ok=True)
-
-        if create_files_dir:
-            files_dir = hash_dir / "files"
-            files_dir.mkdir(exist_ok=True)
-
-        return hash_dir
+        return self.page_store.create_hash_directory(
+            url_hash,
+            create_images_dir=create_images_dir,
+            create_files_dir=create_files_dir,
+        )
 
     def create_page_directory(
         self,
@@ -160,34 +150,27 @@ class StorageManager:
         Returns:
             Path to created page directory
         """
-        page_dir = self.get_page_directory(page_number)
-        page_dir.mkdir(parents=True, exist_ok=True)
-
-        if create_images_dir:
-            images_dir = page_dir / "images"
-            images_dir.mkdir(exist_ok=True)
-
-        if create_files_dir:
-            files_dir = page_dir / "files"
-            files_dir.mkdir(exist_ok=True)
-
-        return page_dir
+        return self.page_store.create_page_directory(
+            page_number,
+            create_images_dir=create_images_dir,
+            create_files_dir=create_files_dir,
+        )
 
     def get_hash_images_directory(self, url_hash: str) -> Path:
         """Get the images directory for a URL hash."""
-        return self.get_hash_directory(url_hash) / "images"
+        return self.asset_store.get_hash_images_directory(url_hash)
 
     def get_hash_files_directory(self, url_hash: str) -> Path:
         """Get the files directory for a URL hash."""
-        return self.get_hash_directory(url_hash) / "files"
+        return self.asset_store.get_hash_files_directory(url_hash)
 
     def get_images_directory(self, page_number: int) -> Path:
         """DEPRECATED: Get the images directory for a specific page."""
-        return self.get_page_directory(page_number) / "images"
+        return self.asset_store.get_images_directory(page_number)
 
     def get_files_directory(self, page_number: int) -> Path:
         """DEPRECATED: Get the files directory for a specific page."""
-        return self.get_page_directory(page_number) / "files"
+        return self.asset_store.get_files_directory(page_number)
 
     async def save_hash_json(self, url_hash: str, data: Dict[str, Any]):
         """
@@ -197,11 +180,7 @@ class StorageManager:
             url_hash: SHA256 hash of the URL
             data: Dictionary to save as JSON
         """
-        hash_dir = self.get_hash_directory(url_hash)
-        json_file = hash_dir / METADATA_FILENAME
-
-        async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
+        await self.page_store.save_hash_json(url_hash, data)
 
     async def save_hash_content(self, url_hash: str, content: str):
         """
@@ -211,11 +190,7 @@ class StorageManager:
             url_hash: SHA256 hash of the URL
             content: Content to save
         """
-        hash_dir = self.get_hash_directory(url_hash)
-        content_file = hash_dir / CONTENT_FILENAME
-
-        async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
-            await f.write(content if content else "")
+        await self.page_store.save_hash_content(url_hash, content)
 
     async def upsert_completed_url_record(
         self,
@@ -246,11 +221,7 @@ class StorageManager:
             page_number: Page number (1-indexed)
             data: Dictionary to save as JSON
         """
-        page_dir = self.get_page_directory(page_number)
-        json_file = page_dir / METADATA_FILENAME
-
-        async with aiofiles.open(json_file, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
+        await self.page_store.save_page_json(page_number, data)
 
     async def save_page_content(self, page_number: int, content: str):
         """
@@ -261,11 +232,7 @@ class StorageManager:
             page_number: Page number (1-indexed)
             content: Content to save
         """
-        page_dir = self.get_page_directory(page_number)
-        content_file = page_dir / CONTENT_FILENAME
-
-        async with aiofiles.open(content_file, 'w', encoding='utf-8') as f:
-            await f.write(content if content else "")
+        await self.page_store.save_page_content(page_number, content)
 
     async def save_hash_image(self, url_hash: str, filename: str, image_data: bytes) -> str:
         """
@@ -279,13 +246,7 @@ class StorageManager:
         Returns:
             Saved filename
         """
-        images_dir = self.get_hash_images_directory(url_hash)
-        filepath = images_dir / filename
-
-        async with aiofiles.open(filepath, 'wb') as f:
-            await f.write(image_data)
-
-        return filename
+        return await self.asset_store.save_hash_image(url_hash, filename, image_data)
 
     async def save_hash_pdf(self, url_hash: str, filename: str, pdf_data: bytes) -> str:
         """
@@ -299,14 +260,7 @@ class StorageManager:
         Returns:
             Saved filename
         """
-        files_dir = self.get_hash_files_directory(url_hash)
-        files_dir.mkdir(parents=True, exist_ok=True)
-        filepath = files_dir / filename
-
-        async with aiofiles.open(filepath, 'wb') as f:
-            await f.write(pdf_data)
-
-        return filename
+        return await self.asset_store.save_hash_pdf(url_hash, filename, pdf_data)
 
     async def save_image(self, page_number: int, filename: str, image_data: bytes) -> str:
         """
@@ -321,13 +275,7 @@ class StorageManager:
         Returns:
             Saved filename
         """
-        images_dir = self.get_images_directory(page_number)
-        filepath = images_dir / filename
-
-        async with aiofiles.open(filepath, 'wb') as f:
-            await f.write(image_data)
-
-        return filename
+        return await self.asset_store.save_image(page_number, filename, image_data)
 
     async def save_pdf(self, page_number: int, filename: str, pdf_data: bytes) -> str:
         """
@@ -342,14 +290,7 @@ class StorageManager:
         Returns:
             Saved filename
         """
-        files_dir = self.get_files_directory(page_number)
-        files_dir.mkdir(parents=True, exist_ok=True)
-        filepath = files_dir / filename
-
-        async with aiofiles.open(filepath, 'wb') as f:
-            await f.write(pdf_data)
-
-        return filename
+        return await self.asset_store.save_pdf(page_number, filename, pdf_data)
 
     def list_files(self, relative: bool = True) -> List[str]:
         """
@@ -361,23 +302,7 @@ class StorageManager:
         Returns:
             List of file paths
         """
-        files = []
-
-        if not self.job_dir.exists():
-            return files
-
-        for root, dirs, filenames in os.walk(self.job_dir):
-            for filename in filenames:
-                filepath = Path(root) / filename
-
-                if relative:
-                    # Return path relative to job directory
-                    rel_path = filepath.relative_to(self.job_dir)
-                    files.append(str(rel_path))
-                else:
-                    files.append(str(filepath))
-
-        return sorted(files)
+        return self.file_browser.list_files(relative=relative)
 
     def get_file_path(self, relative_path: str) -> Optional[Path]:
         """
@@ -389,20 +314,7 @@ class StorageManager:
         Returns:
             Absolute Path object if file exists, None otherwise
         """
-        filepath = self.job_dir / relative_path
-
-        # Security check: ensure the path is within job directory
-        try:
-            filepath = filepath.resolve()
-            if not str(filepath).startswith(str(self.job_dir.resolve())):
-                return None
-        except Exception:
-            return None
-
-        if filepath.exists() and filepath.is_file():
-            return filepath
-
-        return None
+        return self.file_browser.get_file_path(relative_path)
 
     def get_file_info(self, relative_path: str) -> Optional[Dict[str, Any]]:
         """
@@ -414,36 +326,8 @@ class StorageManager:
         Returns:
             Dictionary with file info or None if file doesn't exist
         """
-        filepath = self.get_file_path(relative_path)
-
-        if not filepath:
-            return None
-
-        stat = filepath.stat()
-
-        return {
-            "name": filepath.name,
-            "path": relative_path,
-            "size": stat.st_size,
-            "modified": stat.st_mtime,
-            "type": self._get_file_type(filepath)
-        }
+        return self.file_browser.get_file_info(relative_path)
 
     def _get_file_type(self, filepath: Path) -> str:
         """Determine file type from extension."""
-        suffix = filepath.suffix.lower()
-
-        type_map = {
-            ".json": "application/json",
-            ".md": "text/markdown",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-            ".txt": "text/plain",
-            ".html": "text/html",
-            ".pdf": "application/pdf"
-        }
-
-        return type_map.get(suffix, "application/octet-stream")
+        return self.file_browser.get_file_type(filepath)
