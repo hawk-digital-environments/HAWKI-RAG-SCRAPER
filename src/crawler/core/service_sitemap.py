@@ -1,15 +1,14 @@
-import json
 import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
-from urllib.parse import urljoin
-from email.utils import parsedate_to_datetime
+import json
 
 import aiohttp
 from bs4 import BeautifulSoup
 
 from hawki_crawler.crawler.core.sitemap_scraper import SitemapScraper
+from hawki_crawler.crawler.sitemap.service import SitemapService
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceSitemapMixinProtocol
@@ -18,111 +17,37 @@ LOGGER = logging.getLogger("crawler.sitemap")
 
 
 class ServiceSitemapMixin:
-    def _normalize_url_key(self, url: str) -> Optional[str]:
-        """Create a normalized key for quick sitemap map lookup."""
-        if not url:
-            return None
-        url = url.strip()
-        if not url:
-            return None
-        if url.startswith("http://"):
-            url = url[len("http://"):]
-        elif url.startswith("https://"):
-            url = url[len("https://"):]
-        if url.startswith("www."):
-            url = url[len("www."):]
-        return url.rstrip("/")
-
-    def _normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]:
-        """Normalize sitemap metadata into a dict with a last_modified key when possible."""
-        if isinstance(meta, dict):
-            normalized = dict(meta)
-        else:
-            normalized = {"last_modified": meta}
-        if not normalized.get("last_modified"):
-            normalized["last_modified"] = (
-                normalized.get("lastmod")
-                or normalized.get("date")
-                or normalized.get("published_at")
-            )
-        return normalized
-
-    def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
-        """Return the sitemap date from a sitemap entry when available."""
-        if not entry:
-            return None
-        if not isinstance(entry, dict):
-            return str(entry)
-        return (
-            entry.get("last_modified")
-            or entry.get("lastmod")
-            or entry.get("date")
-            or entry.get("published_at")
+    def _sitemap_service(self: "ServiceSitemapMixinProtocol") -> SitemapService:
+        return SitemapService(
+            sitemap_map=getattr(self, "sitemap_map", {}) or {},
+            is_forbidden_url=self.is_forbidden_url,
+            is_discovery_url_allowed=self.is_discovery_url_allowed,
+            normalize_url=self.normalize_url,
         )
 
+    def _normalize_url_key(self, url: str) -> Optional[str]:
+        return self._sitemap_service().normalize_url_key(url)
+
+    def _normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]:
+        return self._sitemap_service().normalize_sitemap_meta(meta)
+
+    def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+        return self._sitemap_service().get_sitemap_date(entry)
+
     def load_sitemap_map(self: "ServiceSitemapMixinProtocol", path: str) -> Dict[str, Dict[str, str]]:
-        """Load sitemap JSON into a normalized dict; silent fallback to empty."""
-        if not path:
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if not isinstance(raw, dict):
-                return {}
-            normalized = {}
-            for url, meta in raw.items():
-                key = self._normalize_url_key(url)
-                if not key:
-                    continue
-                normalized[key] = self._normalize_sitemap_meta(meta)
-            return normalized
-        except Exception:
-            return {}
+        return self._sitemap_service().load_sitemap_map(path)
 
     def load_sitemap_urls(self: "ServiceSitemapMixinProtocol", path: str) -> List[str]:
-        """Load sitemap JSON and preserve full URLs for crawl seeding."""
-        if not path:
-            return []
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if not isinstance(raw, dict):
-                return []
-            urls: List[str] = []
-            for url in raw.keys():
-                if not isinstance(url, str):
-                    continue
-                if self.is_forbidden_url(url):
-                    continue
-                urls.append(url)
-            return urls
-        except Exception:
-            return []
+        return self._sitemap_service().load_sitemap_urls(path)
 
     def lookup_sitemap_entry(self: "ServiceSitemapMixinProtocol", url: str) -> Optional[Dict[str, str]]:
-        key = self._normalize_url_key(url)
-        if not key:
-            return None
-        return self.sitemap_map.get(key)
+        return self._sitemap_service().lookup_sitemap_entry(url)
 
     def first_sitemap_entry(self: "ServiceSitemapMixinProtocol", *urls: str) -> Optional[Dict[str, str]]:
-        """Return the first sitemap entry found for the provided URLs."""
-        for u in urls:
-            entry = self.lookup_sitemap_entry(u)
-            if entry:
-                return entry
-        return None
+        return self._sitemap_service().first_sitemap_entry(*urls)
 
     def parse_http_date(self, date_str: Optional[str]) -> Optional[str]:
-        if not date_str:
-            return None
-        try:
-            dt = parsedate_to_datetime(date_str)
-            if dt:
-                return dt.isoformat()
-        except Exception:
-            return None
-        return None
+        return self._sitemap_service().parse_http_date(date_str)
 
     async def run_sitemap_scrape(self: "ServiceSitemapMixinProtocol"):
         """Optionally scrape the sitemap JSON before crawling."""
@@ -265,19 +190,4 @@ class ServiceSitemapMixin:
         return []
 
     async def discover_urls(self: "ServiceSitemapMixinProtocol", html_content: str, base_url: str) -> List[str]:
-        """Extract links from HTML and normalize them."""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        links = []
-        for a in soup.find_all('a'):
-            href = a.get('href')
-            if not href:
-                continue
-            if str(href).startswith("#"):
-                continue
-            absolute = urljoin(base_url, href)
-            absolute = self.normalize_url(absolute)
-            if not self.is_discovery_url_allowed(absolute):
-                continue
-            if absolute not in links:
-                links.append(absolute)
-        return links
+        return await self._sitemap_service().discover_urls(html_content, base_url)

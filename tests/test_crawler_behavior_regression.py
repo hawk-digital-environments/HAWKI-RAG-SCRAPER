@@ -2,12 +2,15 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from bs4 import BeautifulSoup
 
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
+from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
 
@@ -69,10 +72,10 @@ def test_sitemap_json_loading_normalizes_metadata_and_filters_forbidden_urls(tmp
         ),
         encoding="utf-8",
     )
-    service = _PolicyAndSitemapService(
+    url_policy = UrlPolicyService(
         site_profile={"forbidden": {"hosts": ["blocked.example"]}},
-        crawl_host="example.com",
     )
+    service = SitemapService(is_forbidden_url=url_policy.is_forbidden_url)
 
     sitemap_map = service.load_sitemap_map(str(sitemap_file))
     sitemap_urls = service.load_sitemap_urls(str(sitemap_file))
@@ -81,6 +84,43 @@ def test_sitemap_json_loading_normalizes_metadata_and_filters_forbidden_urls(tmp
     assert sitemap_map["example.com/page"]["language"] == "de"
     assert sitemap_map["blocked.example/private"]["last_modified"] == "2026-01-02"
     assert sitemap_urls == ["https://www.example.com/page/"]
+
+
+def test_date_language_service_extracts_dates_from_meta_and_time_tags() -> None:
+    service = DateLanguageService()
+    html = """
+    <html>
+      <head>
+        <meta property="article:published_time" content="Wed, 20 May 2026 10:00:00 GMT">
+      </head>
+      <body>
+        <time datetime="Thu, 21 May 2026 12:30:00 GMT">21 May 2026</time>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    dates = service.extract_dates(html, soup)
+
+    assert dates == {
+        "published_at": "2026-05-20T10:00:00+00:00",
+        "updated_at": "2026-05-21T12:30:00+00:00",
+    }
+
+
+def test_date_language_service_detects_language_by_precedence() -> None:
+    service = DateLanguageService(
+        sitemap_lookup=lambda url: {"language": "de"} if url == "https://example.com/from-sitemap" else None
+    )
+
+    assert service.detect_language(None, {"content-language": "en-US,en;q=0.8"}, url="https://example.com/from-sitemap") == "DE"
+    assert service.detect_language(None, {"content-language": "en-US,en;q=0.8"}) == "EN-US"
+    assert service.detect_language("<html lang='fr-FR'></html>", None) == "FR"
+    assert service.detect_language(
+        "<html><meta http-equiv='Content-Language' content='es-MX,es'></html>",
+        None,
+    ) == "ES-MX"
+    assert service.detect_language("<html></html>", None) is None
 
 
 @pytest.mark.asyncio
