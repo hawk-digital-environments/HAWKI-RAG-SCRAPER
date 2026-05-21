@@ -3,12 +3,12 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from hawki_crawler.crawler.communication.interface import Stage
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceProgressMixinProtocol
 
 
 class ServiceProgressMixin:
     async def send_stage(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceProgressMixinProtocol",
         stage: Stage,
         details: Optional[Dict[str, Any]] = None
     ):
@@ -16,17 +16,17 @@ class ServiceProgressMixin:
             return
         await self.communication_service.send_stage(stage, details)
 
-    async def send_report_progress(self: "CrawlerServiceProtocol", progress_data: Dict[str, Any]):
+    async def send_report_progress(self: "ServiceProgressMixinProtocol", progress_data: Dict[str, Any]):
         if not self.communication_service:
             return
         await self.communication_service.send_report_progress(progress_data)
 
-    async def send_summary(self: "CrawlerServiceProtocol", summary_data: Dict[str, Any]):
+    async def send_summary(self: "ServiceProgressMixinProtocol", summary_data: Dict[str, Any]):
         if not self.communication_service:
             return
         await self.communication_service.send_summary(summary_data)
 
-    async def _send_url_completion(self: "CrawlerServiceProtocol", url: str, url_hash: str, status: str, page_number: int,
+    async def _send_url_completion(self: "ServiceProgressMixinProtocol", url: str, url_hash: str, status: str, page_number: int,
                                    started_at: str, completed_at: str):
         if not self.communication_service:
             return

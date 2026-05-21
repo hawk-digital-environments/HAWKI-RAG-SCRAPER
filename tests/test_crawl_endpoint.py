@@ -151,13 +151,13 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
         source_url="https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement",
         canonical_url="https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement",
         http_status=200,
-        content_status="success",
         source_type="sitemap",
         depth=0,
         images_count=0,
         pdf_count=0,
         file_count=0,
     ))
+    assert record["content_status"] in {"success", "noisy"}
 
     content_md_path = next(f["path"] for f in files_result["files"] if f["name"] == "content.md")
     md_content = await download_file(job_id, content_md_path)

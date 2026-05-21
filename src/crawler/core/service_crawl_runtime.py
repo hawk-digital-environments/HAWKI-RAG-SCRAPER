@@ -10,7 +10,7 @@ from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 from hawki_crawler.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceCrawlRuntimeMixinProtocol
 
 
 class ServiceCrawlRuntimeMixin:
@@ -21,7 +21,7 @@ class ServiceCrawlRuntimeMixin:
     needed, tracking memory pressure, and writing crawl output to storage.
     """
 
-    def looks_like_file_url(self: "CrawlerServiceProtocol", url: str) -> bool:
+    def looks_like_file_url(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> bool:
         """Return True for URLs that should be downloaded instead of rendered."""
         parsed = urlparse(url)
         path = parsed.path.lower()
@@ -39,7 +39,7 @@ class ServiceCrawlRuntimeMixin:
             return True
         return False
 
-    def build_run_config(self: "CrawlerServiceProtocol") -> CrawlerRunConfig:
+    def build_run_config(self: "ServiceCrawlRuntimeMixinProtocol") -> CrawlerRunConfig:
         """Build the shared Crawl4AI run config for single-page and batch crawls."""
         return CrawlerRunConfig(
             word_count_threshold=0,
@@ -52,7 +52,7 @@ class ServiceCrawlRuntimeMixin:
             delay_before_return_html=5.0
         )
 
-    async def trigger_safe_stop(self: "CrawlerServiceProtocol", reason: str) -> None:
+    async def trigger_safe_stop(self: "ServiceCrawlRuntimeMixinProtocol", reason: str) -> None:
         """Stop future crawl work and remember why the job was aborted."""
         async with self.abort_lock:
             if self.abort_crawl:
@@ -62,7 +62,7 @@ class ServiceCrawlRuntimeMixin:
             # Clearing the queue prevents new URLs from being scheduled after a fatal condition.
             self.to_visit.clear()
 
-    async def _request_browser_restart(self: "CrawlerServiceProtocol", url: str) -> None:
+    async def _request_browser_restart(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> None:
         """Ask the outer crawl loop to restart the browser before retrying a URL."""
         if not self.enable_browser_restarts:
             return
@@ -72,7 +72,7 @@ class ServiceCrawlRuntimeMixin:
             self.restart_crawler = True
             self.restart_reason = "browser_closed"
 
-    def get_memory_usage_ratio(self: "CrawlerServiceProtocol") -> Optional[float]:
+    def get_memory_usage_ratio(self: "ServiceCrawlRuntimeMixinProtocol") -> Optional[float]:
         """Return memory usage ratio based on cgroup limits, or None if unavailable."""
         paths = [
             ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
@@ -95,7 +95,7 @@ class ServiceCrawlRuntimeMixin:
                 continue
         return None
 
-    async def wait_for_memory_relief(self: "CrawlerServiceProtocol") -> None:
+    async def wait_for_memory_relief(self: "ServiceCrawlRuntimeMixinProtocol") -> None:
         """Wait for container memory usage to drop before restarting browser work."""
         if not self.enable_memory_watchdog:
             return
@@ -112,7 +112,7 @@ class ServiceCrawlRuntimeMixin:
                 return
             await asyncio.sleep(5)
 
-    async def update_total_urls(self: "CrawlerServiceProtocol", new_total: int) -> None:
+    async def update_total_urls(self: "ServiceCrawlRuntimeMixinProtocol", new_total: int) -> None:
         """Increase total URL counts when discovery finds more work."""
         if new_total <= 0:
             return
@@ -126,7 +126,7 @@ class ServiceCrawlRuntimeMixin:
                 await self.progress_tracker.set_total_urls(new_total)
 
     async def save_page_data(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceCrawlRuntimeMixinProtocol",
         page_data: Dict,
         page_number: int,
         url_hash: str
