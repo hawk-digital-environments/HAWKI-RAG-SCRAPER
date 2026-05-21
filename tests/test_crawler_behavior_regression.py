@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from bs4 import BeautifulSoup
 
+from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
@@ -177,6 +178,45 @@ def test_page_metadata_content_status_and_asset_counts_are_stable() -> None:
     assert metadata["tags"] == ["research", "crawler"]
     assert len(metadata["images"]) == 1
     assert len(metadata["documents"]["pdfs"]) == 1
+
+
+def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
+    policy = AssetPolicy()
+    html = """
+    <a href="/files/report.pdf?download=1">Report</a>
+    <a href="/files/data.csv">Data</a>
+    <a href="/files/app.exe">Executable</a>
+    <a href="/page">Page</a>
+    """
+
+    assert policy.extract_pdf_links(html, "https://example.com/base/") == [
+        "https://example.com/files/report.pdf?download=1",
+    ]
+    assert policy.extract_file_links(html, "https://example.com/base/") == [
+        "https://example.com/files/data.csv",
+    ]
+    assert policy.looks_like_file_url("https://example.com/media/12345") is True
+    assert policy.looks_like_file_url("https://example.com/page") is False
+    assert policy.is_pdf_resource("https://example.com/download", {"content-type": "application/pdf"}) is True
+    assert policy.is_file_resource(
+        "https://example.com/download",
+        {"content-type": "application/octet-stream"},
+    ) is True
+    assert policy.is_file_resource(
+        "https://example.com/page",
+        {"content-type": "text/html; charset=utf-8"},
+    ) is False
+    assert policy.should_skip_file_download(
+        "https://example.com/app.exe",
+        "app.exe",
+        "application/x-msdownload",
+    ) is True
+    assert policy.pdf_filename_from_url("https://example.com/März Bericht.pdf") == "Maerz_Bericht.pdf"
+    assert policy.file_filename_from_response(
+        "https://example.com/download",
+        "text/csv",
+        "attachment; filename=fächer liste.csv",
+    ) == "faecher_liste.csv"
 
 
 @pytest.mark.asyncio
