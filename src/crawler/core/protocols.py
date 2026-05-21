@@ -19,6 +19,7 @@ from crawl4ai.async_configs import CrawlerRunConfig
 
 from hawki_crawler.crawler.communication.interface import Stage
 from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 
 
 class ServiceUrlPolicyMixinProtocol(Protocol):
@@ -27,6 +28,7 @@ class ServiceUrlPolicyMixinProtocol(Protocol):
     site_profile: Dict[str, Any]
     crawl_host: Optional[str]
 
+    def _url_policy(self) -> UrlPolicyService: ...
     def _get_forbidden_file_candidates(self) -> List[Path]: ...
     def _get_forbidden_url_patterns(self) -> List[str]: ...
     def get_forbidden_hosts(self) -> Set[str]: ...
@@ -258,4 +260,3 @@ class CrawlerServiceProtocol(
     Protocol,
 ):
     """Combined protocol for code that truly needs the whole crawler service."""
-
