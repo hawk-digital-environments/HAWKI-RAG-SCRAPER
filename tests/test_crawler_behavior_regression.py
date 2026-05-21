@@ -5,6 +5,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
+from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
@@ -217,6 +218,39 @@ def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
         "text/csv",
         "attachment; filename=fächer liste.csv",
     ) == "faecher_liste.csv"
+
+
+@pytest.mark.asyncio
+async def test_asset_saver_writes_fallback_file_and_marks_incomplete(tmp_path) -> None:
+    async def create_page_directory(page_number: int, create_files_dir: bool = False):
+        page_dir = tmp_path / f"page_{page_number:05d}"
+        page_dir.mkdir(parents=True, exist_ok=True)
+        if create_files_dir:
+            (page_dir / "files").mkdir(parents=True, exist_ok=True)
+        return page_dir
+
+    saver = AssetSaver(
+        storage_manager=None,
+        create_page_directory=create_page_directory,
+        skip_images=True,
+    )
+
+    result = await saver.save_file_bytes(
+        file_url="https://example.com/files/report.pdf",
+        filename="report.pdf",
+        file_bytes=b"pdf-bytes",
+        page_number=2,
+        content_type="application/pdf",
+        incomplete=True,
+        error=RuntimeError("partial content"),
+    )
+
+    saved_path = tmp_path / "page_00002" / "files" / "report.pdf"
+    assert saved_path.read_bytes() == b"pdf-bytes"
+    assert result["local_path"] == str(saved_path.resolve())
+    assert result["relative_path"] == "files/report.pdf"
+    assert result["incomplete"] is True
+    assert result["error"] == "partial content"
 
 
 @pytest.mark.asyncio

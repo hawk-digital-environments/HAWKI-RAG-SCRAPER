@@ -10,6 +10,7 @@ import aiofiles
 import aiohttp
 from aiohttp.http_exceptions import ContentLengthError
 
+from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 
 if TYPE_CHECKING:
@@ -19,6 +20,13 @@ if TYPE_CHECKING:
 class ServiceParseAssetsMixin:
     def _asset_policy(self) -> AssetPolicy:
         return AssetPolicy()
+
+    def _asset_saver(self: "ServiceParseAssetsMixinProtocol") -> AssetSaver:
+        return AssetSaver(
+            storage_manager=getattr(self, "storage_manager", None),
+            create_page_directory=self.create_page_directory,
+            skip_images=getattr(self.config, "skip_images", False),
+        )
 
     def _asset_logger(self: "ServiceParseAssetsMixinProtocol"):
         return getattr(self, "job_logger", logging.getLogger("crawler"))
@@ -231,41 +239,17 @@ class ServiceParseAssetsMixin:
 
                         filename = self._asset_policy().pdf_filename_from_url(pdf_url)
 
-                        pdf_bytes = bytes(pdf_buffer)
-
-                        if url_hash and self.storage_manager:
-                            self.storage_manager.create_hash_directory(
-                                url_hash,
-                                create_images_dir=not self.config.skip_images,
-                                create_files_dir=True
-                            )
-                            await self.storage_manager.save_hash_pdf(url_hash, filename, pdf_bytes)
-                            files_dir = self.storage_manager.get_hash_files_directory(url_hash)
-                            filepath = files_dir / filename
-                        elif self.storage_manager:
-                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                            await self.storage_manager.save_pdf(page_number, filename, pdf_bytes)
-                            files_dir = self.storage_manager.get_files_directory(page_number)
-                            filepath = files_dir / filename
-                        else:
-                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                            files_dir = page_dir / "files"
-                            files_dir.mkdir(exist_ok=True)
-                            filepath = files_dir / filename
-                            async with aiofiles.open(filepath, 'wb') as f:
-                                await f.write(pdf_bytes)
-
-                        result = {
-                            "url": pdf_url,
-                            "local_path": str(filepath.resolve()),
-                            "filename": filename,
-                            "relative_path": f"files/{filename}",
-                            "content_type": content_type,
-                        }
-                        if incomplete:
-                            result["incomplete"] = True
-                            result["error"] = str(last_error)
-                        else:
+                        result = await self._asset_saver().save_file_bytes(
+                            file_url=pdf_url,
+                            filename=filename,
+                            file_bytes=bytes(pdf_buffer),
+                            page_number=page_number,
+                            content_type=content_type,
+                            url_hash=url_hash,
+                            incomplete=incomplete,
+                            error=last_error,
+                        )
+                        if not incomplete:
                             await self._publish_saved_file_event(
                                 file_url=pdf_url,
                                 page_url=page_url or pdf_url,
@@ -342,41 +326,17 @@ class ServiceParseAssetsMixin:
                         if self._should_skip_file_download(file_url, filename, content_type):
                             return None
 
-                        file_bytes = bytes(file_buffer)
-
-                        if url_hash and self.storage_manager:
-                            self.storage_manager.create_hash_directory(
-                                url_hash,
-                                create_images_dir=not self.config.skip_images,
-                                create_files_dir=True
-                            )
-                            await self.storage_manager.save_hash_pdf(url_hash, filename, file_bytes)
-                            files_dir = self.storage_manager.get_hash_files_directory(url_hash)
-                            filepath = files_dir / filename
-                        elif self.storage_manager:
-                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                            await self.storage_manager.save_pdf(page_number, filename, file_bytes)
-                            files_dir = self.storage_manager.get_files_directory(page_number)
-                            filepath = files_dir / filename
-                        else:
-                            page_dir = await self.create_page_directory(page_number, create_files_dir=True)
-                            files_dir = page_dir / "files"
-                            files_dir.mkdir(exist_ok=True)
-                            filepath = files_dir / filename
-                            async with aiofiles.open(filepath, 'wb') as f:
-                                await f.write(file_bytes)
-
-                        result = {
-                            "url": file_url,
-                            "local_path": str(filepath.resolve()),
-                            "filename": filename,
-                            "relative_path": f"files/{filename}",
-                            "content_type": content_type
-                        }
-                        if incomplete and last_error:
-                            result["incomplete"] = True
-                            result["error"] = str(last_error)
-                        else:
+                        result = await self._asset_saver().save_file_bytes(
+                            file_url=file_url,
+                            filename=filename,
+                            file_bytes=bytes(file_buffer),
+                            page_number=page_number,
+                            content_type=content_type,
+                            url_hash=url_hash,
+                            incomplete=incomplete and bool(last_error),
+                            error=last_error,
+                        )
+                        if not (incomplete and last_error):
                             await self._publish_saved_file_event(
                                 file_url=file_url,
                                 page_url=page_url or file_url,
