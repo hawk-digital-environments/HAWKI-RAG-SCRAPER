@@ -1,22 +1,25 @@
 import asyncio
 import logging
-import mimetypes
 import os
 import re
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple, TYPE_CHECKING
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import aiofiles
 import aiohttp
 from aiohttp.http_exceptions import ContentLengthError
-from bs4 import BeautifulSoup
+
+from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceParseAssetsMixinProtocol
 
 
 class ServiceParseAssetsMixin:
+    def _asset_policy(self) -> AssetPolicy:
+        return AssetPolicy()
+
     def _asset_logger(self: "ServiceParseAssetsMixinProtocol"):
         return getattr(self, "job_logger", logging.getLogger("crawler"))
 
@@ -114,39 +117,11 @@ class ServiceParseAssetsMixin:
 
     def extract_pdf_links(self, html_content: str, base_url: str) -> List[str]:
         """Extract PDF links from HTML content"""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        pdf_links = []
-        for a in soup.find_all('a'):
-            href = a.get('href')
-            if not href:
-                continue
-            absolute_url = urljoin(base_url, href)
-            if absolute_url.lower().split('?')[0].endswith('.pdf'):
-                pdf_links.append(absolute_url)
-        return pdf_links
+        return self._asset_policy().extract_pdf_links(html_content, base_url)
 
     def extract_file_links(self, html_content: str, base_url: str) -> List[str]:
         """Extract non-PDF file links from HTML content."""
-        extensions = (
-            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
-            ".odp", ".rtf", ".txt", ".csv", ".zip", ".rar", ".7z"
-        )
-        disallowed_extensions = (".exe",)
-        soup = BeautifulSoup(html_content, 'html.parser')
-        file_links = []
-        for a in soup.find_all('a'):
-            href = a.get('href')
-            if not href:
-                continue
-            absolute_url = urljoin(base_url, href)
-            lower = absolute_url.lower().split('?')[0]
-            if lower.endswith('.pdf'):
-                continue
-            if lower.endswith(disallowed_extensions):
-                continue
-            if lower.endswith(extensions):
-                file_links.append(absolute_url)
-        return file_links
+        return self._asset_policy().extract_file_links(html_content, base_url)
 
     def _should_skip_file_download(
         self,
@@ -155,19 +130,7 @@ class ServiceParseAssetsMixin:
         content_type: str
     ) -> bool:
         """Skip downloads that resolve to disallowed or extension-less files."""
-        parsed = urlparse(url)
-        path = parsed.path.lower()
-        if path.endswith(".exe"):
-            return True
-        if filename and filename.lower().endswith(".exe"):
-            return True
-        if content_type == "application/x-msdownload":
-            return True
-        if not filename:
-            return True
-        if Path(filename).suffix == "":
-            return True
-        return False
+        return self._asset_policy().should_skip_file_download(url, filename, content_type)
 
     async def fetch_head(self: "ServiceParseAssetsMixinProtocol", url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL"""
@@ -189,14 +152,13 @@ class ServiceParseAssetsMixin:
         head_headers: Optional[Dict[str, str]] = None
     ) -> bool:
         """Check if a URL points directly to a PDF"""
-        if url.lower().split('?')[0].endswith('.pdf'):
+        if self._asset_policy().is_pdf_url(url):
             return True
 
         headers = head_headers or await self.fetch_head(url)
         if isinstance(headers, tuple):
             headers = headers[1]
-        content_type = headers.get('content-type', '') if isinstance(headers, dict) else ''
-        return 'pdf' in content_type.lower()
+        return self._asset_policy().is_pdf_resource(url, headers if isinstance(headers, dict) else {})
 
     async def is_file_resource(
         self: "ServiceParseAssetsMixinProtocol",
@@ -205,18 +167,7 @@ class ServiceParseAssetsMixin:
         head_headers: Optional[Dict[str, str]] = None
     ) -> bool:
         """Check if a URL points directly to a non-PDF file."""
-        parsed = urlparse(url)
-        path = parsed.path.lower()
-        if path.endswith(".exe"):
-            return False
-        if "/media/" in path and not path.endswith(".pdf"):
-            return True
-
-        extensions = (
-            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
-            ".odp", ".rtf", ".txt", ".csv", ".zip", ".rar", ".7z"
-        )
-        if path.endswith(extensions):
+        if self._asset_policy().is_file_resource(url, None):
             return True
 
         headers = head_headers or await self.fetch_head(url)
@@ -225,30 +176,10 @@ class ServiceParseAssetsMixin:
         if not isinstance(headers, dict):
             return False
 
-        content_type = headers.get('content-type', '').lower()
-        if not content_type:
-            return False
-        if content_type == "application/x-msdownload":
-            return False
-        if 'text/html' in content_type:
-            return False
-        if content_type.startswith('image/'):
-            return False
-        if content_type in ("text/css", "text/javascript", "application/javascript"):
-            return False
-        if 'application/' in content_type or 'octet-stream' in content_type:
-            return True
-
-        content_disposition = headers.get('content-disposition', '').lower()
-        return 'attachment' in content_disposition
+        return self._asset_policy().is_file_resource(url, headers)
 
     def _filename_from_content_disposition(self, header_value: str) -> Optional[str]:
-        if not header_value:
-            return None
-        match = re.search(r"filename\\*?=(?:UTF-8''|\\\")?([^\\\";]+)", header_value, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        return None
+        return self._asset_policy().filename_from_content_disposition(header_value)
 
     async def fetch_and_save_pdf(
         self: "ServiceParseAssetsMixinProtocol",
@@ -298,18 +229,7 @@ class ServiceParseAssetsMixin:
                                 continue
                             return None
 
-                        parsed = urlparse(pdf_url)
-                        filename = os.path.basename(parsed.path)
-                        if not filename or not filename.lower().endswith('.pdf'):
-                            filename = f"file_{abs(hash(pdf_url))}.pdf"
-
-                        umlaut_map = str.maketrans({
-                            'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
-                            'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
-                            'ß': 'ss'
-                        })
-                        filename = filename.translate(umlaut_map)
-                        filename = re.sub(r'[^\w\-_\.]', '_', filename)
+                        filename = self._asset_policy().pdf_filename_from_url(pdf_url)
 
                         pdf_bytes = bytes(pdf_buffer)
 
@@ -414,24 +334,13 @@ class ServiceParseAssetsMixin:
                                 continue
                             return None
 
-                        filename = self._filename_from_content_disposition(content_disposition)
-                        if not filename:
-                            parsed = urlparse(file_url)
-                            filename = os.path.basename(parsed.path)
-                        if not filename:
-                            ext = mimetypes.guess_extension(content_type or "")
-                            ext = ext or ".bin"
-                            filename = f"file_{abs(hash(file_url))}{ext}"
+                        filename = self._asset_policy().file_filename_from_response(
+                            file_url,
+                            content_type,
+                            content_disposition,
+                        )
                         if self._should_skip_file_download(file_url, filename, content_type):
                             return None
-
-                        umlaut_map = str.maketrans({
-                            'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
-                            'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
-                            'ß': 'ss'
-                        })
-                        filename = filename.translate(umlaut_map)
-                        filename = re.sub(r'[^A-Za-z0-9._-]', '_', filename)
 
                         file_bytes = bytes(file_buffer)
 

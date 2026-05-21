@@ -2,11 +2,11 @@ import asyncio
 import json
 import time
 from typing import Dict, Optional, TYPE_CHECKING
-from urllib.parse import urlparse
 
 import aiofiles
 from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
+from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
 
 if TYPE_CHECKING:
@@ -23,21 +23,7 @@ class ServiceCrawlRuntimeMixin:
 
     def looks_like_file_url(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> bool:
         """Return True for URLs that should be downloaded instead of rendered."""
-        parsed = urlparse(url)
-        path = parsed.path.lower()
-        if path.endswith(".exe"):
-            return True
-        if path.endswith(".pdf"):
-            return True
-        extensions = (
-            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
-            ".odp", ".rtf", ".txt", ".csv", ".zip", ".rar", ".7z"
-        )
-        if path.endswith(extensions):
-            return True
-        if "/media/" in path and not path.endswith(".pdf"):
-            return True
-        return False
+        return AssetPolicy().looks_like_file_url(url)
 
     def build_run_config(self: "ServiceCrawlRuntimeMixinProtocol") -> CrawlerRunConfig:
         """Build the shared Crawl4AI run config for single-page and batch crawls."""
