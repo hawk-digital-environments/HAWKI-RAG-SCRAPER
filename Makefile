@@ -40,7 +40,7 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
-.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared start-ui ci-test
+.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared audit-ui-fix start-ui ci-test
 
 crawl:
 	@set -e; \
@@ -170,8 +170,18 @@ down:
 logs:
 	docker compose logs -f
 
+audit-ui-fix:
+	@set -e; \
+		echo "Running npm audit fix in ui/"; \
+		if npm audit fix --prefix ui; then \
+			exit 0; \
+		fi; \
+		echo "npm audit fix left advisories; checking production dependencies before continuing"; \
+		npm audit --omit=dev --prefix ui
+
 start-ui:
 	npm install --prefix ui
+	$(MAKE) audit-ui-fix
 	npm --prefix ui run dev
 
 clean-shared:
