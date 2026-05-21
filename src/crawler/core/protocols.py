@@ -19,7 +19,9 @@ from crawl4ai.async_configs import CrawlerRunConfig
 
 from hawki_crawler.crawler.communication.interface import Stage
 from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.sitemap.service import SitemapService
 
 
 class ServiceUrlPolicyMixinProtocol(Protocol):
@@ -51,6 +53,7 @@ class ServiceSitemapMixinProtocol(Protocol):
     job_id: Optional[str]
     url_tracking_manager: Any
 
+    def _sitemap_service(self) -> SitemapService: ...
     def _normalize_url_key(self, url: str) -> Optional[str]: ...
     def _normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]: ...
     def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]: ...
@@ -72,6 +75,7 @@ class ServiceProgressMixinProtocol(Protocol):
 class ServiceDateLangMixinProtocol(Protocol):
     """Dependencies used by date/language extraction helpers."""
 
+    def _date_language_service(self) -> DateLanguageService: ...
     def lookup_sitemap_entry(self, url: str) -> Optional[Dict[str, Any]]: ...
 
 
