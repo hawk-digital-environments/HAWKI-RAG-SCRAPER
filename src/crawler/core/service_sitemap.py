@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from hawki_crawler.crawler.core.sitemap_scraper import SitemapScraper
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceSitemapMixinProtocol
 
 LOGGER = logging.getLogger("crawler.sitemap")
 
@@ -60,7 +60,7 @@ class ServiceSitemapMixin:
             or entry.get("published_at")
         )
 
-    def load_sitemap_map(self: "CrawlerServiceProtocol", path: str) -> Dict[str, Dict[str, str]]:
+    def load_sitemap_map(self: "ServiceSitemapMixinProtocol", path: str) -> Dict[str, Dict[str, str]]:
         """Load sitemap JSON into a normalized dict; silent fallback to empty."""
         if not path:
             return {}
@@ -79,7 +79,7 @@ class ServiceSitemapMixin:
         except Exception:
             return {}
 
-    def load_sitemap_urls(self: "CrawlerServiceProtocol", path: str) -> List[str]:
+    def load_sitemap_urls(self: "ServiceSitemapMixinProtocol", path: str) -> List[str]:
         """Load sitemap JSON and preserve full URLs for crawl seeding."""
         if not path:
             return []
@@ -99,13 +99,13 @@ class ServiceSitemapMixin:
         except Exception:
             return []
 
-    def lookup_sitemap_entry(self: "CrawlerServiceProtocol", url: str) -> Optional[Dict[str, str]]:
+    def lookup_sitemap_entry(self: "ServiceSitemapMixinProtocol", url: str) -> Optional[Dict[str, str]]:
         key = self._normalize_url_key(url)
         if not key:
             return None
         return self.sitemap_map.get(key)
 
-    def first_sitemap_entry(self: "CrawlerServiceProtocol", *urls: str) -> Optional[Dict[str, str]]:
+    def first_sitemap_entry(self: "ServiceSitemapMixinProtocol", *urls: str) -> Optional[Dict[str, str]]:
         """Return the first sitemap entry found for the provided URLs."""
         for u in urls:
             entry = self.lookup_sitemap_entry(u)
@@ -124,7 +124,7 @@ class ServiceSitemapMixin:
             return None
         return None
 
-    async def run_sitemap_scrape(self: "CrawlerServiceProtocol"):
+    async def run_sitemap_scrape(self: "ServiceSitemapMixinProtocol"):
         """Optionally scrape the sitemap JSON before crawling."""
         if not getattr(self.config, "sitemap", False):
             return
@@ -159,7 +159,7 @@ class ServiceSitemapMixin:
             return True
         return False
 
-    async def parse_sitemap(self: "CrawlerServiceProtocol", sitemap_url: str) -> List[str]:
+    async def parse_sitemap(self: "ServiceSitemapMixinProtocol", sitemap_url: str) -> List[str]:
         """Parse sitemap and extract URLs"""
         urls_with_dates = []
         try:
@@ -264,7 +264,7 @@ class ServiceSitemapMixin:
 
         return []
 
-    async def discover_urls(self: "CrawlerServiceProtocol", html_content: str, base_url: str) -> List[str]:
+    async def discover_urls(self: "ServiceSitemapMixinProtocol", html_content: str, base_url: str) -> List[str]:
         """Extract links from HTML and normalize them."""
         soup = BeautifulSoup(html_content, 'html.parser')
         links = []

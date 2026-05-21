@@ -13,15 +13,15 @@ from aiohttp.http_exceptions import ContentLengthError
 from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceParseAssetsMixinProtocol
 
 
 class ServiceParseAssetsMixin:
-    def _asset_logger(self: "CrawlerServiceProtocol"):
+    def _asset_logger(self: "ServiceParseAssetsMixinProtocol"):
         return getattr(self, "job_logger", logging.getLogger("crawler"))
 
     async def _publish_saved_file_event(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         *,
         file_url: str,
         page_url: Optional[str],
@@ -63,7 +63,7 @@ class ServiceParseAssetsMixin:
             )
 
     async def download_image(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         image_url: str,
         session: aiohttp.ClientSession,
         images_dir: Path
@@ -169,7 +169,7 @@ class ServiceParseAssetsMixin:
             return True
         return False
 
-    async def fetch_head(self: "CrawlerServiceProtocol", url: str) -> Tuple[Optional[int], Dict[str, str]]:
+    async def fetch_head(self: "ServiceParseAssetsMixinProtocol", url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL"""
         await self.rate_limiter.acquire()
 
@@ -183,7 +183,7 @@ class ServiceParseAssetsMixin:
             return None, {}
 
     async def is_pdf_resource(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         url: str,
         head_status: Optional[int] = None,
         head_headers: Optional[Dict[str, str]] = None
@@ -199,7 +199,7 @@ class ServiceParseAssetsMixin:
         return 'pdf' in content_type.lower()
 
     async def is_file_resource(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         url: str,
         head_status: Optional[int] = None,
         head_headers: Optional[Dict[str, str]] = None
@@ -251,7 +251,7 @@ class ServiceParseAssetsMixin:
         return None
 
     async def fetch_and_save_pdf(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         pdf_url: str,
         page_number: int,
         session: Optional[aiohttp.ClientSession] = None,
@@ -367,7 +367,7 @@ class ServiceParseAssetsMixin:
                 await session.close()
 
     async def fetch_and_save_file(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseAssetsMixinProtocol",
         file_url: str,
         page_number: int,
         session: Optional[aiohttp.ClientSession] = None,

@@ -14,11 +14,11 @@ from hawki_crawler.crawler.core.service_utils import assess_content_quality, det
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceParseContentMixinProtocol
 
 
 class ServiceParseContentMixin:
-    def _site_profile_extractors(self: "CrawlerServiceProtocol") -> Dict[str, List[str]]:
+    def _site_profile_extractors(self: "ServiceParseContentMixinProtocol") -> Dict[str, List[str]]:
         profile = (getattr(self, "site_profile", {}) or {}).get("content", {})
         return {
             "selectors": profile.get("content_selectors") or [],
@@ -72,7 +72,7 @@ class ServiceParseContentMixin:
         return str(markdown)
 
     def _clean_markdown_output(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseContentMixinProtocol",
         markdown: str,
         noise_phrases: List[str],
     ) -> tuple[str, List[str]]:
@@ -83,7 +83,7 @@ class ServiceParseContentMixin:
         return finalize_markdown_content(markdown, site_noise_phrases=noise_phrases)
 
     async def extract_page_data(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceParseContentMixinProtocol",
         url: str,
         page_number: int,
         *,

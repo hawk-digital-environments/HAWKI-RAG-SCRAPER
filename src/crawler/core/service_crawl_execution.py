@@ -14,7 +14,7 @@ from hawki_crawler.crawler.storage.summary_manager import SummaryManager
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceCrawlExecutionMixinProtocol
 
 
 class ServiceCrawlExecutionMixin:
@@ -26,11 +26,11 @@ class ServiceCrawlExecutionMixin:
     config, queues, trackers, storage, logging, and helper methods.
     """
 
-    def _is_pause_requested(self: "CrawlerServiceProtocol") -> bool:
+    def _is_pause_requested(self: "ServiceCrawlExecutionMixinProtocol") -> bool:
         """Return True when the API has asked this job to pause."""
         return bool(self.pause_event and not self.pause_event.is_set())
 
-    async def _wait_if_paused(self: "CrawlerServiceProtocol") -> None:
+    async def _wait_if_paused(self: "ServiceCrawlExecutionMixinProtocol") -> None:
         """Wait while the job is paused, without losing queued URLs.
 
         Pause is cooperative: active network/browser work is allowed to finish,
@@ -55,7 +55,7 @@ class ServiceCrawlExecutionMixin:
                 await self.job_state.set_status("running")
 
     async def crawl_page(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceCrawlExecutionMixinProtocol",
         url: str,
         crawl_result: Optional[object] = None
     ):
@@ -385,7 +385,7 @@ class ServiceCrawlExecutionMixin:
                 async with self.counter_lock:
                     self.page_counter -= 1
 
-    async def _run_crawl_batches(self: "CrawlerServiceProtocol", crawler: AsyncWebCrawler):
+    async def _run_crawl_batches(self: "ServiceCrawlExecutionMixinProtocol", crawler: AsyncWebCrawler):
         """Drain the URL queue in batches until paused, stopped, or finished."""
         while self.to_visit and not self.abort_crawl and (
             self.config.max_pages == 0
@@ -459,7 +459,7 @@ class ServiceCrawlExecutionMixin:
             if self.restart_crawler:
                 break
 
-    async def crawl(self: "CrawlerServiceProtocol") -> Dict:
+    async def crawl(self: "ServiceCrawlExecutionMixinProtocol") -> Dict:
         """Run the complete crawl job from initialization through final summary."""
         try:
             if self.http_session is None or self.http_session.closed:

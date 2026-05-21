@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from email.utils import parsedate_to_datetime
 
 if TYPE_CHECKING:
-    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import ServiceDateLangMixinProtocol
 
 
 class ServiceDateLangMixin:
@@ -73,7 +73,7 @@ class ServiceDateLangMixin:
         }
 
     def detect_language(
-        self: "CrawlerServiceProtocol",
+        self: "ServiceDateLangMixinProtocol",
         html_content: Optional[str],
         head_headers: Optional[Dict[str, str]],
         url: Optional[str] = None,

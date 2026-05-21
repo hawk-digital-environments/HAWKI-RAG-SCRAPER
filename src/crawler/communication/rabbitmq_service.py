@@ -19,6 +19,7 @@ Configuration:
 """
 
 import asyncio
+from contextlib import contextmanager
 import importlib
 import json
 import logging
@@ -122,6 +123,23 @@ class RabbitMQCommunicationService(CommunicationInterface):
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 3
         self._reconnect_delay = 2
+        self._publish_not_connected_logged = False
+
+    @contextmanager
+    def _quiet_expected_connection_logs(self):
+        """Silence noisy AMQP transport logs while connect() handles retries."""
+        logger_names = ("aiormq.connection", "aio_pika.robust_connection")
+        previous_levels = {
+            name: logging.getLogger(name).level
+            for name in logger_names
+        }
+        try:
+            for name in logger_names:
+                logging.getLogger(name).setLevel(logging.CRITICAL)
+            yield
+        finally:
+            for name, level in previous_levels.items():
+                logging.getLogger(name).setLevel(level)
 
     def _resolve_exchange_type(self) -> Any:
         exchange_map = {
@@ -157,11 +175,12 @@ class RabbitMQCommunicationService(CommunicationInterface):
 
             # Establish connection
             self.logger.info(f"Establishing connection to RabbitMQ...")
-            self.connection = await self._aio_pika.connect_robust(
-                url,
-                timeout=5,
-                heartbeat=30
-            )
+            with self._quiet_expected_connection_logs():
+                self.connection = await self._aio_pika.connect_robust(
+                    url,
+                    timeout=5,
+                    heartbeat=30
+                )
             self.logger.info(f"RabbitMQ connection established")
 
             # Create channel
@@ -206,6 +225,7 @@ class RabbitMQCommunicationService(CommunicationInterface):
             self.logger.info(f"Queue bound to exchange")
 
             self._connected = True
+            self._publish_not_connected_logged = False
             self._reconnect_attempts = 0
             success_msg = (
                 f"✅ Connected to RabbitMQ: {self.host}:{self.port} "
@@ -264,8 +284,10 @@ class RabbitMQCommunicationService(CommunicationInterface):
             bool: True if published successfully
         """
         if not self._connected or not self.exchange:
-            error_msg = f"Cannot publish event '{event}' - not connected"
-            self.logger.error(error_msg)
+            if not self._publish_not_connected_logged:
+                self.logger.warning("RabbitMQ is not connected; skipping event publishing for this job")
+                self._publish_not_connected_logged = True
+            self.logger.debug("Skipping RabbitMQ event '%s' - not connected", event)
             return False
 
         try:
