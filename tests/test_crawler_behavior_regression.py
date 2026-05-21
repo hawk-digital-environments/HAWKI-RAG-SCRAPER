@@ -3,12 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.crawler.communication import rabbitmq_service
-from src.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
-from src.crawler.core.service_sitemap import ServiceSitemapMixin
-from src.crawler.core.service_url_policy import ServiceUrlPolicyMixin
-from src.crawler.storage.page_output import build_page_metadata, determine_content_status
-from src.crawler.storage.storage_manager import StorageManager
+from hawki_crawler.crawler.communication import rabbitmq_service
+from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
+from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
+from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
+from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
+from hawki_crawler.crawler.storage.storage_manager import StorageManager
 
 
 class _PolicyAndSitemapService(ServiceUrlPolicyMixin, ServiceSitemapMixin):
@@ -27,7 +28,7 @@ class _PolicyAndSitemapService(ServiceUrlPolicyMixin, ServiceSitemapMixin):
 def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) -> None:
     rules_file = tmp_path / "forbidden_urls.txt"
     rules_file.write_text("blocked.example\n/private\n", encoding="utf-8")
-    service = _PolicyAndSitemapService(
+    service = UrlPolicyService(
         site_profile={
             "forbidden": {
                 "rules_file": str(rules_file),
@@ -46,7 +47,7 @@ def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) 
 
 
 def test_url_policy_allows_only_configured_discovery_hosts() -> None:
-    service = _PolicyAndSitemapService(
+    service = UrlPolicyService(
         site_profile={"discovery": {"allowed_hosts": ["example.com", "docs.example.org"]}},
         crawl_host="fallback.example",
     )
