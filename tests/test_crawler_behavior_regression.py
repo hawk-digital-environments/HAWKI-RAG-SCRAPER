@@ -222,6 +222,74 @@ async def test_completed_url_manifest_upserts_records_by_url(tmp_path) -> None:
     assert record["metadata_path"].endswith("/data.json")
 
 
+@pytest.mark.asyncio
+async def test_storage_manager_saves_hash_and_legacy_assets_to_expected_paths(tmp_path) -> None:
+    manager = StorageManager("job-1", base_path=str(tmp_path))
+    manager.ensure_job_directory()
+    url_hash = "b" * 64
+    manager.create_hash_directory(url_hash)
+    manager.create_page_directory(3)
+
+    assert await manager.save_hash_image(url_hash, "image.png", b"image-bytes") == "image.png"
+    assert await manager.save_hash_pdf(url_hash, "document.pdf", b"pdf-bytes") == "document.pdf"
+    assert await manager.save_image(3, "legacy.png", b"legacy-image") == "legacy.png"
+    assert await manager.save_pdf(3, "legacy.pdf", b"legacy-pdf") == "legacy.pdf"
+
+    assert (manager.get_hash_images_directory(url_hash) / "image.png").read_bytes() == b"image-bytes"
+    assert (manager.get_hash_files_directory(url_hash) / "document.pdf").read_bytes() == b"pdf-bytes"
+    assert (manager.get_images_directory(3) / "legacy.png").read_bytes() == b"legacy-image"
+    assert (manager.get_files_directory(3) / "legacy.pdf").read_bytes() == b"legacy-pdf"
+
+
+@pytest.mark.asyncio
+async def test_storage_manager_saves_hash_and_legacy_page_files(tmp_path) -> None:
+    manager = StorageManager("job-1", base_path=str(tmp_path))
+    manager.ensure_job_directory()
+    url_hash = "d" * 64
+    manager.create_hash_directory(url_hash)
+    manager.create_page_directory(4)
+
+    await manager.save_hash_json(url_hash, {"url": "https://example.com/hash"})
+    await manager.save_hash_content(url_hash, "hash content")
+    await manager.save_page_json(4, {"url": "https://example.com/legacy"})
+    await manager.save_page_content(4, "")
+
+    hash_dir = manager.get_hash_directory(url_hash)
+    legacy_dir = manager.get_page_directory(4)
+
+    assert json.loads((hash_dir / "data.json").read_text(encoding="utf-8")) == {
+        "url": "https://example.com/hash",
+    }
+    assert (hash_dir / "content.md").read_text(encoding="utf-8") == "hash content"
+    assert json.loads((legacy_dir / "data.json").read_text(encoding="utf-8")) == {
+        "url": "https://example.com/legacy",
+    }
+    assert (legacy_dir / "content.md").read_text(encoding="utf-8") == ""
+
+
+def test_storage_manager_file_browser_lists_info_and_blocks_traversal(tmp_path) -> None:
+    manager = StorageManager("job-1", base_path=str(tmp_path))
+    manager.ensure_job_directory()
+    url_hash = "c" * 64
+    page_dir = manager.create_hash_directory(url_hash)
+    (page_dir / "content.md").write_text("hello", encoding="utf-8")
+    (page_dir / "data.json").write_text("{}", encoding="utf-8")
+
+    files = manager.list_files(relative=True)
+
+    assert files == [
+        f"pages/c/c/c/c/{url_hash}/content.md",
+        f"pages/c/c/c/c/{url_hash}/data.json",
+    ]
+    info = manager.get_file_info(f"pages/c/c/c/c/{url_hash}/content.md")
+    assert info is not None
+    assert info["name"] == "content.md"
+    assert info["size"] == 5
+    assert info["type"] == "text/markdown"
+    assert manager.get_file_path("../outside.txt") is None
+    assert manager._get_file_type(page_dir / "unknown.bin") == "application/octet-stream"
+
+
 class _FailingAioPika:
     async def connect_robust(self, *_args, **_kwargs):
         raise rabbitmq_service.AMQPException("broker unavailable")
