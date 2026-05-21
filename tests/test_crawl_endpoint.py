@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -74,12 +75,60 @@ def download_file(client):
 
 
 @pytest.mark.asyncio
-async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, download_file):
+async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, download_file, monkeypatch):
     """Test that first site on sitemap can be crawled.
-    
-    Warning: test will need changes if page content changes.
+
+    The crawl internals are patched to avoid relying on the live HAWK site or a
+    local browser during regression tests. This keeps the API/job/storage
+    lifecycle frozen while refactors move crawler internals around.
     """
     job_id = str(uuid.uuid4())
+    target_url = "https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement"
+    expected_text = "Bei uns stehen die nachhaltige Zukunft von Natur und Gesellschaft im Mittelpunkt."
+
+    monkeypatch.setenv("COMMUNICATION_METHOD", "none")
+    monkeypatch.setenv("COMMUNICATION_ENABLED", "false")
+
+    async def fake_parse_sitemap(self, sitemap_url):
+        if self.url_tracking_manager:
+            await self.url_tracking_manager.add_urls_from_sitemap([(target_url, None)])
+        return [target_url]
+
+    async def fake_fetch_head(self, url):
+        return 200, {"content-language": "de", "last-modified": "Wed, 20 May 2026 10:00:00 GMT"}
+
+    class FakeCrawler:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def arun_many(self, urls, config=None):
+            return [
+                SimpleNamespace(
+                    success=True,
+                    error_message=None,
+                    html=(
+                        "<html lang='de'><head>"
+                        "<title>Fakultaet Ressourcenmanagement</title>"
+                        f"<link rel='canonical' href='{target_url}' />"
+                        "</head><body>"
+                        f"<main><p>{expected_text}</p></main>"
+                        "</body></html>"
+                    ),
+                    markdown=expected_text,
+                    media={"images": []},
+                    final_url=urls[0],
+                    page_url=urls[0],
+                )
+                for url in urls
+            ]
+
+    monkeypatch.setattr("src.crawler.core.service_sitemap.ServiceSitemapMixin.parse_sitemap", fake_parse_sitemap)
+    monkeypatch.setattr("src.crawler.core.service_parse_assets.ServiceParseAssetsMixin.fetch_head", fake_fetch_head)
+    monkeypatch.setattr("src.crawler.core.service_crawl_execution.AsyncWebCrawler", lambda config=None: FakeCrawler())
+
     config = {
         "job_id": job_id,
         "url": "https://www.hawk.de/sitemaps/main/sitemap.xml",
@@ -147,9 +196,9 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
     assert_that( completed_urls["records"], has_length(1))
     record = completed_urls["records"][0]
     assert_that(record, has_entries(
-        url="https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement",
-        source_url="https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement",
-        canonical_url="https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement",
+        url=target_url,
+        source_url=target_url,
+        canonical_url=target_url,
         http_status=200,
         source_type="sitemap",
         depth=0,
@@ -163,6 +212,4 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
     md_content = await download_file(job_id, content_md_path)
     assert md_content.status_code == 200
 
-    assert_that(md_content.text,
-        "> Bei uns stehen die nachhaltige Zukunft von Natur und Gesellschaft im Mittelpunkt."
-    )
+    assert expected_text in md_content.text
