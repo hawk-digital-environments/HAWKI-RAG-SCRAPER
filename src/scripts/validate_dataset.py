@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from src.crawler.storage.page_output import validate_job_directory
+from hawki_crawler.crawler.storage.page_output import validate_job_directory
 
 
 def main() -> int:

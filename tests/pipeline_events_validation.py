@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from src.common.pipeline_events import FileDiscoveredEvent
+from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
 
 
 def test_file_discovered_event_schema_validates_required_fields() -> None:

@@ -4,9 +4,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from src.common.job_schema import CrawlJob
-from src.crawler.communication.producer_service import publish_crawl_job
-from src.crawler.communication.rabbit_producer import RabbitMQProducer, RabbitProducerConfig
+from hawki_crawler.common.job_schema import CrawlJob
+from hawki_crawler.crawler.communication.producer_service import publish_crawl_job
+from hawki_crawler.crawler.communication.rabbit_producer import RabbitMQProducer, RabbitProducerConfig
 
 
 class FakeExchange:

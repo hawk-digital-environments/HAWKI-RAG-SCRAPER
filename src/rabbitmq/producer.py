@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from src.common.pipeline_events import FileDiscoveredEvent
+from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
 
 
 def _env_bool(name: str, default: bool) -> bool:

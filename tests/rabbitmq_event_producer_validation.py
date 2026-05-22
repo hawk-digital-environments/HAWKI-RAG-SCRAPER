@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from src.common.pipeline_events import FileDiscoveredEvent
-from src.rabbitmq.producer import RabbitMQEventProducer, RabbitMQEventProducerConfig
+from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
+from hawki_crawler.rabbitmq.producer import RabbitMQEventProducer, RabbitMQEventProducerConfig
 
 
 class FakeExchange:

@@ -7,10 +7,10 @@ from urllib.parse import urlparse
 import aiofiles
 from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
-from src.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
+from hawki_crawler.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceCrawlRuntimeMixin:

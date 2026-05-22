@@ -6,7 +6,7 @@ services:
     image: crawl4ai-fastapi:latest
     container_name: crawl4ai-service
     ports:
-      - "8040:8000"
+      - "8041:8000"
     environment:
       # Communication layer (rabbitmq or none)
       - COMMUNICATION_ENABLED=${COMMUNICATION_ENABLED:-true}
@@ -58,7 +58,7 @@ services:
       # Forbidden hosts list
       - ./forbidden_urls.txt:/app/forbidden_urls.txt:ro
       # Utility scripts
-      - ./src/scripts:/app/src/scripts:ro
+      - ./src/scripts:/app/hawki_crawler/scripts:ro
       # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
       - rawki_shared_storage:/app/shared

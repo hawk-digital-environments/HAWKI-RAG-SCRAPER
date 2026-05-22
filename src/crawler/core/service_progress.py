@@ -1,9 +1,9 @@
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
-from src.crawler.communication.interface import Stage
+from hawki_crawler.crawler.communication.interface import Stage
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceProgressMixin:

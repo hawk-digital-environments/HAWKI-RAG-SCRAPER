@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import aiofiles
 
-from src.crawler.storage.page_output import (
+from hawki_crawler.crawler.storage.page_output import (
     CONTENT_FILENAME,
     METADATA_FILENAME,
     PAGE_ROOT_DIRNAME,

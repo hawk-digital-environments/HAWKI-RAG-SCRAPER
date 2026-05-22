@@ -9,16 +9,16 @@ from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
-from src.crawler.models import CrawlConfig
-from src.crawler.state.progress_tracker import ProgressTracker
-from src.crawler.state.job_state import JobState
-from src.crawler.storage.url_tracking_manager import URLTrackingManager
-from src.crawler.storage.summary_manager import SummaryManager
-from src.crawler.core.service_rate import RateLimiter
-from src.crawler.core.sitemap_scraper import DEFAULT_SITEMAP_BASE
-from src.crawler.profiles import resolve_site_profile
-from src.services.file_event_publisher import FileEventPublisher
-from src.common.logging_setup import parse_log_level
+from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.state.progress_tracker import ProgressTracker
+from hawki_crawler.crawler.state.job_state import JobState
+from hawki_crawler.crawler.storage.url_tracking_manager import URLTrackingManager
+from hawki_crawler.crawler.storage.summary_manager import SummaryManager
+from hawki_crawler.crawler.core.service_rate import RateLimiter
+from hawki_crawler.crawler.core.sitemap_scraper import DEFAULT_SITEMAP_BASE
+from hawki_crawler.crawler.profiles import resolve_site_profile
+from hawki_crawler.services.file_event_publisher import FileEventPublisher
+from hawki_crawler.common.logging_setup import parse_log_level
 
 
 class ServiceInitMixin:

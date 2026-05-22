@@ -9,10 +9,10 @@ from email.utils import parsedate_to_datetime
 import aiohttp
 from bs4 import BeautifulSoup
 
-from src.crawler.core.sitemap_scraper import SitemapScraper
+from hawki_crawler.crawler.core.sitemap_scraper import SitemapScraper
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 LOGGER = logging.getLogger("crawler.sitemap")
 

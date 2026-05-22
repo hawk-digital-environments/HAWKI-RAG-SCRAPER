@@ -7,7 +7,7 @@ import pytest_asyncio
 import httpx
 from hamcrest import assert_that, greater_than, has_entries, has_item, instance_of, has_length
 
-from src.app.main import app
+from hawki_crawler.app.main import app
 
 logger = logging.getLogger(__name__)
 

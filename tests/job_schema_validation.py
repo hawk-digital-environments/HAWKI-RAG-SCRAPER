@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from src.common.job_schema import CrawlJob
+from hawki_crawler.common.job_schema import CrawlJob
 
 
 def test_crawl_job_schema_validates_required_fields() -> None:

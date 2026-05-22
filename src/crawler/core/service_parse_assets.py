@@ -13,7 +13,7 @@ from aiohttp.http_exceptions import ContentLengthError
 from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceParseAssetsMixin:

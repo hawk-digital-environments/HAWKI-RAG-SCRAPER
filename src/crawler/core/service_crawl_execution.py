@@ -8,13 +8,13 @@ import aiohttp
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig
 
-from src.crawler.communication.interface import Stage
-from src.crawler.storage.url_tracking_manager import generate_url_hash
-from src.crawler.storage.summary_manager import SummaryManager
-from src.crawler.storage.page_output import build_page_metadata
+from hawki_crawler.crawler.communication.interface import Stage
+from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
+from hawki_crawler.crawler.storage.summary_manager import SummaryManager
+from hawki_crawler.crawler.storage.page_output import build_page_metadata
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceCrawlExecutionMixin:

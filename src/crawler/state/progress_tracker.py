@@ -22,7 +22,7 @@ import time
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from src.crawler.communication.interface import Stage
+from hawki_crawler.crawler.communication.interface import Stage
 
 
 class ProgressTracker:

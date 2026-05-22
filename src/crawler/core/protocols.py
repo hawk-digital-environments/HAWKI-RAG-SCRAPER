@@ -16,8 +16,8 @@ from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
 import aiohttp
 from crawl4ai.async_configs import CrawlerRunConfig
 
-from src.crawler.communication.interface import Stage
-from src.crawler.models import CrawlConfig
+from hawki_crawler.crawler.communication.interface import Stage
+from hawki_crawler.crawler.models import CrawlConfig
 
 
 class CrawlerServiceProtocol(Protocol):
