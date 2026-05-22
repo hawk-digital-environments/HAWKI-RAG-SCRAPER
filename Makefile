@@ -20,6 +20,8 @@ PYTHON ?= python3
 DISCOVERY_MODE ?= false
 SKIP_IMAGES ?= false
 
+CRAWLER_HOST ?= http://localhost:8040
+
 .DEFAULT_GOAL := help
 
 # Allow `make cancel <job_id>` as shorthand
@@ -58,7 +60,7 @@ crawl:
 			effective_discovery_mode=false; \
 			echo "Running crawl with sitemap-sized max_pages=$$effective_max_pages and discovery_mode=$$effective_discovery_mode"; \
 		fi; \
-		curl -s -X POST http://localhost:8040/crawl \
+		curl -s -X POST $(CRAWLER_HOST)/crawl \
 			-H "Content-Type: application/json" \
 			-d "{\"url\": \"$(URL)\", \"job_id\":\"$(JOB_ID_FULL)\", \"site_profile_path\":\"$(SITE_PROFILE)\", \"rescrape_failed\": $(RESCRAPE_FAILED), \"sitemap\": true, \"sitemap_base\": \"$(SITEMAP_BASE)\", \"sitemap_output\": \"$(SITE_SITEMAP_FILE)\", \"max_pages\": $$effective_max_pages, \"discovery_mode\": $$effective_discovery_mode, \"skip_images\": $(SKIP_IMAGES), \"max_concurrency\": 2, \"max_rpm\": 40}" \
 			| $(PYTHON) -m json.tool
@@ -66,7 +68,7 @@ crawl:
 crawl-profile-sitemap:
 	docker compose exec -T crawler \
 		sh -lc 'mkdir -p $(SITEMAP_DIR) && \
-		python -m src.crawler.core.sitemap_scraper --sitemap \
+		python -m hawki_crawler.crawler.core.sitemap_scraper --sitemap \
 		--base-url $(SITEMAP_BASE) \
 		--profile $(SITE_PROFILE) \
 		--start-page $(SITEMAP_START) \
@@ -74,19 +76,19 @@ crawl-profile-sitemap:
 		--output $(SITE_SITEMAP_FILE)'
 
 crawl-sample:
-	curl -s -X POST http://localhost:8040/crawl \
+	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de", "job_id":"$(JOB_ID_SAMPLE)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(MAX_PAGES_SAMPLE), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 1, "max_rpm": 20}' \
 		| $(PYTHON) -m json.tool
 
 crawl-site:
-	curl -s -X POST http://localhost:8040/crawl \
+	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "https://www.hawk.de","job_id":"$(JOB_ID_FULL)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(if $(strip $(MAX_PAGES_FULL)),$(MAX_PAGES_FULL),$(CRAWL_SITE_MAX_PAGES)), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
 crawl-site-sitemap-only:
-	curl -s -X POST http://localhost:8040/crawl \
+	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "$(SITEMAP_BASE)","job_id":"$(JOB_ID_FULL)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "sitemap_only": true, "discovery_mode": false, "max_pages": 0, "skip_images": $(SKIP_IMAGES), "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
@@ -102,7 +104,7 @@ crawl-site-auto:
 		fi; \
 		printf "Waiting for job %s to complete...\\n" "$(JOB_ID_FULL)"; \
 		while true; do \
-			status=$$(curl -s http://localhost:8040/jobs/$(JOB_ID_FULL) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
+			status=$$(curl -s $(CRAWLER_HOST)/jobs/$(JOB_ID_FULL) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
 			if [ "$$status" = "completed" ]; then break; fi; \
 			sleep 10; \
 		done; \
@@ -119,7 +121,7 @@ crawl-site-auto:
 crawl-json-sitemap:
 	docker compose run --rm crawler \
 		sh -lc 'mkdir -p $(SITEMAP_DIR) && curl -sSfL "$(JSON_SITEMAP_URL)" -o $(JSON_SITEMAP_FILE)'
-	curl -s -X POST http://localhost:8040/crawl \
+	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
 		-d '{"url": "$(JSON_SITEMAP_URL)", "job_id":"$(JOB_ID_JSON_SITEMAP)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 6000, "discovery_mode": false, "skip_images": false, "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
@@ -135,7 +137,7 @@ crawl-json-sitemap-auto:
 		fi; \
 		printf "Waiting for job %s to complete...\\n" "$(JOB_ID_JSON_SITEMAP)"; \
 		while true; do \
-			status=$$(curl -s http://localhost:8040/jobs/$(JOB_ID_JSON_SITEMAP) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
+			status=$$(curl -s $(CRAWLER_HOST)/jobs/$(JOB_ID_JSON_SITEMAP) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
 			if [ "$$status" = "completed" ]; then break; fi; \
 			sleep 10; \
 		done; \
@@ -150,17 +152,17 @@ crawl-json-sitemap-auto:
 	exit 1
 
 jobs:
-	curl -s http://localhost:8040/jobs | $(PYTHON) -m json.tool
+	curl -s $(CRAWLER_HOST)/jobs | $(PYTHON) -m json.tool
 
 cancel:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make cancel JOB_ID=<id>  (or make cancel <id>)"; exit 1; fi
-	curl -s -X POST http://localhost:8040/jobs/$(JOB_ID)/cancel | $(PYTHON) -m json.tool
+	curl -s -X POST $(CRAWLER_HOST)/jobs/$(JOB_ID)/cancel | $(PYTHON) -m json.tool
 
 build:
 	docker compose build
 
 up:
-	docker compose up -d
+	docker compose up --build -d
 
 down:
 	docker compose down
@@ -187,7 +189,7 @@ help:
 	@printf "%-20s %s\n" "crawl-full"          "TODO: explain"
 	@printf "%-20s %s\n" "crawl-project"       "Display this help message"
 	@printf "%-20s %s\n" "jobs"                "Display all jobs"
-	@printf "%-20s %s\n" "cancel"              "Cancel a job via `JOB_ID` variable."
+	@printf "%-20s %s\n" "cancel"              "Cancel a job via 'JOB_ID' variable."
 	@printf "%-20s %s\n" "build"               "Build the crawler service."
 	@printf "%-20s %s\n" "up"                  "Start the crawler service."
 	@printf "%-20s %s\n" "down"                "Stop the crawler service without removing volumes."
@@ -195,4 +197,5 @@ help:
 	@printf "%-20s %s\n" "logs"                "Show live service logs."
 	@printf "%-20s %s\n" "virtualenv"          "Setup virtualenv."
 	@printf "%-20s %s\n" "setup"               "Setup requirements"
+	@printf "%-20s %s\n" "ci-test"             "To run ci tests"
 	@printf "%-20s %s\n" "help"                "Display this help message"

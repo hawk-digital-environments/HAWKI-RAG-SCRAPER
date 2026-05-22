@@ -1,6 +1,6 @@
 """Compatibility package for RabbitMQ producer modules."""
 
-from src.rabbitmq.producer import (
+from hawki_crawler.rabbitmq.producer import (
     PipelinePublishResult,
     RabbitMQEventProducer,
     RabbitMQEventProducerConfig,

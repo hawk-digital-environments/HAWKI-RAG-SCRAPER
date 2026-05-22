@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
-from src.common.job_schema import CrawlJob
+from hawki_crawler.common.job_schema import CrawlJob
 
 from .rabbit_producer import PublishResult, RabbitMQProducer, RabbitProducerConfig
 

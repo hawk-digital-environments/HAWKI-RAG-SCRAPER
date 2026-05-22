@@ -1,5 +1,5 @@
 # Multi-stage build for optimized Docker image
-FROM python:3.11-slim as base
+FROM python:3.11-slim AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 
-FROM base as development
+FROM base AS development
 
 ARG USERNAME=dev
 ARG USER_UID=1000
@@ -70,65 +70,61 @@ WORKDIR /workspace
 
 USER $USERNAME
 
+ENV NVM_DIR=/home/${USERNAME}/.nvm
 
-FROM base as test
+RUN mkdir -p $NVM_DIR \
+    && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
-WORKDIR /tests
+# Make nvm available in future shells
+RUN echo 'export NVM_DIR="$HOME/.nvm"' >> /home/${USERNAME}/.bashrc \
+    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /home/${USERNAME}/.bashrc \
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> /home/${USERNAME}/.bashrc
+
+
+
+FROM base AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 
-COPY pyproject.toml uv.lock .
+WORKDIR /build
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN uv build
 
-RUN uv venv && uv sync --all-groups
+
+FROM base AS test
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+
+WORKDIR /tests
+
+COPY README.md pyproject.toml uv.lock ./
+RUN uv venv && uv sync --all-groups --no-install-project
 RUN uv run playwright install --with-deps chromium
 
-COPY src ./src
+COPY src ./hawki_crawler
 COPY tests tests
 
-ENV PYTHONPATH="/tests:${PYTHONPATH}"
+ENV PYTHONPATH="/tests"
 
 CMD ["uv", "run", "pytest", "-vvv"]
 
 
-FROM development as requirements
+FROM base AS production
 
-USER root
-
-WORKDIR /build-requirements
-COPY pyproject.toml uv.lock .
-RUN uv export --no-dev --no-hashes --no-emit-project -o requirements.txt > requirements.txt
-
-
-FROM base as production
-
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY --from=requirements /build-requirements/requirements.txt requirements.txt
+COPY --from=builder /build/dist/*.whl .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install *.whl && rm *.whl
 
-# Install Playwright browsers
-RUN playwright install --with-deps chromium
+RUN python -m playwright install --with-deps chromium
 
-# Copy application code
-COPY src/ ./src/
-
-# Ensure src is on PYTHONPATH for runtime
-ENV PYTHONPATH="/app/src:${PYTHONPATH}"
-
-# Create output directory
 RUN mkdir -p /app/output && chmod 755 /app/output
 
-# Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "hawki_crawler.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

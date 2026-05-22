@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from src.common.job_schema import CrawlJob
+from hawki_crawler.common.job_schema import CrawlJob
 
 
 def _env_bool(name: str, default: bool) -> bool:

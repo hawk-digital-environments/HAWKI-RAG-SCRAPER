@@ -4,7 +4,7 @@ from typing import List, TYPE_CHECKING
 from urllib.parse import urlparse, parse_qs
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceUrlPolicyMixin:

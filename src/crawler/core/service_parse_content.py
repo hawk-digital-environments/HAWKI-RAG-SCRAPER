@@ -8,13 +8,13 @@ import aiohttp
 from bs4 import BeautifulSoup
 import html2text
 
-from src.crawler.core.service_helpers import clean_html_for_markdown, filter_markdown_lines
-from src.crawler.core.service_helpers import finalize_markdown_content, normalize_whitespace
-from src.crawler.core.service_utils import assess_content_quality, detect_language_confidence
-from src.crawler.storage.page_output import build_page_metadata
+from hawki_crawler.crawler.core.service_helpers import clean_html_for_markdown, filter_markdown_lines
+from hawki_crawler.crawler.core.service_helpers import finalize_markdown_content, normalize_whitespace
+from hawki_crawler.crawler.core.service_utils import assess_content_quality, detect_language_confidence
+from hawki_crawler.crawler.storage.page_output import build_page_metadata
 
 if TYPE_CHECKING:
-    from src.crawler.core.protocols import CrawlerServiceProtocol
+    from hawki_crawler.crawler.core.protocols import CrawlerServiceProtocol
 
 
 class ServiceParseContentMixin:

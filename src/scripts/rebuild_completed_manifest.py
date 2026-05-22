@@ -3,8 +3,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from src.crawler.storage.storage_manager import StorageManager
-from src.crawler.storage.page_output import METADATA_FILENAME, PAGE_ROOT_DIRNAME
+from hawki_crawler.crawler.storage.storage_manager import StorageManager
+from hawki_crawler.crawler.storage.page_output import METADATA_FILENAME, PAGE_ROOT_DIRNAME
 
 
 async def rebuild_manifest(job_dir: Path) -> int:

@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
-from src.common.pipeline_events import FileDiscoveredEvent
-from src.rabbitmq.producer import (
+from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
+from hawki_crawler.rabbitmq.producer import (
     PipelinePublishResult,
     RabbitMQEventProducer,
     RabbitMQEventProducerConfig,

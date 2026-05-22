@@ -15,12 +15,12 @@ import html2text
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
-from src.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
-from src.crawler.core.service import CrawlerService
-from src.crawler.communication.factory import CommunicationFactory
-from src.crawler.state.job_state import JobState
-from src.crawler.storage.storage_manager import StorageManager
-from src.common.logging_setup import configure_logging
+from hawki_crawler.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
+from hawki_crawler.crawler.core.service import CrawlerService
+from hawki_crawler.crawler.communication.factory import CommunicationFactory
+from hawki_crawler.crawler.state.job_state import JobState
+from hawki_crawler.crawler.storage.storage_manager import StorageManager
+from hawki_crawler.common.logging_setup import configure_logging
 
 # Configure logging for Docker with env-driven level/format.
 configure_logging()
