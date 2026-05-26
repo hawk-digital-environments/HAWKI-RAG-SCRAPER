@@ -14,7 +14,7 @@ from typing import Any, Optional
 from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
-from hawki_crawler.rabbitmq.producer import (
+from hawki_crawler.crawler.communication.pipeline_event_producer import (
     PipelinePublishResult,
     RabbitMQEventProducer,
     RabbitMQEventProducerConfig,

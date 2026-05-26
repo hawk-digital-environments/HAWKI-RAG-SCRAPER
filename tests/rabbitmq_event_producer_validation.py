@@ -5,7 +5,10 @@ from uuid import uuid4
 import pytest
 
 from hawki_crawler.common.pipeline_events import FileDiscoveredEvent
-from hawki_crawler.rabbitmq.producer import RabbitMQEventProducer, RabbitMQEventProducerConfig
+from hawki_crawler.crawler.communication.pipeline_event_producer import (
+    RabbitMQEventProducer,
+    RabbitMQEventProducerConfig,
+)
 
 
 class FakeExchange:
