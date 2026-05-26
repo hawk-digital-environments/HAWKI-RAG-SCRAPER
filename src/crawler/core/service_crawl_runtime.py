@@ -1,13 +1,11 @@
 import asyncio
-import json
 import time
 from typing import Dict, Optional, TYPE_CHECKING
 
-import aiofiles
 from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
-from hawki_crawler.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
+from hawki_crawler.crawler.storage.page_data_store import PageDataStore
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceCrawlRuntimeMixinProtocol
@@ -24,6 +22,13 @@ class ServiceCrawlRuntimeMixin:
     def looks_like_file_url(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> bool:
         """Return True for URLs that should be downloaded instead of rendered."""
         return AssetPolicy().looks_like_file_url(url)
+
+    def _page_data_store(self: "ServiceCrawlRuntimeMixinProtocol") -> PageDataStore:
+        return PageDataStore(
+            storage_manager=getattr(self, "storage_manager", None),
+            create_page_directory=self.create_page_directory,
+            skip_images=getattr(self.config, "skip_images", False),
+        )
 
     def build_run_config(self: "ServiceCrawlRuntimeMixinProtocol") -> CrawlerRunConfig:
         """Build the shared Crawl4AI run config for single-page and batch crawls."""
@@ -117,53 +122,5 @@ class ServiceCrawlRuntimeMixin:
         page_number: int,
         url_hash: str
     ):
-        """Persist page metadata/content and optional diagnostics.
-
-        Newer jobs store pages by URL hash so the same URL has a stable output
-        location. The page-number fallback is only for runs without a storage
-        manager, such as lightweight local tests.
-        """
-        low_quality_content = page_data.get('low_quality_content')
-        raw_html = page_data.get('html_content')
-        # Keep raw HTML when extraction produced weak or empty markdown; it helps debug bad pages later.
-        should_save_raw = bool(raw_html) and (low_quality_content or not page_data.get('markdown'))
-        if self.storage_manager:
-            # Preferred path: save under the URL hash directory.
-            self.storage_manager.create_hash_directory(url_hash, create_images_dir=not self.config.skip_images)
-            await self.storage_manager.save_hash_json(url_hash, page_data['data'])
-            await self.storage_manager.save_hash_content(url_hash, page_data['markdown'] if page_data['markdown'] else "")
-            await self.storage_manager.upsert_completed_url_record(page_data['data'], url_hash=url_hash)
-            if low_quality_content:
-                diagnostics_dir = self.storage_manager.get_hash_directory(url_hash) / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                low_q_file = diagnostics_dir / "low_q.txt"
-                async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
-                    await f.write(low_quality_content)
-            if should_save_raw:
-                diagnostics_dir = self.storage_manager.get_hash_directory(url_hash) / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                raw_file = diagnostics_dir / "raw.html"
-                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
-                    await f.write(raw_html)
-        else:
-            # Last-resort path for simple/local runs without the storage manager abstraction.
-            page_dir = await self.create_page_directory(page_number)
-            json_filename = page_dir / "data.json"
-            async with aiofiles.open(json_filename, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(page_data['data'], indent=2, ensure_ascii=False, allow_nan=False))
-
-            md_filename = page_dir / "content.md"
-            async with aiofiles.open(md_filename, 'w', encoding='utf-8') as f:
-                await f.write(page_data['markdown'] if page_data['markdown'] else "")
-            if low_quality_content:
-                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                low_q_file = diagnostics_dir / "low_q.txt"
-                async with aiofiles.open(low_q_file, 'w', encoding='utf-8') as f:
-                    await f.write(low_quality_content)
-            if should_save_raw:
-                diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
-                diagnostics_dir.mkdir(exist_ok=True)
-                raw_file = diagnostics_dir / "raw.html"
-                async with aiofiles.open(raw_file, 'w', encoding='utf-8') as f:
-                    await f.write(raw_html)
+        """Persist page metadata/content and optional diagnostics."""
+        await self._page_data_store().save_page_data(page_data, page_number, url_hash)
