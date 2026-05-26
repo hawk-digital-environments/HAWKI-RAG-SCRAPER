@@ -37,7 +37,10 @@ except ModuleNotFoundError:
     sys.modules["aiofiles"] = _stub
 
 from hawki_crawler.crawler.core.service_parse_assets import ServiceParseAssetsMixin
-from hawki_crawler.services.file_event_publisher import FileEventPublishOutcome, FileEventPublisher
+from hawki_crawler.crawler.communication.file_event_publisher import (
+    FileEventPublishOutcome,
+    FileEventPublisher,
+)
 
 
 class FakeProducer:
