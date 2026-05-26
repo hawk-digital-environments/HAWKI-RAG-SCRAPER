@@ -1,13 +1,12 @@
 import os
-import asyncio
 import time
 import logging
 import sys
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict
 from urllib.parse import urljoin
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from bs4 import BeautifulSoup
@@ -16,10 +15,8 @@ import html2text
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
+from hawki_crawler.app import job_lifecycle
 from hawki_crawler.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
-from hawki_crawler.crawler.core.service import CrawlerService
-from hawki_crawler.crawler.communication.factory import CommunicationFactory
-from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
 from hawki_crawler.common.logging_setup import configure_logging
 
@@ -31,14 +28,6 @@ logger = logging.getLogger("crawler.api")
 # Force unbuffered output for Docker
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
-
-# Store job statuses
-jobs: Dict[str, CrawlStatus] = {}
-# Track running tasks for cancellation
-tasks: Dict[str, asyncio.Task] = {}
-# Track pause controls and state objects for running jobs
-pause_events: Dict[str, asyncio.Event] = {}
-job_states: Dict[str, JobState] = {}
 
 
 def _log_startup_configuration() -> None:
@@ -60,53 +49,13 @@ def _log_startup_configuration() -> None:
     logger.info("=" * 60)
 
 
-async def _cancel_active_crawl_tasks() -> None:
-    """Cancel active crawl jobs during application shutdown."""
-    active_tasks = [(job_id, task) for job_id, task in tasks.items() if not task.done()]
-    if not active_tasks:
-        return
-
-    logger.info("Cancelling active crawl jobs", extra={"active_jobs": len(active_tasks)})
-    for pause_event in pause_events.values():
-        pause_event.set()
-
-    for job_id, task in active_tasks:
-        job = jobs.get(job_id)
-        if job:
-            job.status = "cancelled"
-            job.message = "Crawl cancelled during service shutdown"
-            job.completed_at = datetime.now()
-
-        state = job_states.get(job_id)
-        if state:
-            with suppress(Exception):
-                await state.set_status("cancelled")
-
-        task.cancel()
-
-    results = await asyncio.gather(
-        *(task for _job_id, task in active_tasks),
-        return_exceptions=True,
-    )
-
-    for (job_id, _task), result in zip(active_tasks, results):
-        if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
-            logger.warning(
-                "crawl job raised during shutdown",
-                extra={"job_id": job_id, "error": str(result)},
-            )
-        tasks.pop(job_id, None)
-        pause_events.pop(job_id, None)
-        job_states.pop(job_id, None)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_startup_configuration()
     try:
         yield
     finally:
-        await _cancel_active_crawl_tasks()
+        await job_lifecycle.cancel_active_crawl_tasks()
         logger.info("Crawl4AI Service shutdown complete")
 
 
@@ -251,156 +200,6 @@ async def extract_page_content(url: str, skip_images: bool = False, date_selecto
         }
 
 
-async def run_crawl_job(job_id: str, config: CrawlConfig):
-    """
-    Background task to run crawl job.
-
-    Integrates the service layer components:
-    - CommunicationFactory: optional message queue events
-    - JobState: Persistent state tracking
-    - StorageManager: File I/O operations
-    """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
-    communication_method = os.getenv("COMMUNICATION_METHOD", "none")
-
-    logger.info("=" * 60)
-    logger.info(f"[Job {job_id}] Starting crawl job")
-    logger.info(f"[Job {job_id}] Target URL: {config.url}")
-    logger.info(f"[Job {job_id}] Max Pages: {config.max_pages}")
-    logger.info(f"[Job {job_id}] Communication Method: {communication_method}")
-    logger.info("=" * 60)
-
-    communication_service = CommunicationFactory.create(job_id)
-    job_state = JobState(job_id, base_path=base_path)
-    pause_event = pause_events.setdefault(job_id, asyncio.Event())
-    pause_event.set()
-    storage_manager = StorageManager(job_id, base_path=base_path)
-
-    def _progress_total(snapshot) -> int:
-        if config.max_pages > 0:
-            return config.max_pages
-        return snapshot.total_urls or (snapshot.completed_urls + snapshot.failed_urls)
-
-    async def _sync_job_progress(poll_interval: float = 1.0):
-        while True:
-            snapshot = await job_state.get_snapshot()
-            if job_id in jobs:
-                jobs[job_id].pages_crawled = snapshot.completed_urls
-                jobs[job_id].total_pages = _progress_total(snapshot)
-                jobs[job_id].output_directory = snapshot.output_directory or jobs[job_id].output_directory
-            await asyncio.sleep(poll_interval)
-
-    sync_task = None
-    crawler = None
-    try:
-        logger.info(f"[Job {job_id}] Initializing state manager...")
-        # Initialize state manager (creates job directory and initial state file)
-        await job_state.initialize()
-        job_states[job_id] = job_state
-        logger.info(f"[Job {job_id}] State manager initialized")
-        sync_task = asyncio.create_task(_sync_job_progress())
-
-        # Connect to communication service (optional)
-        if communication_service:
-            try:
-                logger.info(f"[Job {job_id}] Attempting to connect to {communication_method}...")
-                connected = await communication_service.connect()
-                if connected:
-                    logger.info(f"[Job {job_id}] Successfully connected to {communication_method}")
-                else:
-                    logger.warning(f"[Job {job_id}] {communication_method} connection failed. Continuing without real-time event updates.")
-            except Exception as comm_error:
-                logger.error(f"[Job {job_id}] {communication_method} connection error: {comm_error}. Continuing without real-time event updates.")
-                import traceback
-                logger.error(traceback.format_exc())
-        else:
-            logger.info(f"[Job {job_id}] No communication service configured (communication disabled or failed to initialize)")
-
-        logger.info(f"[Job {job_id}] Communication setup complete. Starting crawler...")
-
-        jobs[job_id].status = "running"
-        jobs[job_id].message = "Crawling in progress..."
-
-        # Create crawler with service layer integration
-        logger.info(f"[{job_id}] Creating CrawlerService...")
-        crawler = CrawlerService(
-            config,
-            job_id=job_id,
-            communication_service=communication_service,
-            job_state=job_state,
-            storage_manager=storage_manager,
-            pause_event=pause_event
-        )
-
-        logger.info(f"[{job_id}] CrawlerService created. Starting crawl...")
-        result = await crawler.crawl()
-        logger.info(f"[{job_id}] Crawl completed successfully!")
-
-        jobs[job_id].status = "completed"
-        jobs[job_id].message = "Crawl completed successfully"
-        final_snapshot = await job_state.get_snapshot()
-        jobs[job_id].pages_crawled = final_snapshot.completed_urls
-        jobs[job_id].total_pages = _progress_total(final_snapshot)
-        jobs[job_id].output_directory = result['output_directory']
-        jobs[job_id].completed_at = datetime.now()
-
-    except asyncio.CancelledError:
-        jobs[job_id].status = "cancelled"
-        jobs[job_id].message = "Crawl cancelled"
-        jobs[job_id].completed_at = datetime.now()
-        await job_state.set_status("cancelled")
-        # Propagate cancellation after cleanup
-        raise
-    except Exception as e:
-        logger.exception("run_crawl_job failed", extra={"job_id": job_id, "error": str(e)})
-        jobs[job_id].status = "failed"
-        jobs[job_id].message = f"Crawl failed: {str(e)}"
-        jobs[job_id].completed_at = datetime.now()
-
-    finally:
-        if sync_task:
-            sync_task.cancel()
-            try:
-                await sync_task
-            except asyncio.CancelledError:
-                pass
-        # Close communication connection
-        if communication_service and hasattr(communication_service, "disconnect"):
-            try:
-                await communication_service.disconnect()
-            except Exception:
-                pass
-        if crawler and hasattr(crawler, "file_event_publisher") and crawler.file_event_publisher:
-            try:
-                await crawler.file_event_publisher.close()
-            except Exception:
-                pass
-        pause_events.pop(job_id, None)
-        job_states.pop(job_id, None)
-        tasks.pop(job_id, None)
-
-
-def _log_crawl_task_finished(job_id: str, task: asyncio.Task) -> None:
-    if task.cancelled():
-        logger.info(
-            "crawl job finished",
-            extra={"job_id": job_id, "status": "cancelled", "error": None},
-        )
-        return
-
-    error = task.exception()
-    job = jobs.get(job_id)
-    status = job.status if job else ("failed" if error else "completed")
-    logger.info(
-        "crawl job finished",
-        extra={
-            "job_id": job_id,
-            "status": status,
-            "error": str(error) if error else None,
-        },
-    )
-
-
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -420,7 +219,7 @@ async def root():
 
 
 @app.post("/crawl", response_model=CrawlResponse)
-async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
+async def crawl(config: CrawlConfig):
     """
     Submit a crawl job
 
@@ -449,35 +248,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     - data: Object with status and message
     - timestamp: ISO-8601 timestamp
     """
-    job_id = config.job_id
-
-    # Create job status
-    job_status = CrawlStatus(
-        job_id=job_id,
-        status="pending",
-        message="Crawl job submitted",
-        total_pages=config.max_pages if config.max_pages > 0 else 0,
-        started_at=datetime.now()
-    )
-    jobs[job_id] = job_status
-
-    logger.info("crawl job queued", extra={"job_id": job_id, "url": str(config.url)})
-
-    # Launch crawl task and track it
-    loop = asyncio.get_running_loop()
-    task = loop.create_task(run_crawl_job(job_id, config))
-    task.add_done_callback(lambda t: _log_crawl_task_finished(job_id, t))
-    tasks[job_id] = task
-
-    return CrawlResponse(
-        job_id=job_id,
-        event="job_submitted",
-        data={
-            "status": "pending",
-            "message": "Crawl job submitted successfully"
-        },
-        timestamp=datetime.utcnow().isoformat() + "Z"
-    )
+    return job_lifecycle.submit_crawl_job(config)
 
 
 @app.post("/scrape", response_model=QuickScrapeResponse)
@@ -560,10 +331,11 @@ async def get_status(job_id: str):
     Returns:
     - Job status information including progress and output directory
     """
-    if job_id not in jobs:
+    job = job_lifecycle.get_job_status(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return jobs[job_id]
+    return job
 
 
 @app.get("/jobs")
@@ -574,10 +346,7 @@ async def list_jobs():
     Returns:
     - Dictionary of all jobs with their statuses
     """
-    return {
-        "total_jobs": len(jobs),
-        "jobs": jobs
-    }
+    return job_lifecycle.list_jobs()
 
 
 @app.delete("/jobs/{job_id}")
@@ -591,10 +360,8 @@ async def delete_job(job_id: str):
     Returns:
     - Success message
     """
-    if job_id not in jobs:
+    if not job_lifecycle.delete_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
-
-    del jobs[job_id]
     return {"message": f"Job {job_id} deleted successfully"}
 
 
@@ -609,18 +376,12 @@ async def cancel_job(job_id: str):
     Returns:
     - Cancellation status message
     """
-    if job_id not in jobs:
+    try:
+        return job_lifecycle.cancel_job(job_id)
+    except job_lifecycle.JobNotFoundError:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    task = tasks.get(job_id)
-    if not task:
+    except job_lifecycle.JobNotRunningError:
         raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-    task.cancel()
-    return {
-        "success": True,
-        "message": f"Cancel requested for job {job_id}"
-    }
 
 
 @app.post("/jobs/{job_id}/pause")
@@ -628,26 +389,12 @@ async def pause_job(job_id: str):
     """
     Pause a running crawl job after the current URL/batch finishes.
     """
-    if job_id not in jobs:
+    try:
+        return await job_lifecycle.pause_job(job_id)
+    except job_lifecycle.JobNotFoundError:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    task = tasks.get(job_id)
-    if not task or task.done():
+    except job_lifecycle.JobNotRunningError:
         raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-    event = pause_events.setdefault(job_id, asyncio.Event())
-    event.clear()
-    jobs[job_id].status = "paused"
-    jobs[job_id].message = "Crawl paused"
-
-    state = job_states.get(job_id)
-    if state:
-        await state.set_status("paused")
-
-    return {
-        "success": True,
-        "message": f"Pause requested for job {job_id}"
-    }
 
 
 @app.post("/jobs/{job_id}/resume")
@@ -655,26 +402,12 @@ async def resume_job(job_id: str):
     """
     Resume a paused crawl job from its current in-memory URL queue.
     """
-    if job_id not in jobs:
+    try:
+        return await job_lifecycle.resume_job(job_id)
+    except job_lifecycle.JobNotFoundError:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    task = tasks.get(job_id)
-    if not task or task.done():
+    except job_lifecycle.JobNotRunningError:
         raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-    event = pause_events.setdefault(job_id, asyncio.Event())
-    event.set()
-    jobs[job_id].status = "running"
-    jobs[job_id].message = "Crawling in progress..."
-
-    state = job_states.get(job_id)
-    if state:
-        await state.set_status("running")
-
-    return {
-        "success": True,
-        "message": f"Resume requested for job {job_id}"
-    }
 
 
 @app.get("/jobs/{job_id}/files")
