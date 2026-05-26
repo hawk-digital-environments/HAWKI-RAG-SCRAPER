@@ -17,7 +17,7 @@ from hawki_crawler.crawler.storage.summary_manager import SummaryManager
 from hawki_crawler.crawler.core.service_rate import RateLimiter
 from hawki_crawler.crawler.core.sitemap_scraper import DEFAULT_SITEMAP_BASE
 from hawki_crawler.crawler.profiles import resolve_site_profile
-from hawki_crawler.services.file_event_publisher import FileEventPublisher
+from hawki_crawler.crawler.communication.file_event_publisher import FileEventPublisher
 from hawki_crawler.common.logging_setup import parse_log_level
 
 
