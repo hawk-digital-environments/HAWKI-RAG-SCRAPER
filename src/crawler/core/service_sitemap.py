@@ -2,11 +2,8 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
-import json
 
-import aiohttp
-from bs4 import BeautifulSoup
-
+from hawki_crawler.crawler.sitemap.parser import SitemapParser
 from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
 
@@ -23,6 +20,19 @@ class ServiceSitemapMixin:
             is_forbidden_url=self.is_forbidden_url,
             is_discovery_url_allowed=self.is_discovery_url_allowed,
             normalize_url=self.normalize_url,
+        )
+
+    def _sitemap_parser(self: "ServiceSitemapMixinProtocol") -> SitemapParser:
+        return SitemapParser(
+            headers=getattr(self, "headers", {}) or {},
+            sitemap_map=self.sitemap_map,
+            sitemap_lastmod=self.sitemap_lastmod,
+            is_forbidden_url=self.is_forbidden_url,
+            normalize_url_key=self._normalize_url_key,
+            normalize_sitemap_meta=self._normalize_sitemap_meta,
+            get_sitemap_date=self.get_sitemap_date,
+            url_tracking_manager=getattr(self, "url_tracking_manager", None),
+            job_id=getattr(self, "job_id", None),
         )
 
     def _normalize_url_key(self, url: str) -> Optional[str]:
@@ -76,118 +86,10 @@ class ServiceSitemapMixin:
             LOGGER.error("Error scraping sitemap: %s", e, extra={"job_id": getattr(self, "job_id", None)})
 
     async def is_sitemap(self, url: str) -> bool:
-        """Check if URL is a sitemap"""
-        url_lower = url.lower()
-        if 'sitemap' in url_lower or url_lower.endswith('.xml'):
-            return True
-        if url_lower.endswith('.json'):
-            return True
-        return False
+        return await self._sitemap_parser().is_sitemap(url)
 
     async def parse_sitemap(self: "ServiceSitemapMixinProtocol", sitemap_url: str) -> List[str]:
-        """Parse sitemap and extract URLs"""
-        urls_with_dates = []
-        try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                async with session.get(
-                    sitemap_url,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                    allow_redirects=True
-                ) as response:
-                    if response.status != 200:
-                        LOGGER.warning(
-                            "Error fetching sitemap %s: HTTP %s",
-                            sitemap_url,
-                            response.status,
-                            extra={"job_id": getattr(self, "job_id", None)},
-                        )
-                        return []
-
-                    content_type = response.headers.get("content-type", "")
-                    content = await response.read()
-                    content_stripped = content[:1].decode("utf-8", errors="ignore")
-
-                    if "json" in content_type or sitemap_url.lower().endswith(".json") or content_stripped.startswith("{"):
-                        try:
-                            data = json.loads(content.decode("utf-8"))
-                            urls = []
-                            for url, meta in data.items():
-                                if self.is_forbidden_url(url):
-                                    continue
-                                normalized_meta = self._normalize_sitemap_meta(meta)
-                                lastmod_date = self.get_sitemap_date(normalized_meta)
-                                if lastmod_date:
-                                    self.sitemap_lastmod[url] = lastmod_date
-                                urls_with_dates.append((url, lastmod_date))
-                                urls.append(url)
-                                key = self._normalize_url_key(url)
-                                if key:
-                                    self.sitemap_map[key] = normalized_meta
-                            LOGGER.info(
-                                "Detected JSON sitemap with %s URLs",
-                                len(urls),
-                                extra={"job_id": getattr(self, "job_id", None)},
-                            )
-                        except Exception as e:
-                            LOGGER.error(
-                                "Error parsing JSON sitemap: %s",
-                                e,
-                                extra={"job_id": getattr(self, "job_id", None)},
-                            )
-                        if self.url_tracking_manager:
-                            await self.url_tracking_manager.add_urls_from_sitemap(urls_with_dates)
-                        return [u for u, _ in urls_with_dates]
-
-                    soup = BeautifulSoup(content, "xml")
-
-                    sitemap_tags = soup.find_all('sitemap')
-                    if sitemap_tags:
-                        urls = []
-                        for sitemap in sitemap_tags:
-                            loc = sitemap.find('loc')
-                            if loc and loc.text:
-                                nested_urls = await self.parse_sitemap(loc.text)
-                                urls.extend(nested_urls)
-                        return urls
-
-                    url_tags = soup.find_all('url')
-                    urls = []
-                    if url_tags:
-                        for url_tag in url_tags:
-                            loc = url_tag.find('loc')
-                            if not loc or not loc.text:
-                                continue
-                            url = loc.text.strip()
-                            if self.is_forbidden_url(url):
-                                continue
-                            lastmod_tag = url_tag.find('lastmod')
-                            lastmod_date = None
-                            if lastmod_tag and lastmod_tag.text:
-                                lastmod_date = lastmod_tag.text.strip()
-                                self.sitemap_lastmod[url] = lastmod_date
-                            urls_with_dates.append((url, lastmod_date))
-                            urls.append(url)
-                        if self.url_tracking_manager:
-                            await self.url_tracking_manager.add_urls_from_sitemap(urls_with_dates)
-                        return urls
-
-                    content_text = content.decode("utf-8", errors="ignore")
-                    lines = [
-                        line.strip()
-                        for line in content_text.splitlines()
-                        if line.strip() and not self.is_forbidden_url(line.strip())
-                    ]
-                    return lines
-
-        except Exception as e:
-            LOGGER.error(
-                "Error parsing sitemap %s: %s",
-                sitemap_url,
-                e,
-                extra={"job_id": getattr(self, "job_id", None)},
-            )
-
-        return []
+        return await self._sitemap_parser().parse_sitemap(sitemap_url)
 
     async def discover_urls(self: "ServiceSitemapMixinProtocol", html_content: str, base_url: str) -> List[str]:
         return await self._sitemap_service().discover_urls(html_content, base_url)
