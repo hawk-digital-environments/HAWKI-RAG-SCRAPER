@@ -75,6 +75,34 @@ def download_file(client):
 
 
 @pytest.mark.asyncio
+async def test_health_routes(client):
+    root_response = await client.get("/")
+    health_response = await client.get("/health")
+
+    assert root_response.status_code == 200
+    assert root_response.json()["message"] == "Crawl4AI API is running"
+
+    assert health_response.status_code == 200
+    health_body = health_response.json()
+    assert health_body["status"] == "healthy"
+    assert "timestamp" in health_body
+
+
+@pytest.mark.asyncio
+async def test_job_routes_are_registered(client):
+    jobs_response = await client.get("/jobs")
+    missing_status_response = await client.get("/status/missing-job")
+
+    assert jobs_response.status_code == 200
+    jobs_body = jobs_response.json()
+    assert "total_jobs" in jobs_body
+    assert "jobs" in jobs_body
+
+    assert missing_status_response.status_code == 404
+    assert missing_status_response.json()["detail"] == "Job not found"
+
+
+@pytest.mark.asyncio
 async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, download_file, monkeypatch):
     """Test that first site on sitemap can be crawled.
 
