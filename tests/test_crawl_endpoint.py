@@ -125,9 +125,22 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
                 for url in urls
             ]
 
-    monkeypatch.setattr("src.crawler.core.service_sitemap.ServiceSitemapMixin.parse_sitemap", fake_parse_sitemap)
-    monkeypatch.setattr("src.crawler.core.service_parse_assets.ServiceParseAssetsMixin.fetch_head", fake_fetch_head)
-    monkeypatch.setattr("src.crawler.core.service_crawl_execution.AsyncWebCrawler", lambda config=None: FakeCrawler())
+    for package_root in ("hawki_crawler.crawler", "src.crawler"):
+        monkeypatch.setattr(
+            f"{package_root}.core.service_sitemap.ServiceSitemapMixin.parse_sitemap",
+            fake_parse_sitemap,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            f"{package_root}.core.service_parse_assets.ServiceParseAssetsMixin.fetch_head",
+            fake_fetch_head,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            f"{package_root}.core.service_crawl_execution.AsyncWebCrawler",
+            lambda config=None: FakeCrawler(),
+            raising=False,
+        )
 
     config = {
         "job_id": job_id,

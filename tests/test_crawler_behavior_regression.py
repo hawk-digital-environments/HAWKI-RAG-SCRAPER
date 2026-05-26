@@ -10,6 +10,7 @@ from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
+from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.service import SitemapService
@@ -179,6 +180,35 @@ def test_page_metadata_content_status_and_asset_counts_are_stable() -> None:
     assert metadata["tags"] == ["research", "crawler"]
     assert len(metadata["images"]) == 1
     assert len(metadata["documents"]["pdfs"]) == 1
+
+
+def test_content_helpers_select_main_content_and_cleanup_markdown() -> None:
+    html = """
+    <html>
+      <body>
+        <nav>Cookie settings Share this page</nav>
+        <article>
+          <h1>Research Update</h1>
+          <p>This paragraph contains enough meaningful words to be selected as the main content.</p>
+          <p>Another paragraph keeps the article richer than the surrounding navigation.</p>
+        </article>
+        <footer>Contact us Back to top</footer>
+      </body>
+    </html>
+    """
+
+    selection = clean_html_for_markdown(html, site_noise_phrases=["cookie settings"])
+    markdown, warnings = finalize_markdown_content(
+        "# Research Update\n# Research Update\n- thin\nUseful sentence with enough words.\nCookie settings",
+        site_noise_phrases=["cookie settings"],
+    )
+
+    assert "Research Update" in selection["text"]
+    assert "Cookie settings" not in selection["text"]
+    assert selection["candidate_details"]
+    assert markdown == "# Research Update\nUseful sentence with enough words."
+    assert "removed_duplicate_heading" in warnings
+    assert "removed_markdown_noise_line" in warnings
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
