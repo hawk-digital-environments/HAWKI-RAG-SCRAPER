@@ -20,7 +20,7 @@ PYTHON ?= python3
 DISCOVERY_MODE ?= false
 SKIP_IMAGES ?= false
 
-CRAWLER_HOST ?= http://localhost:8040
+CRAWLER_HOST ?= http://localhost:8041
 
 .DEFAULT_GOAL := help
 

@@ -19,7 +19,7 @@ npm run dev -- --open
 The UI server proxies requests to crawler and RabbitMQ APIs.
 
 ```sh
-CRAWLER_API_BASE_URL=http://localhost:8040
+CRAWLER_API_BASE_URL=http://localhost:8041
 RABBITMQ_MGMT_API_URL=http://localhost:15672/api
 RABBITMQ_MGMT_USER=guest
 RABBITMQ_MGMT_PASSWORD=guest
