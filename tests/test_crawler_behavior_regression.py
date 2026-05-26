@@ -1,9 +1,13 @@
+import asyncio
 import json
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
 
+from hawki_crawler.app import main as app_main
+from hawki_crawler.crawler.models import CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
@@ -369,6 +373,37 @@ async def test_storage_manager_saves_hash_and_legacy_page_files(tmp_path) -> Non
         "url": "https://example.com/legacy",
     }
     assert (legacy_dir / "content.md").read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.asyncio
+async def test_lifespan_shutdown_cancels_active_crawl_tasks() -> None:
+    job_id = "shutdown-job"
+    started = asyncio.Event()
+
+    async def pending_job():
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(pending_job())
+    await started.wait()
+
+    app_main.jobs[job_id] = CrawlStatus(
+        job_id=job_id,
+        status="running",
+        message="Crawling in progress...",
+        started_at=datetime.now(),
+    )
+    app_main.tasks[job_id] = task
+    app_main.pause_events[job_id] = asyncio.Event()
+
+    await app_main._cancel_active_crawl_tasks()
+
+    assert task.cancelled()
+    assert app_main.jobs[job_id].status == "cancelled"
+    assert app_main.jobs[job_id].message == "Crawl cancelled during service shutdown"
+    assert job_id not in app_main.tasks
+    assert job_id not in app_main.pause_events
+    app_main.jobs.pop(job_id, None)
 
 
 def test_storage_manager_file_browser_lists_info_and_blocks_traversal(tmp_path) -> None:

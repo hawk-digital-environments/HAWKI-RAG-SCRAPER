@@ -3,6 +3,7 @@ import asyncio
 import time
 import logging
 import sys
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from typing import Dict
 from urllib.parse import urljoin
@@ -31,24 +32,17 @@ logger = logging.getLogger("crawler.api")
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-app = FastAPI(
-    title="Crawl4AI API",
-    description="FastAPI interface for crawl4ai library with sitemap support and URL discovery",
-    version="1.0.0"
-)
+# Store job statuses
+jobs: Dict[str, CrawlStatus] = {}
+# Track running tasks for cancellation
+tasks: Dict[str, asyncio.Task] = {}
+# Track pause controls and state objects for running jobs
+pause_events: Dict[str, asyncio.Event] = {}
+job_states: Dict[str, JobState] = {}
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-@app.on_event("startup")
-async def startup_event():
-    """Log startup configuration"""
+def _log_startup_configuration() -> None:
+    """Log startup configuration."""
     logger.info("=" * 60)
     logger.info("Crawl4AI Service Starting...")
     logger.info("=" * 60)
@@ -65,13 +59,72 @@ async def startup_event():
     logger.info(f"Data Path: {os.getenv('DATA_PATH', '/app/data/jobs')}")
     logger.info("=" * 60)
 
-# Store job statuses
-jobs: Dict[str, CrawlStatus] = {}
-# Track running tasks for cancellation
-tasks: Dict[str, asyncio.Task] = {}
-# Track pause controls and state objects for running jobs
-pause_events: Dict[str, asyncio.Event] = {}
-job_states: Dict[str, JobState] = {}
+
+async def _cancel_active_crawl_tasks() -> None:
+    """Cancel active crawl jobs during application shutdown."""
+    active_tasks = [(job_id, task) for job_id, task in tasks.items() if not task.done()]
+    if not active_tasks:
+        return
+
+    logger.info("Cancelling active crawl jobs", extra={"active_jobs": len(active_tasks)})
+    for pause_event in pause_events.values():
+        pause_event.set()
+
+    for job_id, task in active_tasks:
+        job = jobs.get(job_id)
+        if job:
+            job.status = "cancelled"
+            job.message = "Crawl cancelled during service shutdown"
+            job.completed_at = datetime.now()
+
+        state = job_states.get(job_id)
+        if state:
+            with suppress(Exception):
+                await state.set_status("cancelled")
+
+        task.cancel()
+
+    results = await asyncio.gather(
+        *(task for _job_id, task in active_tasks),
+        return_exceptions=True,
+    )
+
+    for (job_id, _task), result in zip(active_tasks, results):
+        if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+            logger.warning(
+                "crawl job raised during shutdown",
+                extra={"job_id": job_id, "error": str(result)},
+            )
+        tasks.pop(job_id, None)
+        pause_events.pop(job_id, None)
+        job_states.pop(job_id, None)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _log_startup_configuration()
+    try:
+        yield
+    finally:
+        await _cancel_active_crawl_tasks()
+        logger.info("Crawl4AI Service shutdown complete")
+
+
+app = FastAPI(
+    title="Crawl4AI API",
+    description="FastAPI interface for crawl4ai library with sitemap support and URL discovery",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 async def extract_page_content(url: str, skip_images: bool = False, date_selector: str = None) -> Dict:
@@ -327,6 +380,27 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         tasks.pop(job_id, None)
 
 
+def _log_crawl_task_finished(job_id: str, task: asyncio.Task) -> None:
+    if task.cancelled():
+        logger.info(
+            "crawl job finished",
+            extra={"job_id": job_id, "status": "cancelled", "error": None},
+        )
+        return
+
+    error = task.exception()
+    job = jobs.get(job_id)
+    status = job.status if job else ("failed" if error else "completed")
+    logger.info(
+        "crawl job finished",
+        extra={
+            "job_id": job_id,
+            "status": status,
+            "error": str(error) if error else None,
+        },
+    )
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -392,16 +466,7 @@ async def crawl(config: CrawlConfig, background_tasks: BackgroundTasks):
     # Launch crawl task and track it
     loop = asyncio.get_running_loop()
     task = loop.create_task(run_crawl_job(job_id, config))
-    task.add_done_callback(
-        lambda t: logger.info(
-            "crawl job finished",
-            extra={
-                "job_id": job_id,
-                "status": "failed" if t.exception() else "completed",
-                "error": str(t.exception()) if t.exception() else None,
-            },
-        )
-    )
+    task.add_done_callback(lambda t: _log_crawl_task_finished(job_id, t))
     tasks[job_id] = task
 
     return CrawlResponse(
