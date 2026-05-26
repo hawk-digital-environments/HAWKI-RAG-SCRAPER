@@ -68,7 +68,7 @@ crawl:
 crawl-profile-sitemap:
 	docker compose exec -T crawler \
 		sh -lc 'mkdir -p $(SITEMAP_DIR) && \
-		python -m hawki_crawler.crawler.core.sitemap_scraper --sitemap \
+		python -m hawki_crawler.crawler.sitemap.scraper --sitemap \
 		--base-url $(SITEMAP_BASE) \
 		--profile $(SITE_PROFILE) \
 		--start-page $(SITEMAP_START) \

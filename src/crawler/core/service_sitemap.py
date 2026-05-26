@@ -7,7 +7,7 @@ import json
 import aiohttp
 from bs4 import BeautifulSoup
 
-from hawki_crawler.crawler.core.sitemap_scraper import SitemapScraper
+from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
 
 if TYPE_CHECKING:
