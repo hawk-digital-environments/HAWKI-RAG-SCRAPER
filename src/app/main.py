@@ -3,12 +3,10 @@ import time
 import logging
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Dict
 from urllib.parse import urljoin
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from bs4 import BeautifulSoup
 import html2text
 
@@ -16,8 +14,9 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
 
 from hawki_crawler.app import job_lifecycle
-from hawki_crawler.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus, QuickScrapeRequest, QuickScrapeResponse
-from hawki_crawler.crawler.storage.storage_manager import StorageManager
+from hawki_crawler.app.routes.health import router as health_router
+from hawki_crawler.app.routes.jobs import router as jobs_router
+from hawki_crawler.crawler.models import CrawlConfig, CrawlResponse, QuickScrapeRequest, QuickScrapeResponse
 from hawki_crawler.common.logging_setup import configure_logging
 
 # Configure logging for Docker with env-driven level/format.
@@ -74,6 +73,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(health_router)
+app.include_router(jobs_router)
 
 
 async def extract_page_content(url: str, skip_images: bool = False, date_selector: str = None) -> Dict:
@@ -200,24 +202,6 @@ async def extract_page_content(url: str, skip_images: bool = False, date_selecto
         }
 
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "Crawl4AI API is running",
-        "version": "1.0.0",
-        "endpoints": {
-            "/crawl": "POST - Submit a crawl job",
-            "/scrape": "POST - Quick scrape (returns data directly, no storage)",
-            "/status/{job_id}": "GET - Check crawl job status",
-            "/jobs": "GET - List all jobs",
-            "/jobs/{job_id}/files": "GET - List files for a job",
-            "/jobs/{job_id}/files/{file_path}": "GET - Download a specific file",
-            "/docs": "GET - API documentation"
-        }
-    }
-
-
 @app.post("/crawl", response_model=CrawlResponse)
 async def crawl(config: CrawlConfig):
     """
@@ -318,179 +302,6 @@ async def quick_scrape(request: QuickScrapeRequest):
             error=str(e),
             extraction_time_seconds=round(extraction_time, 2)
         )
-
-
-@app.get("/status/{job_id}", response_model=CrawlStatus)
-async def get_status(job_id: str):
-    """
-    Get the status of a crawl job
-
-    Parameters:
-    - job_id: The unique identifier of the crawl job
-
-    Returns:
-    - Job status information including progress and output directory
-    """
-    job = job_lifecycle.get_job_status(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    return job
-
-
-@app.get("/jobs")
-async def list_jobs():
-    """
-    List all crawl jobs
-
-    Returns:
-    - Dictionary of all jobs with their statuses
-    """
-    return job_lifecycle.list_jobs()
-
-
-@app.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
-    """
-    Delete a job from the jobs list
-
-    Parameters:
-    - job_id: The unique identifier of the crawl job to delete
-
-    Returns:
-    - Success message
-    """
-    if not job_lifecycle.delete_job(job_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"message": f"Job {job_id} deleted successfully"}
-
-
-@app.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
-    """
-    Cancel a running crawl job.
-
-    Parameters:
-    - job_id: The unique identifier of the crawl job to cancel
-
-    Returns:
-    - Cancellation status message
-    """
-    try:
-        return job_lifecycle.cancel_job(job_id)
-    except job_lifecycle.JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job not found")
-    except job_lifecycle.JobNotRunningError:
-        raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-
-@app.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str):
-    """
-    Pause a running crawl job after the current URL/batch finishes.
-    """
-    try:
-        return await job_lifecycle.pause_job(job_id)
-    except job_lifecycle.JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job not found")
-    except job_lifecycle.JobNotRunningError:
-        raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-
-@app.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str):
-    """
-    Resume a paused crawl job from its current in-memory URL queue.
-    """
-    try:
-        return await job_lifecycle.resume_job(job_id)
-    except job_lifecycle.JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job not found")
-    except job_lifecycle.JobNotRunningError:
-        raise HTTPException(status_code=400, detail="Job is not running or already finished")
-
-
-@app.get("/jobs/{job_id}/files")
-async def list_job_files(job_id: str):
-    """
-    List all files for a specific job.
-
-    This endpoint returns a JSON list of all files stored in the job's directory,
-    allowing Laravel or other clients to discover what was scraped.
-
-    Parameters:
-    - job_id: The unique identifier of the crawl job
-
-    Returns:
-    - List of file paths with metadata (name, path, size, type)
-    """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
-    storage_manager = StorageManager(job_id, base_path=base_path)
-
-    # Check if job directory exists
-    if not storage_manager.get_job_directory().exists():
-        raise HTTPException(status_code=404, detail="Job not found or no data available")
-
-    # Get list of all files
-    files = storage_manager.list_files(relative=True)
-
-    # Get detailed info for each file
-    files_info = []
-    for file_path in files:
-        info = storage_manager.get_file_info(file_path)
-        if info:
-            files_info.append(info)
-
-    return {
-        "job_id": job_id,
-        "total_files": len(files_info),
-        "files": files_info
-    }
-
-
-@app.get("/jobs/{job_id}/files/{file_path:path}")
-async def download_job_file(job_id: str, file_path: str):
-    """
-    Download a specific file from a job's directory.
-
-    This endpoint streams the requested file back to the client.
-    Used by Laravel to retrieve scraped content, images, or metadata.
-
-    Parameters:
-    - job_id: The unique identifier of the crawl job
-    - file_path: Relative path to the file within the job directory
-
-    Returns:
-    - File content as a streaming response
-    """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
-    storage_manager = StorageManager(job_id, base_path=base_path)
-
-    # Get the file path (includes security check)
-    absolute_path = storage_manager.get_file_path(file_path)
-
-    if not absolute_path:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # Get file info for content type
-    file_info = storage_manager.get_file_info(file_path)
-    media_type = file_info['type'] if file_info else 'application/octet-stream'
-
-    # Stream the file
-    return FileResponse(
-        path=str(absolute_path),
-        media_type=media_type,
-        filename=absolute_path.name
-    )
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat()
-    }
 
 
 if __name__ == "__main__":
