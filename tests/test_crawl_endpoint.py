@@ -103,6 +103,45 @@ async def test_job_routes_are_registered(client):
 
 
 @pytest.mark.asyncio
+async def test_quick_scrape_route(client, monkeypatch):
+    from hawki_crawler.app.routes import scrape as scrape_route
+
+    calls = []
+
+    async def fake_extract_page_content(url, skip_images=False, date_selector=None):
+        calls.append((url, skip_images, date_selector))
+        return {
+            "title": "Example Page",
+            "content": "Example content",
+            "images": ["https://example.com/image.png"],
+            "meta_image": "https://example.com/meta.png",
+            "date": "2026-05-21",
+        }
+
+    monkeypatch.setattr(scrape_route, "extract_page_content", fake_extract_page_content)
+
+    response = await client.post(
+        "/scrape",
+        json={
+            "url": "https://example.com/page",
+            "skip_images": True,
+            "extract_date": True,
+            "date_selector": ".date",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["title"] == "Example Page"
+    assert body["content"] == "Example content"
+    assert body["images"] == ["https://example.com/image.png"]
+    assert body["meta_image"] == "https://example.com/meta.png"
+    assert body["date"] == "2026-05-21"
+    assert calls == [("https://example.com/page", True, ".date")]
+
+
+@pytest.mark.asyncio
 async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, download_file, monkeypatch):
     """Test that first site on sitemap can be crawled.
 
