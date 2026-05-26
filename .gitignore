@@ -42,7 +42,7 @@ output/
 *.log
 *.txt
 *.json
-!ui/package-lock.json
+# !ui/package-lock.json
 # Environment variables
 .env
 .env.local
