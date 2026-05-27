@@ -1,17 +1,14 @@
 import asyncio
 import logging
-import os
-import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
-from urllib.parse import urlparse
 
-import aiofiles
 import aiohttp
 from aiohttp.http_exceptions import ContentLengthError
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 
 
 FetchHeadCallable = Callable[[str], Awaitable[Tuple[Optional[int], Dict[str, str]]]]
@@ -42,6 +39,9 @@ class AssetDownloader:
         self.logger = logger or logging.getLogger("crawler")
         self.policy = policy or AssetPolicy()
         self._fetch_head_override = fetch_head
+
+    def _image_downloader(self) -> ImageDownloader:
+        return ImageDownloader(rate_limiter=self.rate_limiter, logger=self.logger)
 
     async def publish_saved_file_event(
         self,
@@ -91,48 +91,7 @@ class AssetDownloader:
         images_dir: Path,
     ) -> Optional[str]:
         """Download an image and save it to the images directory."""
-        await self.rate_limiter.acquire()
-        allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
-        allowed_content_type_to_exts = {
-            "image/jpeg": (".jpg", ".jpeg"),
-            "image/png": (".png",),
-            "image/webp": (".webp",),
-        }
-
-        try:
-            parsed_url = urlparse(image_url)
-            normalized_path = (parsed_url.path or "").lower()
-            normalized_query = (parsed_url.query or "").lower()
-            if "piwik.php" in normalized_path or "piwik.php" in normalized_query:
-                return None
-
-            async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status != 200:
-                    return None
-
-                content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-                if not content_type.startswith("image/"):
-                    return None
-                if content_type not in allowed_content_type_to_exts:
-                    return None
-
-                filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", os.path.basename(urlparse(image_url).path))
-                if not filename:
-                    return None
-                suffix = Path(filename).suffix.lower()
-                if not suffix or suffix not in allowed_extensions:
-                    return None
-
-                image_data = await response.read()
-
-                image_path = images_dir / filename
-                async with aiofiles.open(image_path, "wb") as f:
-                    await f.write(image_data)
-
-                return filename
-        except Exception as exc:
-            self.logger.warning("Error downloading image %s: %s", image_url, exc)
-            return None
+        return await self._image_downloader().download_image(image_url, session, images_dir)
 
     async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL."""
