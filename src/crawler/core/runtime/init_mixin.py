@@ -4,6 +4,7 @@ from typing import Optional, Any
 
 import aiohttp
 
+from hawki_crawler.crawler.communication.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.core.runtime.state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.runtime.job_helpers import build_job_helpers
 from hawki_crawler.crawler.core.runtime.defaults import (
@@ -11,6 +12,7 @@ from hawki_crawler.crawler.core.runtime.defaults import (
     resolve_output_directory,
 )
 from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
@@ -36,10 +38,12 @@ class ServiceInitMixin:
         self._init_job_logger()
         self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
         self._init_url_policy()
+        self._init_progress_publisher()
         self._init_job_helpers(job_id)
         self._init_runtime_clients()
         self._init_sitemap_state()
         self._init_url_policy()
+        self._init_date_language()
         self._init_http_headers()
         self._init_output_paths(config)
         self._init_runtime_storage()
@@ -99,6 +103,16 @@ class ServiceInitMixin:
         self.url_policy = UrlPolicyService(
             site_profile=self.site_profile,
             crawl_host=getattr(self, "crawl_host", None),
+        )
+
+    def _init_progress_publisher(self) -> None:
+        """Inject progress/event publishing instead of inheriting a mixin."""
+        self.progress_publisher = ProgressPublisher(self.communication_service)
+
+    def _init_date_language(self) -> None:
+        """Inject date/language parsing instead of inheriting a mixin."""
+        self.date_language = DateLanguageService(
+            sitemap_lookup=self.lookup_sitemap_entry,
         )
 
     def _init_sitemap_state(self) -> None:

@@ -1,20 +1,16 @@
 from pathlib import Path
 
 from hawki_crawler.crawler.assets.asset_service_mixin import ServiceParseAssetsMixin
-from hawki_crawler.crawler.communication.progress_mixin import ServiceProgressMixin
 from hawki_crawler.crawler.core.execution.execution_mixin import ServiceCrawlExecutionMixin
 from hawki_crawler.crawler.core.runtime.init_mixin import ServiceInitMixin
 from hawki_crawler.crawler.core.runtime.runtime_mixin import ServiceCrawlRuntimeMixin
 from hawki_crawler.crawler.parsing.content_mixin import ServiceParseContentMixin
-from hawki_crawler.crawler.parsing.date_language_mixin import ServiceDateLangMixin
 from hawki_crawler.crawler.sitemap.sitemap_mixin import ServiceSitemapMixin
 
 
 class CrawlerService(
     ServiceInitMixin,
     ServiceSitemapMixin,
-    ServiceProgressMixin,
-    ServiceDateLangMixin,
     ServiceParseAssetsMixin,
     ServiceParseContentMixin,
     ServiceCrawlRuntimeMixin,
