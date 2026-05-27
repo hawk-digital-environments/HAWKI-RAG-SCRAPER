@@ -13,6 +13,14 @@ from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
+from hawki_crawler.crawler.core.job_helpers import build_job_helpers
+from hawki_crawler.crawler.core.runtime_defaults import (
+    BROWSER_RESTART_DEFAULTS,
+    DEFAULT_HTTP_HEADERS,
+    MEMORY_WATCHDOG_DEFAULTS,
+    default_http_headers,
+    resolve_output_directory,
+)
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
@@ -248,6 +256,97 @@ def test_job_file_logger_writes_job_context_once(tmp_path) -> None:
             if getattr(handler, "name", "") == handler_name:
                 logger.removeHandler(handler)
                 handler.close()
+
+
+def test_job_helpers_factory_wires_persistent_job_services(tmp_path) -> None:
+    job_id = "job_helpers_regression"
+    storage_manager = StorageManager(job_id=job_id, base_path=str(tmp_path))
+    communication_service = object()
+    default_logger = logging.LoggerAdapter(logging.getLogger("crawler"), {"job_id": "unknown"})
+    logger = logging.getLogger(f"crawler.{job_id}")
+    handler_name = f"job_error_file_{job_id}"
+
+    for handler in list(logger.handlers):
+        if getattr(handler, "name", "") == handler_name:
+            logger.removeHandler(handler)
+            handler.close()
+
+    try:
+        fallback_helpers = build_job_helpers(
+            job_id=None,
+            storage_manager=None,
+            site_profile={},
+            communication_service=None,
+            default_logger=default_logger,
+        )
+        helpers = build_job_helpers(
+            job_id=job_id,
+            storage_manager=storage_manager,
+            site_profile={"forbidden": {"hosts": ["blocked.example"]}},
+            communication_service=communication_service,
+            default_logger=default_logger,
+        )
+
+        assert fallback_helpers.job_logger is default_logger
+        assert fallback_helpers.progress_tracker is None
+        assert helpers.progress_tracker is not None
+        assert helpers.progress_tracker.event_emitter is communication_service
+        assert helpers.url_tracking_manager is not None
+        assert helpers.summary_manager is not None
+        assert helpers.file_event_publisher is not None
+        assert storage_manager.get_job_directory().is_dir()
+
+        helpers.job_logger.warning("helper ready")
+        log_text = (storage_manager.get_job_directory() / "crawler.log").read_text(encoding="utf-8")
+        assert "helper ready [job_id=job_helpers_regression]" in log_text
+    finally:
+        for handler in list(logger.handlers):
+            if getattr(handler, "name", "") == handler_name:
+                logger.removeHandler(handler)
+                handler.close()
+
+
+def test_runtime_defaults_preserve_headers_limits_and_output_paths(tmp_path) -> None:
+    headers = default_http_headers()
+    headers["User-Agent"] = "changed"
+
+    assert DEFAULT_HTTP_HEADERS["User-Agent"].startswith("Mozilla/5.0")
+    assert BROWSER_RESTART_DEFAULTS.max_restarts == 3
+    assert BROWSER_RESTART_DEFAULTS.interval_seconds == 3600
+    assert BROWSER_RESTART_DEFAULTS.enabled is False
+    assert MEMORY_WATCHDOG_DEFAULTS.enabled is True
+    assert MEMORY_WATCHDOG_DEFAULTS.restart_threshold == 0.9
+    assert MEMORY_WATCHDOG_DEFAULTS.resume_threshold == 0.1
+    assert MEMORY_WATCHDOG_DEFAULTS.restart_wait_seconds == 300
+
+    config = SimpleNamespace(
+        url="https://example.edu/path",
+        output_dir=str(tmp_path / "output"),
+        label=None,
+    )
+    output_dir = resolve_output_directory(
+        config=config,
+        storage_manager=None,
+        now=datetime(2026, 5, 21, 12, 30, 0),
+    )
+
+    assert config.label == "example_edu_20260521_123000"
+    assert output_dir == tmp_path / "output" / "example_edu_20260521_123000"
+
+    storage_manager = StorageManager(job_id="runtime_defaults_job", base_path=str(tmp_path))
+    stored_config = SimpleNamespace(
+        url="https://example.edu/path",
+        output_dir=str(tmp_path / "ignored"),
+        label=None,
+    )
+    stored_output_dir = resolve_output_directory(
+        config=stored_config,
+        storage_manager=storage_manager,
+        now=datetime(2026, 5, 21, 12, 30, 0),
+    )
+
+    assert stored_config.label == "example_edu_20260521_123000"
+    assert stored_output_dir == storage_manager.get_job_directory()
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:

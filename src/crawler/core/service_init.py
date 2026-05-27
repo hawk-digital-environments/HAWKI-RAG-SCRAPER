@@ -2,23 +2,24 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Set
 from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
-from hawki_crawler.crawler.models import CrawlConfig
-from hawki_crawler.crawler.state.progress_tracker import ProgressTracker
-from hawki_crawler.crawler.state.job_state import JobState
-from hawki_crawler.crawler.storage.url_tracking_manager import URLTrackingManager
-from hawki_crawler.crawler.storage.summary_manager import SummaryManager
+from hawki_crawler.crawler.core.job_helpers import build_job_helpers
+from hawki_crawler.crawler.core.runtime_defaults import (
+    BROWSER_RESTART_DEFAULTS,
+    MEMORY_WATCHDOG_DEFAULTS,
+    default_http_headers,
+    resolve_output_directory,
+)
 from hawki_crawler.crawler.core.service_rate import RateLimiter
+from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.sitemap.scraper import DEFAULT_SITEMAP_BASE
 from hawki_crawler.crawler.profiles import resolve_site_profile
-from hawki_crawler.crawler.communication.file_event_publisher import FileEventPublisher
-from hawki_crawler.common.logging_setup import configure_job_file_logger
 
 
 class ServiceInitMixin:
@@ -80,18 +81,18 @@ class ServiceInitMixin:
         self.restart_urls: List[str] = []
         self.restart_lock = asyncio.Lock()
         self.browser_restart_count = 0
-        self.max_browser_restarts = 3
-        self.browser_restart_interval_seconds = 3600
+        self.max_browser_restarts = BROWSER_RESTART_DEFAULTS.max_restarts
+        self.browser_restart_interval_seconds = BROWSER_RESTART_DEFAULTS.interval_seconds
         self.browser_last_restart = time.monotonic()
-        self.enable_browser_restarts = False
+        self.enable_browser_restarts = BROWSER_RESTART_DEFAULTS.enabled
         self.restart_reason: Optional[str] = None
 
     def _init_memory_watchdog_state(self) -> None:
         """Memory watchdog thresholds used by the runtime mixin."""
-        self.enable_memory_watchdog = True
-        self.memory_restart_threshold = 0.9
-        self.memory_resume_threshold = 0.1
-        self.memory_restart_wait_seconds = 300
+        self.enable_memory_watchdog = MEMORY_WATCHDOG_DEFAULTS.enabled
+        self.memory_restart_threshold = MEMORY_WATCHDOG_DEFAULTS.restart_threshold
+        self.memory_resume_threshold = MEMORY_WATCHDOG_DEFAULTS.resume_threshold
+        self.memory_restart_wait_seconds = MEMORY_WATCHDOG_DEFAULTS.restart_wait_seconds
 
     def _init_external_services(
         self,
@@ -116,28 +117,18 @@ class ServiceInitMixin:
 
     def _init_job_helpers(self, job_id: Optional[str]) -> None:
         """Create per-job helpers only when a persistent job directory exists."""
-        self.progress_tracker = None
-        self.url_tracking_manager = None
-        self.summary_manager = None
-        self.file_event_publisher = None
-
-        base_path = None
-        if self.job_id and self.storage_manager:
-            base_path = str(self.storage_manager.base_path)
-            self.progress_tracker = ProgressTracker(event_emitter=self.communication_service)
-            self.url_tracking_manager = URLTrackingManager(
-                job_id=job_id,
-                base_path=base_path,
-                forbidden_hosts=self.site_profile.get("forbidden", {}).get("hosts"),
-                forbidden_patterns=self.site_profile.get("forbidden", {}).get("url_patterns"),
-                forbidden_rules_file=self.site_profile.get("forbidden", {}).get("rules_file"),
-            )
-            self.summary_manager = SummaryManager(job_id=job_id, base_path=base_path)
-            self.file_event_publisher = FileEventPublisher(
-                default_job_id=str(job_id),
-                job_base_path=self.storage_manager.get_job_directory(),
-            )
-            self._setup_job_error_logger()
+        helpers = build_job_helpers(
+            job_id=job_id,
+            storage_manager=self.storage_manager,
+            site_profile=self.site_profile,
+            communication_service=self.communication_service,
+            default_logger=self.job_logger,
+        )
+        self.progress_tracker = helpers.progress_tracker
+        self.url_tracking_manager = helpers.url_tracking_manager
+        self.summary_manager = helpers.summary_manager
+        self.file_event_publisher = helpers.file_event_publisher
+        self.job_logger = helpers.job_logger
 
     def _init_runtime_clients(self) -> None:
         """Clients that are opened lazily and closed after the crawl."""
@@ -163,32 +154,14 @@ class ServiceInitMixin:
 
     def _init_http_headers(self) -> None:
         """Default request headers used by HTTP and browser fetches."""
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-        }
+        self.headers = default_http_headers()
 
     def _init_output_paths(self, config: CrawlConfig) -> None:
         """Resolve the label and output directory after job storage is known."""
-        if not config.label:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            domain = urlparse(str(config.url)).netloc.replace(".", "_")
-            self.config.label = f"{domain}_{timestamp}"
-
-        if self.storage_manager:
-            self.output_dir = self.storage_manager.get_job_directory()
-        else:
-            self.output_dir = Path(config.output_dir) / self.config.label
-
-    def _setup_job_error_logger(self) -> None:
-        if not self.job_id or not self.storage_manager:
-            return
-        self.storage_manager.ensure_job_directory()
-        log_path = self.storage_manager.get_job_directory() / "crawler.log"
-        self.job_logger = configure_job_file_logger(self.job_id, log_path)
+        self.output_dir = resolve_output_directory(
+            config=config,
+            storage_manager=self.storage_manager,
+        )
 
     async def setup_directories(self):
         """Create necessary directories"""
