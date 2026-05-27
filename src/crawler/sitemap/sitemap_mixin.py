@@ -17,9 +17,9 @@ class ServiceSitemapMixin:
     def _sitemap_service(self: "ServiceSitemapMixinProtocol") -> SitemapService:
         return SitemapService(
             sitemap_map=getattr(self, "sitemap_map", {}) or {},
-            is_forbidden_url=self.is_forbidden_url,
-            is_discovery_url_allowed=self.is_discovery_url_allowed,
-            normalize_url=self.normalize_url,
+            is_forbidden_url=self.url_policy.is_forbidden_url,
+            is_discovery_url_allowed=self.url_policy.is_discovery_url_allowed,
+            normalize_url=self.url_policy.normalize_url,
         )
 
     def _sitemap_parser(self: "ServiceSitemapMixinProtocol") -> SitemapParser:
@@ -27,7 +27,7 @@ class ServiceSitemapMixin:
             headers=getattr(self, "headers", {}) or {},
             sitemap_map=self.sitemap_map,
             sitemap_lastmod=self.sitemap_lastmod,
-            is_forbidden_url=self.is_forbidden_url,
+            is_forbidden_url=self.url_policy.is_forbidden_url,
             normalize_url_key=self._normalize_url_key,
             normalize_sitemap_meta=self._normalize_sitemap_meta,
             get_sitemap_date=self.get_sitemap_date,

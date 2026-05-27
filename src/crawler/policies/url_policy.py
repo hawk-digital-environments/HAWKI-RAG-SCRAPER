@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import parse_qs, urlparse
 
+from hawki_crawler.crawler.policies.url_normalization import normalize_url
+
 
 class UrlPolicyService:
     """URL rules for crawl exclusion and discovery expansion."""
@@ -136,6 +138,9 @@ class UrlPolicyService:
             if host == allowed or host.endswith(f".{allowed}"):
                 return True
         return False
+
+    def normalize_url(self, url: str) -> str:
+        return normalize_url(url)
 
     def is_video_url(self, url: str) -> bool:
         return url.lower().split("?")[0].endswith(
