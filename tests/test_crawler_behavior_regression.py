@@ -13,6 +13,7 @@ from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
+from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
 from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.job_helpers import build_job_helpers
 from hawki_crawler.crawler.core.runtime_defaults import (
@@ -323,6 +324,71 @@ def test_job_helpers_factory_wires_persistent_job_services(tmp_path) -> None:
             if getattr(handler, "name", "") == handler_name:
                 logger.removeHandler(handler)
                 handler.close()
+
+
+@pytest.mark.asyncio
+async def test_finalize_crawl_summary_stops_saves_publishes_and_logs(tmp_path) -> None:
+    class FakeProgressTracker:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+        async def get_summary(self):
+            return {
+                "started_at": "2026-05-21T10:00:00Z",
+                "completed_at": "2026-05-21T10:00:05Z",
+                "duration_seconds": 5,
+                "total_urls": 3,
+                "completed_urls": 2,
+                "failed_urls": 1,
+                "processing_urls": 0,
+                "success_rate": 66.67,
+                "stats": {"requests": 3},
+            }
+
+    class FakeSummaryManager:
+        def __init__(self) -> None:
+            self.saved = []
+
+        async def save_summary(self, summary) -> None:
+            self.saved.append(summary)
+
+    class FakeLogger:
+        def __init__(self) -> None:
+            self.messages = []
+
+        def info(self, message, *args) -> None:
+            self.messages.append(message % args if args else message)
+
+    progress_tracker = FakeProgressTracker()
+    summary_manager = FakeSummaryManager()
+    logger = FakeLogger()
+    sent_summaries = []
+
+    async def send_summary(summary) -> None:
+        sent_summaries.append(summary)
+
+    summary = await finalize_crawl_summary(
+        progress_tracker=progress_tracker,
+        summary_manager=summary_manager,
+        send_summary=send_summary,
+        job_logger=logger,
+        job_id="summary-job",
+        stage="failed",
+        output_directory=tmp_path,
+        error="crawl failed",
+    )
+
+    assert progress_tracker.stopped is True
+    assert summary_manager.saved == [summary]
+    assert sent_summaries == [summary]
+    assert summary["job_id"] == "summary-job"
+    assert summary["status"] == "failed"
+    assert summary["output_directory"] == str(tmp_path)
+    assert summary["error"] == "crawl failed"
+    assert logger.messages
 
 
 def test_runtime_defaults_preserve_headers_limits_and_output_paths(tmp_path) -> None:

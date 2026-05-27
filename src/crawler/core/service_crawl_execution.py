@@ -9,8 +9,8 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig
 
 from hawki_crawler.crawler.communication.interface import Stage
+from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
 from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
-from hawki_crawler.crawler.storage.summary_manager import SummaryManager
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
 
 if TYPE_CHECKING:
@@ -702,22 +702,16 @@ class ServiceCrawlExecutionMixin:
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("completed")
             await self.send_stage(Stage.COMPLETED)
-            if self.progress_tracker:
-                await self.progress_tracker.stop()
-
-                summary_data = await self.progress_tracker.get_summary()
-                if self.summary_manager:
-                    formatted_summary = SummaryManager.format_summary(
-                        job_id=self.job_id,
-                        stage="completed",
-                        progress=summary_data,
-                        output_directory=str(self.output_dir),
-                        error=None
-                    )
-                    await self.summary_manager.save_summary(formatted_summary)
-                    await self.send_summary(formatted_summary)
-
-                    self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
+            await finalize_crawl_summary(
+                progress_tracker=self.progress_tracker,
+                summary_manager=self.summary_manager,
+                send_summary=self.send_summary,
+                job_logger=self.job_logger,
+                job_id=self.job_id,
+                stage="completed",
+                output_directory=self.output_dir,
+                error=None,
+            )
             if self.job_state:
                 await self.job_state.set_status("completed")
 
@@ -735,22 +729,16 @@ class ServiceCrawlExecutionMixin:
             if self.progress_tracker:
                 await self.progress_tracker.set_stage("failed")
             await self.send_stage(Stage.FAILED)
-            if self.progress_tracker:
-                await self.progress_tracker.stop()
-
-                summary_data = await self.progress_tracker.get_summary()
-                if self.summary_manager:
-                    formatted_summary = SummaryManager.format_summary(
-                        job_id=self.job_id,
-                        stage="failed",
-                        progress=summary_data,
-                        output_directory=str(self.output_dir),
-                        error=error_msg
-                    )
-                    await self.summary_manager.save_summary(formatted_summary)
-                    await self.send_summary(formatted_summary)
-
-                    self.job_logger.info("\n%s", SummaryManager.format_text_summary(formatted_summary))
+            await finalize_crawl_summary(
+                progress_tracker=self.progress_tracker,
+                summary_manager=self.summary_manager,
+                send_summary=self.send_summary,
+                job_logger=self.job_logger,
+                job_id=self.job_id,
+                stage="failed",
+                output_directory=self.output_dir,
+                error=error_msg,
+            )
 
             if self.job_state:
                 await self.job_state.set_error(error_msg)
