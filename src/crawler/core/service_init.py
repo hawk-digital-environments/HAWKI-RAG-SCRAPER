@@ -14,6 +14,10 @@ from hawki_crawler.crawler.core.runtime_defaults import (
 )
 from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.state.job_state import JobState
+from hawki_crawler.crawler.storage.runtime_directories import (
+    create_runtime_page_directory,
+    setup_output_directory,
+)
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.profiles import resolve_site_profile
 
@@ -121,31 +125,20 @@ class ServiceInitMixin:
 
     async def setup_directories(self):
         """Create necessary directories"""
-        if self.storage_manager:
-            self.storage_manager.ensure_job_directory()
-        else:
-            self.output_dir.mkdir(parents=True, exist_ok=True)
+        await setup_output_directory(
+            storage_manager=self.storage_manager,
+            output_dir=self.output_dir,
+        )
 
     async def create_page_directory(self, page_number: int, create_files_dir: bool = False) -> Path:
         """Create directory for a specific page"""
-        if self.storage_manager:
-            return self.storage_manager.create_page_directory(
-                page_number,
-                create_images_dir=not self.config.skip_images,
-                create_files_dir=create_files_dir
-            )
-        page_dir = self.output_dir / f"page_{page_number:05d}"
-        page_dir.mkdir(exist_ok=True)
-
-        if not self.config.skip_images:
-            images_dir = page_dir / "images"
-            images_dir.mkdir(exist_ok=True)
-
-        if create_files_dir:
-            files_dir = page_dir / "files"
-            files_dir.mkdir(exist_ok=True)
-
-        return page_dir
+        return await create_runtime_page_directory(
+            storage_manager=self.storage_manager,
+            output_dir=self.output_dir,
+            page_number=page_number,
+            skip_images=self.config.skip_images,
+            create_files_dir=create_files_dir,
+        )
 
     def normalize_url(self, url: str) -> str:
         """Normalize URL by removing fragments and trailing slashes"""
