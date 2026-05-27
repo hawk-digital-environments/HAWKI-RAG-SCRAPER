@@ -26,6 +26,7 @@ from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
+from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
@@ -82,6 +83,13 @@ def test_url_policy_allows_only_configured_discovery_hosts() -> None:
     assert service.is_discovery_url_allowed("https://sub.docs.example.org/page") is True
     assert service.is_discovery_url_allowed("https://fallback.example/page") is False
     assert service.is_discovery_url_allowed("mailto:team@example.com") is False
+
+
+def test_url_normalization_removes_fragments_and_trailing_slashes() -> None:
+    assert normalize_url("https://example.com/path/#section") == "https://example.com/path"
+    assert normalize_url("https://example.com/path/?a=1#section") == "https://example.com/path?a=1"
+    assert normalize_url("https://example.com/") == "https://example.com/"
+    assert normalize_url("https://example.com") == "https://example.com/"
 
 
 def test_sitemap_json_loading_normalizes_metadata_and_filters_forbidden_urls(tmp_path) -> None:
