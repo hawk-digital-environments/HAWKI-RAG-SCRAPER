@@ -3,6 +3,11 @@ from typing import Dict, Optional, TYPE_CHECKING
 from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
+from hawki_crawler.crawler.core.crawl_control import (
+    request_browser_restart,
+    request_safe_stop,
+    update_total_url_counts,
+)
 from hawki_crawler.crawler.core.memory_watchdog import (
     read_cgroup_memory_usage_ratio,
     wait_until_memory_relief,
@@ -47,23 +52,31 @@ class ServiceCrawlRuntimeMixin:
 
     async def trigger_safe_stop(self: "ServiceCrawlRuntimeMixinProtocol", reason: str) -> None:
         """Stop future crawl work and remember why the job was aborted."""
-        async with self.abort_lock:
-            if self.abort_crawl:
-                return
+        def mark_aborted(abort_reason: str) -> None:
             self.abort_crawl = True
-            self.abort_reason = reason
-            # Clearing the queue prevents new URLs from being scheduled after a fatal condition.
-            self.to_visit.clear()
+            self.abort_reason = abort_reason
+
+        await request_safe_stop(
+            abort_lock=self.abort_lock,
+            is_aborted=lambda: self.abort_crawl,
+            mark_aborted=mark_aborted,
+            pending_urls=self.to_visit,
+            reason=reason,
+        )
 
     async def _request_browser_restart(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> None:
         """Ask the outer crawl loop to restart the browser before retrying a URL."""
-        if not self.enable_browser_restarts:
-            return
-        async with self.restart_lock:
-            if url not in self.restart_urls:
-                self.restart_urls.append(url)
+        def mark_restart_requested(reason: str) -> None:
             self.restart_crawler = True
-            self.restart_reason = "browser_closed"
+            self.restart_reason = reason
+
+        await request_browser_restart(
+            enabled=self.enable_browser_restarts,
+            restart_lock=self.restart_lock,
+            restart_urls=self.restart_urls,
+            mark_restart_requested=mark_restart_requested,
+            url=url,
+        )
 
     def get_memory_usage_ratio(self: "ServiceCrawlRuntimeMixinProtocol") -> Optional[float]:
         """Return memory usage ratio based on cgroup limits, or None if unavailable."""
@@ -81,16 +94,11 @@ class ServiceCrawlRuntimeMixin:
 
     async def update_total_urls(self: "ServiceCrawlRuntimeMixinProtocol", new_total: int) -> None:
         """Increase total URL counts when discovery finds more work."""
-        if new_total <= 0:
-            return
-        if self.job_state:
-            snapshot = await self.job_state.get_snapshot()
-            if new_total > snapshot.total_urls:
-                await self.job_state.set_total_urls(new_total)
-        if self.progress_tracker:
-            progress = await self.progress_tracker.get_progress()
-            if new_total > progress["total_urls"]:
-                await self.progress_tracker.set_total_urls(new_total)
+        await update_total_url_counts(
+            new_total=new_total,
+            job_state=self.job_state,
+            progress_tracker=self.progress_tracker,
+        )
 
     async def save_page_data(
         self: "ServiceCrawlRuntimeMixinProtocol",
