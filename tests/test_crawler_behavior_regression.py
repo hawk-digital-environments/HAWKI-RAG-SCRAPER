@@ -23,6 +23,7 @@ from hawki_crawler.crawler.core.runtime_defaults import (
     resolve_output_directory,
 )
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
+from hawki_crawler.crawler.core.service_storage import ServiceStorageMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
@@ -48,8 +49,12 @@ class _PolicyAndSitemapService(ServiceUrlPolicyMixin, ServiceSitemapMixin):
         self.url_tracking_manager = None
         self.headers = {}
 
-    def normalize_url(self, url: str) -> str:
-        return url.split("#", 1)[0].rstrip("/")
+
+class _StorageService(ServiceStorageMixin):
+    def __init__(self, *, storage_manager, output_dir, skip_images: bool) -> None:
+        self.storage_manager = storage_manager
+        self.output_dir = output_dir
+        self.config = SimpleNamespace(skip_images=skip_images)
 
 
 def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) -> None:
@@ -518,6 +523,15 @@ async def test_runtime_directories_delegate_or_create_legacy_paths(tmp_path) -> 
     assert no_image_page_dir == legacy_output_dir / "page_00008"
     assert not (no_image_page_dir / "images").exists()
     assert not (no_image_page_dir / "files").exists()
+
+    service_output_dir = tmp_path / "service_legacy"
+    service = _StorageService(storage_manager=None, output_dir=service_output_dir, skip_images=False)
+    await service.setup_directories()
+    service_page_dir = await service.create_page_directory(9, create_files_dir=True)
+
+    assert service_page_dir == service_output_dir / "page_00009"
+    assert (service_page_dir / "images").is_dir()
+    assert (service_page_dir / "files").is_dir()
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:

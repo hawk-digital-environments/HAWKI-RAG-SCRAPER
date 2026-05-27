@@ -37,6 +37,18 @@ class ServiceUrlPolicyMixinProtocol(Protocol):
     def _is_forbidden_host(self, host: str) -> bool: ...
     def is_forbidden_url(self, url: str) -> bool: ...
     def _allowed_discovery_hosts(self) -> List[str]: ...
+    def normalize_url(self, url: str) -> str: ...
+
+
+class ServiceStorageMixinProtocol(Protocol):
+    """Dependencies used by runtime directory compatibility helpers."""
+
+    config: CrawlConfig
+    storage_manager: Any
+    output_dir: Path
+
+    async def setup_directories(self) -> None: ...
+    async def create_page_directory(self, page_number: int, create_files_dir: bool = False) -> Path: ...
 
 
 class ServiceSitemapMixinProtocol(Protocol):
@@ -254,6 +266,7 @@ class ServiceCrawlExecutionMixinProtocol(Protocol):
 
 class CrawlerServiceProtocol(
     ServiceUrlPolicyMixinProtocol,
+    ServiceStorageMixinProtocol,
     ServiceSitemapMixinProtocol,
     ServiceProgressMixinProtocol,
     ServiceDateLangMixinProtocol,

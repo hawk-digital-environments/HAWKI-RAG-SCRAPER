@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
+from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 
 if TYPE_CHECKING:
@@ -39,3 +40,6 @@ class ServiceUrlPolicyMixin:
 
     def is_video_url(self, url: str) -> bool:
         return self._url_policy().is_video_url(url)
+
+    def normalize_url(self, url: str) -> str:
+        return normalize_url(url)

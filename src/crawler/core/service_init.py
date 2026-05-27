@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
 from typing import Optional, Any
 
 import aiohttp
@@ -12,12 +11,7 @@ from hawki_crawler.crawler.core.runtime_defaults import (
     resolve_output_directory,
 )
 from hawki_crawler.crawler.models import CrawlConfig
-from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.state.job_state import JobState
-from hawki_crawler.crawler.storage.runtime_directories import (
-    create_runtime_page_directory,
-    setup_output_directory,
-)
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.profiles import resolve_site_profile
 
@@ -122,24 +116,3 @@ class ServiceInitMixin:
             config=config,
             storage_manager=self.storage_manager,
         )
-
-    async def setup_directories(self):
-        """Create necessary directories"""
-        await setup_output_directory(
-            storage_manager=self.storage_manager,
-            output_dir=self.output_dir,
-        )
-
-    async def create_page_directory(self, page_number: int, create_files_dir: bool = False) -> Path:
-        """Create directory for a specific page"""
-        return await create_runtime_page_directory(
-            storage_manager=self.storage_manager,
-            output_dir=self.output_dir,
-            page_number=page_number,
-            skip_images=self.config.skip_images,
-            create_files_dir=create_files_dir,
-        )
-
-    def normalize_url(self, url: str) -> str:
-        """Normalize URL by removing fragments and trailing slashes"""
-        return normalize_url(url)
