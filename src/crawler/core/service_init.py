@@ -18,7 +18,7 @@ from hawki_crawler.crawler.core.service_rate import RateLimiter
 from hawki_crawler.crawler.sitemap.scraper import DEFAULT_SITEMAP_BASE
 from hawki_crawler.crawler.profiles import resolve_site_profile
 from hawki_crawler.crawler.communication.file_event_publisher import FileEventPublisher
-from hawki_crawler.common.logging_setup import parse_log_level
+from hawki_crawler.common.logging_setup import configure_job_file_logger
 
 
 class ServiceInitMixin:
@@ -188,34 +188,7 @@ class ServiceInitMixin:
             return
         self.storage_manager.ensure_job_directory()
         log_path = self.storage_manager.get_job_directory() / "crawler.log"
-        logger = logging.getLogger(f"crawler.{self.job_id}")
-        handler_name = f"job_error_file_{self.job_id}"
-        for handler in logger.handlers:
-            if getattr(handler, "name", "") == handler_name:
-                self.job_logger = logging.LoggerAdapter(logger, {"job_id": self.job_id})
-                return
-        handler = logging.FileHandler(log_path)
-        handler.name = handler_name
-        handler.setLevel(parse_log_level(os.getenv("JOB_LOG_FILE_LEVEL", "INFO"), logging.INFO))
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s [job_id=%(job_id)s]"
-            )
-        )
-        class _JobContextFilter(logging.Filter):
-            def __init__(self, job_id: str) -> None:
-                super().__init__()
-                self.job_id = job_id
-
-            def filter(self, record: logging.LogRecord) -> bool:
-                if not getattr(record, "job_id", None):
-                    record.job_id = self.job_id
-                return True
-
-        handler.addFilter(_JobContextFilter(self.job_id))
-        logger.addHandler(handler)
-        logger.propagate = True
-        self.job_logger = logging.LoggerAdapter(logger, {"job_id": self.job_id})
+        self.job_logger = configure_job_file_logger(self.job_id, log_path)
 
     async def setup_directories(self):
         """Create necessary directories"""
