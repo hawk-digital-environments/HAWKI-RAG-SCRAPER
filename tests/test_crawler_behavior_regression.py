@@ -13,6 +13,11 @@ from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
+from hawki_crawler.crawler.core.crawl_control import (
+    request_browser_restart,
+    request_safe_stop,
+    update_total_url_counts,
+)
 from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
 from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.job_helpers import build_job_helpers
@@ -533,6 +538,90 @@ def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
     assert isinstance(state.consecutive_5xx_lock, asyncio.Lock)
     assert isinstance(state.abort_lock, asyncio.Lock)
     assert isinstance(state.restart_lock, asyncio.Lock)
+
+
+@pytest.mark.asyncio
+async def test_crawl_control_helpers_stop_restart_and_update_counts() -> None:
+    aborted = False
+    abort_reason = None
+    pending_urls = ["https://example.com/one", "https://example.com/two"]
+
+    def mark_aborted(reason: str) -> None:
+        nonlocal aborted, abort_reason
+        aborted = True
+        abort_reason = reason
+
+    await request_safe_stop(
+        abort_lock=asyncio.Lock(),
+        is_aborted=lambda: aborted,
+        mark_aborted=mark_aborted,
+        pending_urls=pending_urls,
+        reason="too many server errors",
+    )
+
+    assert aborted is True
+    assert abort_reason == "too many server errors"
+    assert pending_urls == []
+
+    restart_requested = False
+    restart_reason = None
+    restart_urls = []
+
+    def mark_restart_requested(reason: str) -> None:
+        nonlocal restart_requested, restart_reason
+        restart_requested = True
+        restart_reason = reason
+
+    await request_browser_restart(
+        enabled=True,
+        restart_lock=asyncio.Lock(),
+        restart_urls=restart_urls,
+        mark_restart_requested=mark_restart_requested,
+        url="https://example.com/retry",
+    )
+    await request_browser_restart(
+        enabled=True,
+        restart_lock=asyncio.Lock(),
+        restart_urls=restart_urls,
+        mark_restart_requested=mark_restart_requested,
+        url="https://example.com/retry",
+    )
+
+    assert restart_requested is True
+    assert restart_reason == "browser_closed"
+    assert restart_urls == ["https://example.com/retry"]
+
+    class FakeJobState:
+        def __init__(self) -> None:
+            self.updated_totals = []
+
+        async def get_snapshot(self):
+            return SimpleNamespace(total_urls=2)
+
+        async def set_total_urls(self, total: int) -> None:
+            self.updated_totals.append(total)
+
+    class FakeProgressTracker:
+        def __init__(self) -> None:
+            self.updated_totals = []
+
+        async def get_progress(self):
+            return {"total_urls": 2}
+
+        async def set_total_urls(self, total: int) -> None:
+            self.updated_totals.append(total)
+
+    job_state = FakeJobState()
+    progress_tracker = FakeProgressTracker()
+
+    await update_total_url_counts(
+        new_total=5,
+        job_state=job_state,
+        progress_tracker=progress_tracker,
+    )
+
+    assert job_state.updated_totals == [5]
+    assert progress_tracker.updated_totals == [5]
 
 
 def test_memory_watchdog_reads_cgroup_usage_ratio(tmp_path) -> None:
