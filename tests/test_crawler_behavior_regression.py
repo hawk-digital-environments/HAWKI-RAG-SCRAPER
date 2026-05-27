@@ -12,6 +12,7 @@ from hawki_crawler.app import job_lifecycle
 from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.crawl_control import (
@@ -819,6 +820,54 @@ async def test_asset_saver_writes_fallback_file_and_marks_incomplete(tmp_path) -
     assert result["relative_path"] == "files/report.pdf"
     assert result["incomplete"] is True
     assert result["error"] == "partial content"
+
+
+@pytest.mark.asyncio
+async def test_image_downloader_saves_supported_image_without_network(tmp_path) -> None:
+    class FakeRateLimiter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def acquire(self) -> None:
+            self.calls += 1
+
+    class FakeImageResponse:
+        status = 200
+        headers = {"Content-Type": "image/png; charset=binary"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def read(self) -> bytes:
+            return b"image-bytes"
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.requested = []
+
+        def get(self, url, **kwargs):
+            self.requested.append((url, kwargs))
+            return FakeImageResponse()
+
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+    rate_limiter = FakeRateLimiter()
+    session = FakeSession()
+    downloader = ImageDownloader(rate_limiter=rate_limiter)
+
+    filename = await downloader.download_image(
+        "https://example.com/assets/logo.png",
+        session,
+        images_dir,
+    )
+
+    assert filename == "logo.png"
+    assert (images_dir / "logo.png").read_bytes() == b"image-bytes"
+    assert rate_limiter.calls == 1
+    assert session.requested[0][0] == "https://example.com/assets/logo.png"
 
 
 @pytest.mark.asyncio
