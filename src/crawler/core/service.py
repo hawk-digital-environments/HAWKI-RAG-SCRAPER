@@ -1,4 +1,5 @@
 from hawki_crawler.crawler.core.service_init import ServiceInitMixin
+from hawki_crawler.crawler.core.service_storage import ServiceStorageMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_progress import ServiceProgressMixin
@@ -11,6 +12,7 @@ from hawki_crawler.crawler.core.service_crawl_execution import ServiceCrawlExecu
 
 class CrawlerService(
     ServiceInitMixin,
+    ServiceStorageMixin,
     ServiceUrlPolicyMixin,
     ServiceSitemapMixin,
     ServiceProgressMixin,
