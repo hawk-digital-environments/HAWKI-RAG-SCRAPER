@@ -4,9 +4,9 @@ from typing import Optional, Any
 
 import aiohttp
 
-from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
-from hawki_crawler.crawler.core.job_helpers import build_job_helpers
-from hawki_crawler.crawler.core.runtime_defaults import (
+from hawki_crawler.crawler.core.runtime.state import build_crawl_runtime_state
+from hawki_crawler.crawler.core.runtime.job_helpers import build_job_helpers
+from hawki_crawler.crawler.core.runtime.defaults import (
     default_http_headers,
     resolve_output_directory,
 )

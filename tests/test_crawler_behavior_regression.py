@@ -18,35 +18,35 @@ from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
-from hawki_crawler.crawler.core.crawl_control import (
+from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
+from hawki_crawler.crawler.core.runtime.control import (
     request_browser_restart,
     request_safe_stop,
     update_total_url_counts,
 )
-from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
-from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
-from hawki_crawler.crawler.core.job_helpers import build_job_helpers
-from hawki_crawler.crawler.core.memory_watchdog import (
+from hawki_crawler.crawler.core.runtime.state import build_crawl_runtime_state
+from hawki_crawler.crawler.core.runtime.job_helpers import build_job_helpers
+from hawki_crawler.crawler.core.runtime.memory_watchdog import (
     read_cgroup_memory_usage_ratio,
     wait_until_memory_relief,
 )
-from hawki_crawler.crawler.core.runtime_defaults import (
+from hawki_crawler.crawler.core.runtime.defaults import (
     BROWSER_RESTART_DEFAULTS,
     DEFAULT_HTTP_HEADERS,
     MEMORY_WATCHDOG_DEFAULTS,
     default_http_headers,
     resolve_output_directory,
 )
-from hawki_crawler.crawler.core.run_config import build_crawler_run_config
-from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
-from hawki_crawler.crawler.core.service_storage import ServiceStorageMixin
-from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
+from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
+from hawki_crawler.crawler.policies.mixin import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.sitemap.mixin import ServiceSitemapMixin
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
+from hawki_crawler.crawler.storage.mixin import ServiceStorageMixin
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.runtime_directories import (
     create_runtime_page_directory,

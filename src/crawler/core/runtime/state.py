@@ -7,11 +7,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
-from hawki_crawler.crawler.core.runtime_defaults import (
+from hawki_crawler.crawler.core.runtime.defaults import (
     BROWSER_RESTART_DEFAULTS,
     MEMORY_WATCHDOG_DEFAULTS,
 )
-from hawki_crawler.crawler.core.service_rate import RateLimiter
+from hawki_crawler.crawler.core.runtime.rate_limiter import RateLimiter
 from hawki_crawler.crawler.models import CrawlConfig
 
 
