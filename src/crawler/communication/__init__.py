@@ -7,7 +7,6 @@ from .pipeline_event_producer import (
     RabbitMQEventProducerConfig,
 )
 from .progress_publisher import ProgressPublisher
-from .progress_mixin import ServiceProgressMixin
 from .producer_service import build_crawl_job, publish_crawl_job
 from .rabbit_producer import PublishResult, RabbitMQProducer, RabbitProducerConfig
 
@@ -21,7 +20,6 @@ __all__ = [
     "RabbitMQEventProducerConfig",
     "RabbitProducerConfig",
     "PublishResult",
-    "ServiceProgressMixin",
     "build_crawl_job",
     "publish_crawl_job",
 ]

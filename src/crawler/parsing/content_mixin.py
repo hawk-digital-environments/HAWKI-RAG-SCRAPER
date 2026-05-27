@@ -21,7 +21,7 @@ class ServiceParseContentMixin:
             headers=getattr(self, "headers", {}) or {},
             job_logger=self.job_logger,
             first_sitemap_entry=self.first_sitemap_entry,
-            detect_language=self.detect_language,
+            detect_language=self.date_language.detect_language,
             get_sitemap_date=self.get_sitemap_date,
             parse_http_date=self.parse_http_date,
             create_page_directory=self.create_page_directory,
