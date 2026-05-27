@@ -6,9 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
+from crawl4ai.async_configs import CacheMode
 
 from hawki_crawler.app import job_lifecycle
-from hawki_crawler.crawler.models import CrawlStatus
+from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
@@ -32,6 +33,7 @@ from hawki_crawler.crawler.core.runtime_defaults import (
     default_http_headers,
     resolve_output_directory,
 )
+from hawki_crawler.crawler.core.run_config import build_crawler_run_config
 from hawki_crawler.crawler.core.service_sitemap import ServiceSitemapMixin
 from hawki_crawler.crawler.core.service_storage import ServiceStorageMixin
 from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
@@ -538,6 +540,26 @@ def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
     assert isinstance(state.consecutive_5xx_lock, asyncio.Lock)
     assert isinstance(state.abort_lock, asyncio.Lock)
     assert isinstance(state.restart_lock, asyncio.Lock)
+
+
+def test_crawler_run_config_preserves_runtime_defaults() -> None:
+    config = CrawlConfig(
+        job_id="run-config-job",
+        url="https://example.com",
+        wait_until="networkidle",
+        page_timeout_ms=12345,
+    )
+
+    run_config = build_crawler_run_config(config)
+
+    assert run_config.word_count_threshold == 0
+    assert run_config.exclude_external_links is False
+    assert run_config.process_iframes is False
+    assert run_config.remove_overlay_elements is True
+    assert run_config.cache_mode == CacheMode.BYPASS
+    assert run_config.wait_until == "networkidle"
+    assert run_config.page_timeout == 12345
+    assert run_config.delay_before_return_html == 5.0
 
 
 @pytest.mark.asyncio

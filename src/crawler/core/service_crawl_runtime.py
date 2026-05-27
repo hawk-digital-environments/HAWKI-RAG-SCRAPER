@@ -1,6 +1,6 @@
 from typing import Dict, Optional, TYPE_CHECKING
 
-from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
+from crawl4ai.async_configs import CrawlerRunConfig
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.core.crawl_control import (
@@ -12,6 +12,7 @@ from hawki_crawler.crawler.core.memory_watchdog import (
     read_cgroup_memory_usage_ratio,
     wait_until_memory_relief,
 )
+from hawki_crawler.crawler.core.run_config import build_crawler_run_config
 from hawki_crawler.crawler.storage.page_data_store import PageDataStore
 
 if TYPE_CHECKING:
@@ -39,16 +40,7 @@ class ServiceCrawlRuntimeMixin:
 
     def build_run_config(self: "ServiceCrawlRuntimeMixinProtocol") -> CrawlerRunConfig:
         """Build the shared Crawl4AI run config for single-page and batch crawls."""
-        return CrawlerRunConfig(
-            word_count_threshold=0,
-            exclude_external_links=False,
-            process_iframes=False,
-            remove_overlay_elements=True,
-            cache_mode=CacheMode.BYPASS,
-            wait_until=self.config.wait_until,
-            page_timeout=self.config.page_timeout_ms,
-            delay_before_return_html=5.0
-        )
+        return build_crawler_run_config(self.config)
 
     async def trigger_safe_stop(self: "ServiceCrawlRuntimeMixinProtocol", reason: str) -> None:
         """Stop future crawl work and remember why the job was aborted."""
