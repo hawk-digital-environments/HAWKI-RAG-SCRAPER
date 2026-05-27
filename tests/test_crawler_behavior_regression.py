@@ -26,6 +26,7 @@ from hawki_crawler.crawler.core.service_url_policy import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
@@ -347,6 +348,62 @@ def test_runtime_defaults_preserve_headers_limits_and_output_paths(tmp_path) -> 
 
     assert stored_config.label == "example_edu_20260521_123000"
     assert stored_output_dir == storage_manager.get_job_directory()
+
+
+def test_sitemap_runtime_state_resolves_paths_base_and_loads(monkeypatch, tmp_path) -> None:
+    site_sitemap = tmp_path / "site_sitemap.json"
+    fallback_sitemap = tmp_path / "fallback_sitemap.json"
+    monkeypatch.setenv("SITE_SITEMAP_JSON", str(site_sitemap))
+    monkeypatch.setenv("SITEMAP_JSON", str(fallback_sitemap))
+    monkeypatch.setenv("SITEMAP_BASE", "https://env.example/sitemap.xml")
+    calls = []
+
+    def load_sitemap_map(path):
+        calls.append(("map", path))
+        return {"example.edu/page": {"last_modified": "2026-05-21"}}
+
+    def load_sitemap_urls(path):
+        calls.append(("urls", path))
+        return ["https://example.edu/page"]
+
+    state = build_sitemap_runtime_state(
+        config=SimpleNamespace(
+            url="https://www.example.edu/start",
+            sitemap_output=None,
+            sitemap_base=None,
+        ),
+        job_id="job-1",
+        storage_manager=StorageManager(job_id="job-1", base_path=str(tmp_path)),
+        site_profile={"sitemap": {"base_url": "https://profile.example/sitemap.xml"}},
+        load_sitemap_map=load_sitemap_map,
+        load_sitemap_urls=load_sitemap_urls,
+    )
+
+    assert state.sitemap_lastmod == {}
+    assert state.sitemap_path == str(site_sitemap)
+    assert state.sitemap_map == {"example.edu/page": {"last_modified": "2026-05-21"}}
+    assert state.sitemap_urls == ["https://example.edu/page"]
+    assert state.sitemap_base == "https://env.example/sitemap.xml"
+    assert state.crawl_host == "www.example.edu"
+    assert calls == [("map", str(site_sitemap)), ("urls", str(site_sitemap))]
+
+    explicit_state = build_sitemap_runtime_state(
+        config=SimpleNamespace(
+            url="https://example.edu/start",
+            sitemap_output="/tmp/explicit-sitemap.json",
+            sitemap_base="https://explicit.example/sitemap.xml",
+        ),
+        job_id=None,
+        storage_manager=None,
+        site_profile={},
+        load_sitemap_map=lambda path: {"path": {"value": path}},
+        load_sitemap_urls=lambda path: [path],
+    )
+
+    assert explicit_state.sitemap_path == "/tmp/explicit-sitemap.json"
+    assert explicit_state.sitemap_base == "https://explicit.example/sitemap.xml"
+    assert explicit_state.sitemap_map == {"path": {"value": "/tmp/explicit-sitemap.json"}}
+    assert explicit_state.sitemap_urls == ["/tmp/explicit-sitemap.json"]
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:

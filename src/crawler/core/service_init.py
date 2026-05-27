@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Set
@@ -18,7 +17,7 @@ from hawki_crawler.crawler.core.runtime_defaults import (
 from hawki_crawler.crawler.core.service_rate import RateLimiter
 from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.state.job_state import JobState
-from hawki_crawler.crawler.sitemap.scraper import DEFAULT_SITEMAP_BASE
+from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.profiles import resolve_site_profile
 
 
@@ -136,21 +135,20 @@ class ServiceInitMixin:
 
     def _init_sitemap_state(self) -> None:
         """Sitemap input and lookup state used by sitemap-related mixins."""
-        self.sitemap_lastmod: Dict[str, str] = {}
-        default_sitemap_path = None
-        if self.job_id and self.storage_manager:
-            default_sitemap_path = str(self.storage_manager.get_job_directory() / "sitemap.json")
-        self.sitemap_path = (
-            self.config.sitemap_output
-            or os.getenv("SITE_SITEMAP_JSON")
-            or os.getenv("SITEMAP_JSON")
-            or default_sitemap_path
+        state = build_sitemap_runtime_state(
+            config=self.config,
+            job_id=self.job_id,
+            storage_manager=self.storage_manager,
+            site_profile=self.site_profile,
+            load_sitemap_map=self.load_sitemap_map,
+            load_sitemap_urls=self.load_sitemap_urls,
         )
-        self.sitemap_map = self.load_sitemap_map(self.sitemap_path)
-        self.sitemap_urls = self.load_sitemap_urls(self.sitemap_path)
-        profile_sitemap = self.site_profile.get("sitemap", {})
-        self.sitemap_base = self.config.sitemap_base or os.getenv("SITEMAP_BASE", profile_sitemap.get("base_url", DEFAULT_SITEMAP_BASE))
-        self.crawl_host = urlparse(str(self.config.url)).hostname
+        self.sitemap_lastmod = state.sitemap_lastmod
+        self.sitemap_path = state.sitemap_path
+        self.sitemap_map = state.sitemap_map
+        self.sitemap_urls = state.sitemap_urls
+        self.sitemap_base = state.sitemap_base
+        self.crawl_host = state.crawl_host
 
     def _init_http_headers(self) -> None:
         """Default request headers used by HTTP and browser fetches."""
