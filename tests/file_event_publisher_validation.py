@@ -36,7 +36,7 @@ except ModuleNotFoundError:
     _stub.open = _aiofiles_open
     sys.modules["aiofiles"] = _stub
 
-from hawki_crawler.crawler.assets.mixin import ServiceParseAssetsMixin
+from hawki_crawler.crawler.assets.asset_service_mixin import ServiceParseAssetsMixin
 from hawki_crawler.crawler.communication.file_event_publisher import (
     FileEventPublishOutcome,
     FileEventPublisher,
