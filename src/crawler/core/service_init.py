@@ -2,7 +2,6 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Any
-from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
@@ -13,6 +12,7 @@ from hawki_crawler.crawler.core.runtime_defaults import (
     resolve_output_directory,
 )
 from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.storage.runtime_directories import (
     create_runtime_page_directory,
@@ -142,13 +142,4 @@ class ServiceInitMixin:
 
     def normalize_url(self, url: str) -> str:
         """Normalize URL by removing fragments and trailing slashes"""
-        parsed = urlparse(url)
-        normalized = urlunparse((
-            parsed.scheme,
-            parsed.netloc,
-            parsed.path.rstrip('/') or '/',
-            parsed.params,
-            parsed.query,
-            ''
-        ))
-        return normalized
+        return normalize_url(url)
