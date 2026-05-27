@@ -1,20 +1,17 @@
 import asyncio
 import logging
-import time
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Set
+from typing import Optional, Any
 from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
+from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.job_helpers import build_job_helpers
 from hawki_crawler.crawler.core.runtime_defaults import (
-    BROWSER_RESTART_DEFAULTS,
-    MEMORY_WATCHDOG_DEFAULTS,
     default_http_headers,
     resolve_output_directory,
 )
-from hawki_crawler.crawler.core.service_rate import RateLimiter
 from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
@@ -34,11 +31,7 @@ class ServiceInitMixin:
         pause_event: Optional[asyncio.Event] = None
     ):
         self.config = config
-        self._init_queue_state()
-        self._init_crawl_limits(config)
-        self._init_stop_and_pause_state(pause_event)
-        self._init_browser_restart_state()
-        self._init_memory_watchdog_state()
+        self._init_crawl_runtime_state(config, pause_event)
         self._init_external_services(communication_service, job_state, storage_manager, job_id)
         self._init_job_logger()
         self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
@@ -48,50 +41,15 @@ class ServiceInitMixin:
         self._init_http_headers()
         self._init_output_paths(config)
 
-    def _init_queue_state(self) -> None:
-        """State shared by the crawl loop while it decides what to visit next."""
-        self.visited_urls: Set[str] = set()
-        self.to_visit: List[str] = []
-        self.url_depth: Dict[str, int] = {}
-        self.url_source: Dict[str, str] = {}
-        self.pages_data: List[Dict] = []
-
-    def _init_crawl_limits(self, config: CrawlConfig) -> None:
-        """Counters, locks, and rate limits used while pages are being processed."""
-        self.rate_limiter = RateLimiter(config.max_rpm, config.request_delay)
-        self.semaphore = asyncio.Semaphore(config.max_concurrency)
-        self.page_counter = 0
-        self.counter_lock = asyncio.Lock()
-        self.allow_over_max_pages = False
-        self.consecutive_5xx = 0
-        self.consecutive_5xx_lock = asyncio.Lock()
-
-    def _init_stop_and_pause_state(self, pause_event: Optional[asyncio.Event]) -> None:
-        """Flags used by stop, pause, and resume without losing queued URLs."""
-        self.abort_crawl = False
-        self.abort_reason: Optional[str] = None
-        self.abort_lock = asyncio.Lock()
-        self.pause_event = pause_event
-        self.pause_logged = False
-
-    def _init_browser_restart_state(self) -> None:
-        """Browser-restart bookkeeping owned by the crawl execution mixin."""
-        self.restart_crawler = False
-        self.restart_urls: List[str] = []
-        self.restart_lock = asyncio.Lock()
-        self.browser_restart_count = 0
-        self.max_browser_restarts = BROWSER_RESTART_DEFAULTS.max_restarts
-        self.browser_restart_interval_seconds = BROWSER_RESTART_DEFAULTS.interval_seconds
-        self.browser_last_restart = time.monotonic()
-        self.enable_browser_restarts = BROWSER_RESTART_DEFAULTS.enabled
-        self.restart_reason: Optional[str] = None
-
-    def _init_memory_watchdog_state(self) -> None:
-        """Memory watchdog thresholds used by the runtime mixin."""
-        self.enable_memory_watchdog = MEMORY_WATCHDOG_DEFAULTS.enabled
-        self.memory_restart_threshold = MEMORY_WATCHDOG_DEFAULTS.restart_threshold
-        self.memory_resume_threshold = MEMORY_WATCHDOG_DEFAULTS.resume_threshold
-        self.memory_restart_wait_seconds = MEMORY_WATCHDOG_DEFAULTS.restart_wait_seconds
+    def _init_crawl_runtime_state(
+        self,
+        config: CrawlConfig,
+        pause_event: Optional[asyncio.Event],
+    ) -> None:
+        """Attach mutable crawl state used by execution/runtime mixins."""
+        state = build_crawl_runtime_state(config=config, pause_event=pause_event)
+        for name, value in vars(state).items():
+            setattr(self, name, value)
 
     def _init_external_services(
         self,
