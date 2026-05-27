@@ -30,6 +30,10 @@ from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
+from hawki_crawler.crawler.storage.runtime_directories import (
+    create_runtime_page_directory,
+    setup_output_directory,
+)
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
 from hawki_crawler.common.logging_setup import configure_job_file_logger
 
@@ -446,6 +450,66 @@ def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
     assert isinstance(state.consecutive_5xx_lock, asyncio.Lock)
     assert isinstance(state.abort_lock, asyncio.Lock)
     assert isinstance(state.restart_lock, asyncio.Lock)
+
+
+@pytest.mark.asyncio
+async def test_runtime_directories_delegate_or_create_legacy_paths(tmp_path) -> None:
+    class FakeStorageManager:
+        def __init__(self) -> None:
+            self.ensured = False
+            self.calls = []
+            self.page_dir = tmp_path / "managed_page"
+
+        def ensure_job_directory(self) -> None:
+            self.ensured = True
+
+        def create_page_directory(
+            self,
+            page_number: int,
+            *,
+            create_images_dir: bool,
+            create_files_dir: bool,
+        ):
+            self.calls.append((page_number, create_images_dir, create_files_dir))
+            return self.page_dir
+
+    manager = FakeStorageManager()
+    await setup_output_directory(storage_manager=manager, output_dir=tmp_path / "ignored")
+    managed_page_dir = await create_runtime_page_directory(
+        storage_manager=manager,
+        output_dir=tmp_path / "ignored",
+        page_number=3,
+        skip_images=True,
+        create_files_dir=True,
+    )
+
+    assert manager.ensured is True
+    assert manager.calls == [(3, False, True)]
+    assert managed_page_dir == manager.page_dir
+
+    legacy_output_dir = tmp_path / "legacy"
+    await setup_output_directory(storage_manager=None, output_dir=legacy_output_dir)
+    legacy_page_dir = await create_runtime_page_directory(
+        storage_manager=None,
+        output_dir=legacy_output_dir,
+        page_number=7,
+        skip_images=False,
+        create_files_dir=True,
+    )
+    no_image_page_dir = await create_runtime_page_directory(
+        storage_manager=None,
+        output_dir=legacy_output_dir,
+        page_number=8,
+        skip_images=True,
+        create_files_dir=False,
+    )
+
+    assert legacy_page_dir == legacy_output_dir / "page_00007"
+    assert (legacy_page_dir / "images").is_dir()
+    assert (legacy_page_dir / "files").is_dir()
+    assert no_image_page_dir == legacy_output_dir / "page_00008"
+    assert not (no_image_page_dir / "images").exists()
+    assert not (no_image_page_dir / "files").exists()
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
