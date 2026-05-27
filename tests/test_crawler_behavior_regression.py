@@ -12,6 +12,7 @@ from hawki_crawler.app import job_lifecycle
 from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
@@ -868,6 +869,59 @@ async def test_image_downloader_saves_supported_image_without_network(tmp_path) 
     assert (images_dir / "logo.png").read_bytes() == b"image-bytes"
     assert rate_limiter.calls == 1
     assert session.requested[0][0] == "https://example.com/assets/logo.png"
+
+
+@pytest.mark.asyncio
+async def test_file_event_notifier_publishes_saved_complete_files() -> None:
+    class FakeFileEventPublisher:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def publish_file_discovered(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(success=True, skipped=False, reason=None, error=None)
+
+    publisher = FakeFileEventPublisher()
+    notifier = FileEventNotifier(
+        file_event_publisher=publisher,
+        job_id="asset-job",
+        logger=logging.getLogger("test.file_event_notifier"),
+    )
+
+    await notifier.publish_saved_file_event(
+        file_url="https://example.com/files/report.pdf",
+        page_url="https://example.com/page",
+        file_entry={
+            "local_path": "/tmp/report.pdf",
+            "relative_path": "files/report.pdf",
+            "filename": "report.pdf",
+            "content_type": "application/pdf",
+        },
+    )
+    await notifier.publish_saved_file_event(
+        file_url="https://example.com/files/incomplete.pdf",
+        page_url="https://example.com/page",
+        file_entry={
+            "local_path": "/tmp/incomplete.pdf",
+            "filename": "incomplete.pdf",
+            "content_type": "application/pdf",
+            "incomplete": True,
+        },
+    )
+
+    assert publisher.calls == [
+        {
+            "url": "https://example.com/files/report.pdf",
+            "page_url": "https://example.com/page",
+            "job_id": "asset-job",
+            "local_path": "/tmp/report.pdf",
+            "relative_path": "files/report.pdf",
+            "filename": "report.pdf",
+            "extension": ".pdf",
+            "content_type": "application/pdf",
+            "payload": {"asset_type": "file"},
+        }
+    ]
 
 
 @pytest.mark.asyncio
