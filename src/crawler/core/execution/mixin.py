@@ -9,7 +9,7 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig
 
 from hawki_crawler.crawler.communication.interface import Stage
-from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
+from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
 from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
 

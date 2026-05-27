@@ -3,16 +3,16 @@ from typing import Dict, Optional, TYPE_CHECKING
 from crawl4ai.async_configs import CrawlerRunConfig
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
-from hawki_crawler.crawler.core.crawl_control import (
+from hawki_crawler.crawler.core.runtime.control import (
     request_browser_restart,
     request_safe_stop,
     update_total_url_counts,
 )
-from hawki_crawler.crawler.core.memory_watchdog import (
+from hawki_crawler.crawler.core.runtime.memory_watchdog import (
     read_cgroup_memory_usage_ratio,
     wait_until_memory_relief,
 )
-from hawki_crawler.crawler.core.run_config import build_crawler_run_config
+from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
 from hawki_crawler.crawler.storage.page_data_store import PageDataStore
 
 if TYPE_CHECKING:

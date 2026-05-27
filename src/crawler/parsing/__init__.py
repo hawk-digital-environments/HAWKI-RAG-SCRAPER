@@ -11,11 +11,15 @@ from hawki_crawler.crawler.parsing.content_quality import (
     detect_language_confidence,
 )
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
+from hawki_crawler.crawler.parsing.date_language_mixin import ServiceDateLangMixin
+from hawki_crawler.crawler.parsing.content_mixin import ServiceParseContentMixin
 from hawki_crawler.crawler.parsing.page_extractor import PageExtractor
 
 __all__ = [
     "DateLanguageService",
     "PageExtractor",
+    "ServiceDateLangMixin",
+    "ServiceParseContentMixin",
     "assess_content_quality",
     "clean_html_for_markdown",
     "detect_language_confidence",
