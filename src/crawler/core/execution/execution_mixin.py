@@ -126,7 +126,7 @@ class ServiceCrawlExecutionMixin:
             if self.job_state:
                 await self.job_state.set_current_url(url)
 
-            if self.is_video_url(url):
+            if self.url_policy.is_video_url(url):
                 self.job_logger.info("Skipping video URL: %s", url)
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.set_completed(url, None)
@@ -351,7 +351,7 @@ class ServiceCrawlExecutionMixin:
                     for new_url in new_urls:
                         if self.abort_crawl:
                             break
-                        new_url = self.normalize_url(new_url)
+                        new_url = self.url_policy.normalize_url(new_url)
                         if urlparse(new_url).path.lower().endswith("piwik.php"):
                             continue
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
@@ -480,7 +480,7 @@ class ServiceCrawlExecutionMixin:
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
                 removed = await self.url_tracking_manager.purge_forbidden_hosts(
-                    list(self.get_forbidden_hosts())
+                    list(self.url_policy.get_forbidden_hosts())
                 )
                 if removed:
                     self.job_logger.info("Removed %s forbidden URLs from tracking state", removed)
@@ -495,7 +495,7 @@ class ServiceCrawlExecutionMixin:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
-                        if self.is_forbidden_url(url):
+                        if self.url_policy.is_forbidden_url(url):
                             continue
                         status = (meta or {}).get("status")
                         if status in ("pending", "failed", "processing"):
@@ -667,7 +667,7 @@ class ServiceCrawlExecutionMixin:
                     await self.wait_for_memory_relief()
 
                 for retry_url in restart_urls:
-                    if self.is_forbidden_url(retry_url):
+                    if self.url_policy.is_forbidden_url(retry_url):
                         continue
                     if retry_url not in self.to_visit:
                         self.to_visit.insert(0, retry_url)
@@ -675,7 +675,7 @@ class ServiceCrawlExecutionMixin:
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     # Optional cleanup pass: retry failed URLs for this job.
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
-                    failed_urls = [url for url in failed_urls if not self.is_forbidden_url(url)]
+                    failed_urls = [url for url in failed_urls if not self.url_policy.is_forbidden_url(url)]
                     if len(failed_urls) > 1:
                         rescrape_round = 0
                         max_rescrape_rounds = 10

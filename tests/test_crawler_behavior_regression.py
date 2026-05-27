@@ -40,37 +40,30 @@ from hawki_crawler.crawler.core.runtime.defaults import (
 from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
-from hawki_crawler.crawler.policies.url_policy_mixin import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.sitemap_mixin import ServiceSitemapMixin
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
-from hawki_crawler.crawler.storage.storage_mixin import ServiceStorageMixin
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.runtime_directories import (
     create_runtime_page_directory,
     setup_output_directory,
 )
+from hawki_crawler.crawler.storage.runtime_storage import RuntimeStorageService
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
 from hawki_crawler.common.logging_setup import configure_job_file_logger
 
 
-class _PolicyAndSitemapService(ServiceUrlPolicyMixin, ServiceSitemapMixin):
+class _PolicyAndSitemapService(ServiceSitemapMixin):
     def __init__(self, *, site_profile=None, crawl_host="example.com") -> None:
         self.site_profile = site_profile or {}
         self.crawl_host = crawl_host
+        self.url_policy = UrlPolicyService(site_profile=self.site_profile, crawl_host=self.crawl_host)
         self.sitemap_map = {}
         self.sitemap_lastmod = {}
         self.url_tracking_manager = None
         self.headers = {}
-
-
-class _StorageService(ServiceStorageMixin):
-    def __init__(self, *, storage_manager, output_dir, skip_images: bool) -> None:
-        self.storage_manager = storage_manager
-        self.output_dir = output_dir
-        self.config = SimpleNamespace(skip_images=skip_images)
 
 
 def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) -> None:
@@ -744,7 +737,11 @@ async def test_runtime_directories_delegate_or_create_legacy_paths(tmp_path) -> 
     assert not (no_image_page_dir / "files").exists()
 
     service_output_dir = tmp_path / "service_legacy"
-    service = _StorageService(storage_manager=None, output_dir=service_output_dir, skip_images=False)
+    service = RuntimeStorageService(
+        storage_manager=None,
+        output_dir=service_output_dir,
+        skip_images=False,
+    )
     await service.setup_directories()
     service_page_dir = await service.create_page_directory(9, create_files_dir=True)
 
