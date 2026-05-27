@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 _KNOWN_CONTEXT_KEYS = {
@@ -76,6 +77,41 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str, ensure_ascii=True)
 
 
+class JobContextFilter(logging.Filter):
+    """Ensure job file log records always carry the current job id."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__()
+        self.job_id = job_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not getattr(record, "job_id", None):
+            record.job_id = self.job_id
+        return True
+
+
+def configure_job_file_logger(job_id: str, log_path: Path) -> logging.LoggerAdapter:
+    """Attach the per-job crawler log file handler once and return its adapter."""
+    logger = logging.getLogger(f"crawler.{job_id}")
+    handler_name = f"job_error_file_{job_id}"
+    for handler in logger.handlers:
+        if getattr(handler, "name", "") == handler_name:
+            return logging.LoggerAdapter(logger, {"job_id": job_id})
+
+    handler = logging.FileHandler(log_path)
+    handler.name = handler_name
+    handler.setLevel(parse_log_level(os.getenv("JOB_LOG_FILE_LEVEL", "INFO"), logging.INFO))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s [job_id=%(job_id)s]"
+        )
+    )
+    handler.addFilter(JobContextFilter(job_id))
+    logger.addHandler(handler)
+    logger.propagate = True
+    return logging.LoggerAdapter(logger, {"job_id": job_id})
+
+
 def configure_logging() -> None:
     """Configure root logging once using environment variables."""
     level = parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
@@ -92,4 +128,3 @@ def configure_logging() -> None:
 
     logging.basicConfig(level=level, handlers=[handler], force=True)
     logging.getLogger().setLevel(level)
-

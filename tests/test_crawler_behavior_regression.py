@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
+from hawki_crawler.common.logging_setup import configure_job_file_logger
 
 
 class _PolicyAndSitemapService(ServiceUrlPolicyMixin, ServiceSitemapMixin):
@@ -213,6 +215,39 @@ def test_content_helpers_select_main_content_and_cleanup_markdown() -> None:
     assert markdown == "# Research Update\nUseful sentence with enough words."
     assert "removed_duplicate_heading" in warnings
     assert "removed_markdown_noise_line" in warnings
+
+
+def test_job_file_logger_writes_job_context_once(tmp_path) -> None:
+    job_id = "regression_logger_job"
+    log_path = tmp_path / "crawler.log"
+    logger = logging.getLogger(f"crawler.{job_id}")
+    handler_name = f"job_error_file_{job_id}"
+
+    for handler in list(logger.handlers):
+        if getattr(handler, "name", "") == handler_name:
+            logger.removeHandler(handler)
+            handler.close()
+
+    try:
+        first_adapter = configure_job_file_logger(job_id, log_path)
+        second_adapter = configure_job_file_logger(job_id, log_path)
+
+        first_adapter.info("crawl started")
+        second_adapter.info("crawl continued")
+
+        matching_handlers = [
+            handler for handler in logger.handlers if getattr(handler, "name", "") == handler_name
+        ]
+        assert len(matching_handlers) == 1
+
+        log_text = log_path.read_text(encoding="utf-8")
+        assert "crawl started [job_id=regression_logger_job]" in log_text
+        assert "crawl continued [job_id=regression_logger_job]" in log_text
+    finally:
+        for handler in list(logger.handlers):
+            if getattr(handler, "name", "") == handler_name:
+                logger.removeHandler(handler)
+                handler.close()
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
