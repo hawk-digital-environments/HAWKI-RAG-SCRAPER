@@ -13,6 +13,7 @@ from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
+from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.job_helpers import build_job_helpers
 from hawki_crawler.crawler.core.runtime_defaults import (
     BROWSER_RESTART_DEFAULTS,
@@ -404,6 +405,47 @@ def test_sitemap_runtime_state_resolves_paths_base_and_loads(monkeypatch, tmp_pa
     assert explicit_state.sitemap_base == "https://explicit.example/sitemap.xml"
     assert explicit_state.sitemap_map == {"path": {"value": "/tmp/explicit-sitemap.json"}}
     assert explicit_state.sitemap_urls == ["/tmp/explicit-sitemap.json"]
+
+
+def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
+    pause_event = asyncio.Event()
+    state = build_crawl_runtime_state(
+        config=SimpleNamespace(max_rpm=120, request_delay=250, max_concurrency=4),
+        pause_event=pause_event,
+        browser_last_restart=123.5,
+    )
+
+    assert state.visited_urls == set()
+    assert state.to_visit == []
+    assert state.url_depth == {}
+    assert state.url_source == {}
+    assert state.pages_data == []
+    assert state.rate_limiter.max_rpm == 120
+    assert state.rate_limiter.request_delay == 0.25
+    assert state.semaphore._value == 4
+    assert state.page_counter == 0
+    assert state.allow_over_max_pages is False
+    assert state.consecutive_5xx == 0
+    assert state.abort_crawl is False
+    assert state.abort_reason is None
+    assert state.pause_event is pause_event
+    assert state.pause_logged is False
+    assert state.restart_crawler is False
+    assert state.restart_urls == []
+    assert state.browser_restart_count == 0
+    assert state.max_browser_restarts == 3
+    assert state.browser_restart_interval_seconds == 3600
+    assert state.browser_last_restart == 123.5
+    assert state.enable_browser_restarts is False
+    assert state.restart_reason is None
+    assert state.enable_memory_watchdog is True
+    assert state.memory_restart_threshold == 0.9
+    assert state.memory_resume_threshold == 0.1
+    assert state.memory_restart_wait_seconds == 300
+    assert isinstance(state.counter_lock, asyncio.Lock)
+    assert isinstance(state.consecutive_5xx_lock, asyncio.Lock)
+    assert isinstance(state.abort_lock, asyncio.Lock)
+    assert isinstance(state.restart_lock, asyncio.Lock)
 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
