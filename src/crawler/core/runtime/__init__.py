@@ -18,7 +18,7 @@ from hawki_crawler.crawler.core.runtime.memory_watchdog import (
     read_cgroup_memory_usage_ratio,
     wait_until_memory_relief,
 )
-from hawki_crawler.crawler.core.runtime.mixin import ServiceCrawlRuntimeMixin
+from hawki_crawler.crawler.core.runtime.runtime_mixin import ServiceCrawlRuntimeMixin
 from hawki_crawler.crawler.core.runtime.rate_limiter import RateLimiter
 from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
 from hawki_crawler.crawler.core.runtime.state import build_crawl_runtime_state

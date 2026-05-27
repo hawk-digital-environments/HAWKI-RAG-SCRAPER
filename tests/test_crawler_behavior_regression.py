@@ -40,13 +40,13 @@ from hawki_crawler.crawler.core.runtime.defaults import (
 from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
-from hawki_crawler.crawler.policies.mixin import ServiceUrlPolicyMixin
+from hawki_crawler.crawler.policies.url_policy_mixin import ServiceUrlPolicyMixin
 from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
-from hawki_crawler.crawler.sitemap.mixin import ServiceSitemapMixin
+from hawki_crawler.crawler.sitemap.sitemap_mixin import ServiceSitemapMixin
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.service import SitemapService
-from hawki_crawler.crawler.storage.mixin import ServiceStorageMixin
+from hawki_crawler.crawler.storage.storage_mixin import ServiceStorageMixin
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.runtime_directories import (
     create_runtime_page_directory,
