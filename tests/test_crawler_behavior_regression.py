@@ -12,8 +12,10 @@ from hawki_crawler.app import job_lifecycle
 from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
+from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
 from hawki_crawler.crawler.communication import rabbitmq_service
 from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.crawl_control import (
@@ -920,6 +922,145 @@ async def test_file_event_notifier_publishes_saved_complete_files() -> None:
             "extension": ".pdf",
             "content_type": "application/pdf",
             "payload": {"asset_type": "file"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_resource_detector_fetches_and_classifies_head_resources() -> None:
+    class FakeRateLimiter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def acquire(self) -> None:
+            self.calls += 1
+
+    class FakeHeadResponse:
+        status = 200
+        headers = {"Content-Type": "Application/PDF", "X-Test": "yes"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeHeadSession:
+        def __init__(self) -> None:
+            self.requested = []
+
+        def head(self, url, **kwargs):
+            self.requested.append((url, kwargs))
+            return FakeHeadResponse()
+
+    async def fake_fetch_head(_url):
+        return 200, {"content-type": "application/octet-stream"}
+
+    rate_limiter = FakeRateLimiter()
+    session = FakeHeadSession()
+    detector = ResourceDetector(
+        rate_limiter=rate_limiter,
+        http_session=session,
+        logger=logging.getLogger("test.resource_detector"),
+    )
+    detector_with_override = ResourceDetector(
+        rate_limiter=rate_limiter,
+        http_session=None,
+        logger=logging.getLogger("test.resource_detector"),
+        fetch_head=fake_fetch_head,
+    )
+
+    status, headers = await detector.fetch_head("https://example.com/report")
+
+    assert status == 200
+    assert headers["content-type"] == "Application/PDF"
+    assert headers["x-test"] == "yes"
+    assert rate_limiter.calls == 1
+    assert await detector.is_pdf_resource("https://example.com/report", head_headers=headers) is True
+    assert await detector_with_override.is_file_resource("https://example.com/download") is True
+
+
+@pytest.mark.asyncio
+async def test_file_downloader_saves_pdf_and_notifies_without_network() -> None:
+    class FakeRateLimiter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def acquire(self) -> None:
+            self.calls += 1
+
+    class FakeAssetSaver:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def save_file_bytes(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "url": kwargs["file_url"],
+                "local_path": "/tmp/report.pdf",
+                "relative_path": "files/report.pdf",
+                "filename": kwargs["filename"],
+                "content_type": kwargs["content_type"],
+            }
+
+    class FakeNotifier:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def publish_saved_file_event(self, **kwargs) -> None:
+            self.calls.append(kwargs)
+
+    class FakeStream:
+        async def iter_chunked(self, _size):
+            yield b"pdf-bytes"
+
+    class FakeResponse:
+        status = 200
+        headers = {"Content-Type": "application/pdf"}
+        content = FakeStream()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.requested = []
+
+        def get(self, url, **kwargs):
+            self.requested.append((url, kwargs))
+            return FakeResponse()
+
+    rate_limiter = FakeRateLimiter()
+    saver = FakeAssetSaver()
+    notifier = FakeNotifier()
+    session = FakeSession()
+    downloader = FileDownloader(
+        rate_limiter=rate_limiter,
+        headers={"User-Agent": "test"},
+        asset_saver=saver,
+        file_event_notifier=notifier,
+        logger=logging.getLogger("test.file_downloader"),
+    )
+
+    result = await downloader.fetch_and_save_pdf(
+        "https://example.com/files/report.pdf",
+        page_number=3,
+        session=session,
+        page_url="https://example.com/page",
+    )
+
+    assert result["filename"] == "report.pdf"
+    assert rate_limiter.calls == 1
+    assert saver.calls[0]["file_bytes"] == b"pdf-bytes"
+    assert saver.calls[0]["page_number"] == 3
+    assert notifier.calls == [
+        {
+            "file_url": "https://example.com/files/report.pdf",
+            "page_url": "https://example.com/page",
+            "file_entry": result,
         }
     ]
 

@@ -1,18 +1,15 @@
-import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
-from aiohttp.http_exceptions import ContentLengthError
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
-
-
-FetchHeadCallable = Callable[[str], Awaitable[Tuple[Optional[int], Dict[str, str]]]]
+from hawki_crawler.crawler.assets.resource_detector import FetchHeadCallable, ResourceDetector
 
 
 class AssetDownloader:
@@ -51,6 +48,25 @@ class AssetDownloader:
             logger=self.logger,
         )
 
+    def _resource_detector(self) -> ResourceDetector:
+        return ResourceDetector(
+            rate_limiter=self.rate_limiter,
+            http_session=self.http_session,
+            logger=self.logger,
+            policy=self.policy,
+            fetch_head=self._fetch_head_override,
+        )
+
+    def _file_downloader(self) -> FileDownloader:
+        return FileDownloader(
+            rate_limiter=self.rate_limiter,
+            headers=self.headers,
+            asset_saver=self.asset_saver,
+            file_event_notifier=self._file_event_notifier(),
+            logger=self.logger,
+            policy=self.policy,
+        )
+
     async def publish_saved_file_event(
         self,
         *,
@@ -75,27 +91,10 @@ class AssetDownloader:
 
     async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL."""
-        await self.rate_limiter.acquire()
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with self.http_session.head(url, allow_redirects=True, timeout=timeout) as response:
-                headers = {k.lower(): v for k, v in response.headers.items()}
-                return response.status, headers
-        except Exception as exc:
-            self.logger.warning("HEAD request failed for %s: %s", url, exc)
-            return None, {}
+        return await self._resource_detector().fetch_head(url)
 
     async def _resolve_head_headers(self, url: str, head_headers: Optional[Dict[str, str]]) -> Dict[str, str]:
-        if head_headers:
-            return head_headers
-        if self._fetch_head_override:
-            result = await self._fetch_head_override(url)
-        else:
-            result = await self.fetch_head(url)
-        if isinstance(result, tuple):
-            return result[1]
-        return result if isinstance(result, dict) else {}
+        return await self._resource_detector().resolve_head_headers(url, head_headers)
 
     async def is_pdf_resource(
         self,
@@ -104,12 +103,11 @@ class AssetDownloader:
         head_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Check if a URL points directly to a PDF."""
-        _ = head_status
-        if self.policy.is_pdf_url(url):
-            return True
-
-        headers = await self._resolve_head_headers(url, head_headers)
-        return self.policy.is_pdf_resource(url, headers)
+        return await self._resource_detector().is_pdf_resource(
+            url,
+            head_status=head_status,
+            head_headers=head_headers,
+        )
 
     async def is_file_resource(
         self,
@@ -118,15 +116,11 @@ class AssetDownloader:
         head_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Check if a URL points directly to a non-PDF file."""
-        _ = head_status
-        if self.policy.is_file_resource(url, None):
-            return True
-
-        headers = await self._resolve_head_headers(url, head_headers)
-        if not isinstance(headers, dict):
-            return False
-
-        return self.policy.is_file_resource(url, headers)
+        return await self._resource_detector().is_file_resource(
+            url,
+            head_status=head_status,
+            head_headers=head_headers,
+        )
 
     async def fetch_and_save_pdf(
         self,
@@ -137,77 +131,13 @@ class AssetDownloader:
         page_url: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
         """Download a PDF and save it to the files directory."""
-        await self.rate_limiter.acquire()
-
-        cleanup_session = False
-        if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
-            cleanup_session = True
-
-        last_error = None
-        max_attempts = 3
-        try:
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    async with session.get(
-                        pdf_url,
-                        headers=self.headers,
-                        timeout=aiohttp.ClientTimeout(total=60),
-                    ) as response:
-                        content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-                        if response.status not in (200, 206) or (
-                            "pdf" not in content_type and not pdf_url.lower().split("?")[0].endswith(".pdf")
-                        ):
-                            return None
-
-                        pdf_buffer = bytearray()
-                        incomplete = False
-                        try:
-                            async for chunk in response.content.iter_chunked(1024 * 256):
-                                if chunk:
-                                    pdf_buffer.extend(chunk)
-                        except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
-                            incomplete = True
-                            last_error = exc
-
-                        if not pdf_buffer:
-                            if attempt < max_attempts and last_error:
-                                await asyncio.sleep(0.5 * attempt)
-                                continue
-                            return None
-
-                        filename = self.policy.pdf_filename_from_url(pdf_url)
-
-                        result = await self.asset_saver.save_file_bytes(
-                            file_url=pdf_url,
-                            filename=filename,
-                            file_bytes=bytes(pdf_buffer),
-                            page_number=page_number,
-                            content_type=content_type,
-                            url_hash=url_hash,
-                            incomplete=incomplete,
-                            error=last_error,
-                        )
-                        if not incomplete:
-                            await self.publish_saved_file_event(
-                                file_url=pdf_url,
-                                page_url=page_url or pdf_url,
-                                file_entry=result,
-                            )
-                        return result
-                except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
-                    last_error = exc
-                    if attempt < max_attempts:
-                        await asyncio.sleep(0.5 * attempt)
-                        continue
-                    self.logger.error("Error downloading PDF %s: %s", pdf_url, exc)
-                    return None
-                except Exception as exc:
-                    self.logger.error("Error downloading PDF %s: %s", pdf_url, exc)
-                    return None
-        finally:
-            if cleanup_session:
-                await session.close()
+        return await self._file_downloader().fetch_and_save_pdf(
+            pdf_url,
+            page_number,
+            session=session,
+            url_hash=url_hash,
+            page_url=page_url,
+        )
 
     async def fetch_and_save_file(
         self,
@@ -218,80 +148,10 @@ class AssetDownloader:
         page_url: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
         """Download a non-PDF file and save it to the files directory."""
-        await self.rate_limiter.acquire()
-
-        cleanup_session = False
-        if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
-            cleanup_session = True
-
-        last_error = None
-        max_attempts = 3
-        try:
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    async with session.get(
-                        file_url,
-                        headers=self.headers,
-                        timeout=aiohttp.ClientTimeout(total=60),
-                    ) as response:
-                        if response.status not in (200, 206):
-                            return None
-
-                        content_type = response.headers.get("Content-Type", "").split(";")[0].lower()
-                        content_disposition = response.headers.get("Content-Disposition", "")
-
-                        file_buffer = bytearray()
-                        incomplete = False
-                        try:
-                            async for chunk in response.content.iter_chunked(1024 * 256):
-                                if chunk:
-                                    file_buffer.extend(chunk)
-                        except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
-                            incomplete = True
-                            last_error = exc
-
-                        if not file_buffer:
-                            if attempt < max_attempts and last_error:
-                                await asyncio.sleep(0.5 * attempt)
-                                continue
-                            return None
-
-                        filename = self.policy.file_filename_from_response(
-                            file_url,
-                            content_type,
-                            content_disposition,
-                        )
-                        if self.policy.should_skip_file_download(file_url, filename, content_type):
-                            return None
-
-                        result = await self.asset_saver.save_file_bytes(
-                            file_url=file_url,
-                            filename=filename,
-                            file_bytes=bytes(file_buffer),
-                            page_number=page_number,
-                            content_type=content_type,
-                            url_hash=url_hash,
-                            incomplete=incomplete and bool(last_error),
-                            error=last_error,
-                        )
-                        if not (incomplete and last_error):
-                            await self.publish_saved_file_event(
-                                file_url=file_url,
-                                page_url=page_url or file_url,
-                                file_entry=result,
-                            )
-                        return result
-                except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
-                    last_error = exc
-                    if attempt < max_attempts:
-                        await asyncio.sleep(0.5 * attempt)
-                        continue
-                    self.logger.error("Error downloading file %s: %s", file_url, exc)
-                    return None
-                except Exception as exc:
-                    self.logger.error("Error downloading file %s: %s", file_url, exc)
-                    return None
-        finally:
-            if cleanup_session:
-                await session.close()
+        return await self._file_downloader().fetch_and_save_file(
+            file_url,
+            page_number,
+            session=session,
+            url_hash=url_hash,
+            page_url=page_url,
+        )
