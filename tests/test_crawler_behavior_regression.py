@@ -16,6 +16,10 @@ from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommuni
 from hawki_crawler.crawler.core.crawl_summary import finalize_crawl_summary
 from hawki_crawler.crawler.core.crawl_state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.job_helpers import build_job_helpers
+from hawki_crawler.crawler.core.memory_watchdog import (
+    read_cgroup_memory_usage_ratio,
+    wait_until_memory_relief,
+)
 from hawki_crawler.crawler.core.runtime_defaults import (
     BROWSER_RESTART_DEFAULTS,
     DEFAULT_HTTP_HEADERS,
@@ -529,6 +533,40 @@ def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
     assert isinstance(state.consecutive_5xx_lock, asyncio.Lock)
     assert isinstance(state.abort_lock, asyncio.Lock)
     assert isinstance(state.restart_lock, asyncio.Lock)
+
+
+def test_memory_watchdog_reads_cgroup_usage_ratio(tmp_path) -> None:
+    current_path = tmp_path / "memory.current"
+    limit_path = tmp_path / "memory.max"
+    current_path.write_text("25", encoding="utf-8")
+    limit_path.write_text("100", encoding="utf-8")
+
+    assert read_cgroup_memory_usage_ratio(paths=[(current_path, limit_path)]) == 0.25
+
+    limit_path.write_text("max", encoding="utf-8")
+
+    assert read_cgroup_memory_usage_ratio(paths=[(current_path, limit_path)]) is None
+
+
+@pytest.mark.asyncio
+async def test_memory_watchdog_waits_until_usage_drops() -> None:
+    ratios = iter([0.95, 0.25])
+    sleep_calls = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    await wait_until_memory_relief(
+        enable_memory_watchdog=True,
+        memory_resume_threshold=0.5,
+        memory_restart_wait_seconds=30,
+        get_memory_usage_ratio=lambda: next(ratios),
+        job_logger=logging.getLogger("test.memory_watchdog"),
+        sleep=fake_sleep,
+        monotonic=lambda: 0,
+    )
+
+    assert sleep_calls == [5]
 
 
 @pytest.mark.asyncio

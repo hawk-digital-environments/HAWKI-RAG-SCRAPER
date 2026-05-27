@@ -1,10 +1,12 @@
-import asyncio
-import time
 from typing import Dict, Optional, TYPE_CHECKING
 
 from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
+from hawki_crawler.crawler.core.memory_watchdog import (
+    read_cgroup_memory_usage_ratio,
+    wait_until_memory_relief,
+)
 from hawki_crawler.crawler.storage.page_data_store import PageDataStore
 
 if TYPE_CHECKING:
@@ -65,43 +67,17 @@ class ServiceCrawlRuntimeMixin:
 
     def get_memory_usage_ratio(self: "ServiceCrawlRuntimeMixinProtocol") -> Optional[float]:
         """Return memory usage ratio based on cgroup limits, or None if unavailable."""
-        paths = [
-            ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
-            ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"),
-        ]
-        for current_path, max_path in paths:
-            try:
-                with open(current_path, "r", encoding="utf-8") as f:
-                    current = f.read().strip()
-                with open(max_path, "r", encoding="utf-8") as f:
-                    limit = f.read().strip()
-                if limit == "max":
-                    return None
-                current_val = float(current)
-                limit_val = float(limit)
-                if limit_val <= 0:
-                    return None
-                return current_val / limit_val
-            except Exception:
-                continue
-        return None
+        return read_cgroup_memory_usage_ratio()
 
     async def wait_for_memory_relief(self: "ServiceCrawlRuntimeMixinProtocol") -> None:
         """Wait for container memory usage to drop before restarting browser work."""
-        if not self.enable_memory_watchdog:
-            return
-        deadline = time.monotonic() + self.memory_restart_wait_seconds
-        while True:
-            ratio = self.get_memory_usage_ratio()
-            if ratio is None or ratio <= self.memory_resume_threshold:
-                return
-            if time.monotonic() >= deadline:
-                self.job_logger.error(
-                    "memory watchdog timeout: usage %.1f%% still above resume threshold",
-                    ratio * 100 if ratio is not None else -1,
-                )
-                return
-            await asyncio.sleep(5)
+        await wait_until_memory_relief(
+            enable_memory_watchdog=self.enable_memory_watchdog,
+            memory_resume_threshold=self.memory_resume_threshold,
+            memory_restart_wait_seconds=self.memory_restart_wait_seconds,
+            get_memory_usage_ratio=self.get_memory_usage_ratio,
+            job_logger=self.job_logger,
+        )
 
     async def update_total_urls(self: "ServiceCrawlRuntimeMixinProtocol", new_total: int) -> None:
         """Increase total URL counts when discovery finds more work."""
