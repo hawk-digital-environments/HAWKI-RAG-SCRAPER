@@ -15,7 +15,7 @@ def test_file_discovered_event_schema_validates_required_fields() -> None:
         event_type="scrape.file.discovered",
         source="scraper",
         url="https://example.com/files/report.pdf",
-        local_path="/app/shared/job-1/pages/a/b/c/d/hash/files/report.pdf",
+        local_path="/var/www/html/shared/job-1/pages/a/b/c/d/hash/files/report.pdf",
         relative_path="pages/a/b/c/d/hash/files/report.pdf",
         filename="report.pdf",
         extension="pdf",

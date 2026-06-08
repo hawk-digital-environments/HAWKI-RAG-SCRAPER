@@ -192,7 +192,7 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
                 for url in urls
             ]
 
-    for package_root in ("hawki_crawler.crawler", "src.crawler"):
+    for package_root in ("hawki_crawler.crawler",):
         monkeypatch.setattr(
             f"{package_root}.sitemap.sitemap_mixin.ServiceSitemapMixin.parse_sitemap",
             fake_parse_sitemap,

@@ -1,5 +1,5 @@
 # Multi-stage build for optimized Docker image
-FROM python:3.11-slim AS base
+FROM neunerlei/python-nginx:3.14 AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -41,6 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     libappindicator3-1 \
     xdg-utils \
+    libxml2-dev \
+    libxslt1-dev \
     # Add mime types like docx etc 
     media-types \
     && rm -rf /var/lib/apt/lists/*
@@ -88,43 +90,79 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
+COPY hawki_crawler ./hawki_crawler
 RUN uv build
 
 
 FROM base AS test
 
+USER root
+
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 
 WORKDIR /tests
 
-COPY README.md pyproject.toml uv.lock ./
-RUN uv venv && uv sync --all-groups --no-install-project
-RUN uv run playwright install --with-deps chromium
-
-COPY src ./hawki_crawler
+COPY pyproject.toml uv.lock README.md ./
+COPY hawki_crawler ./hawki_crawler
 COPY tests tests
 
-ENV PYTHONPATH="/tests"
+RUN uv sync --all-groups
+RUN uv run playwright install --with-deps chromium
 
-CMD ["uv", "run", "pytest", "-vvv"]
+CMD ["uv", "run", "--no-sync", "pytest", "-vvv"]
+ENTRYPOINT []
+
+
+FROM node:22-slim AS ui-builder
+
+WORKDIR /build
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ .
+RUN echo "PUBLIC_API_BASE_URL=/ui" > .env.production \
+    && npm run build && npm prune --production
 
 
 FROM base AS production
 
-WORKDIR /app
+WORKDIR /var/www/html
 
-COPY --from=builder /build/dist/*.whl .
+COPY --from=builder --chown=www-data:www-data /build/dist/*.whl .
 
-RUN python -m pip install *.whl && rm *.whl
+RUN gosu www-data python -m pip install *.whl && rm *.whl
 
-RUN python -m playwright install --with-deps chromium
+RUN python -m playwright install-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN python -m playwright install chromium \
+    && chown -R www-data:www-data /opt/ms-playwright
 
-RUN mkdir -p /app/output && chmod 755 /app/output
+RUN mkdir -p /var/www/html/output /var/www/html/shared \
+    && chown -R www-data:www-data /var/www/html/output /var/www/html/shared
 
-EXPOSE 8000
+COPY ui/.nvmrc /tmp/ui-nvmrc
+ENV NVM_DIR=/opt/nvm
+RUN mkdir -p $NVM_DIR \
+    && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install "$(cat /tmp/ui-nvmrc)" \
+    && ln -sf "$(dirname "$(nvm which current)")/node" /usr/local/bin/node \
+    && ln -sf "$(dirname "$(nvm which current)")/npm" /usr/local/bin/npm \
+    && rm /tmp/ui-nvmrc
+
+COPY --from=ui-builder --chown=www-data:www-data /build/build /var/www/html/ui/build
+COPY --from=ui-builder --chown=www-data:www-data /build/package.json /var/www/html/ui/package.json
+COPY --from=ui-builder --chown=www-data:www-data /build/node_modules /var/www/html/ui/node_modules
+
+COPY docker/custom /container/custom
+
+ENV PYTHON_APP_MODULE="hawki_crawler.app.main:app"
+ENV GUNICORN_WORKER_CLASS="uvicorn.workers.UvicornWorker"
+ENV HOME=/tmp
+ENV GUNICORN_WORKERS=1
+
+ENV CRAWLER_API_BASE_URL=http://localhost:80
+ENV NODE_SERVICE_PORT=3000
+ENV ORIGIN=http://localhost:80
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-CMD ["uvicorn", "hawki_crawler.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    CMD curl -f http://localhost:80/health || exit 1

@@ -1,7 +1,7 @@
 SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
-SITEMAP_DIR ?= /app/shared/sitemaps
-SITE_PROFILE ?= /app/profiles/hawk.json
+SITEMAP_DIR ?= /var/www/html/shared/sitemaps
+SITE_PROFILE ?= /var/www/html/profiles/hawk.json
 SITE_SITEMAP_FILE ?= $(SITEMAP_DIR)/site_sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
 URL ?= https://www.hawk.de
@@ -78,7 +78,7 @@ crawl-profile-sitemap:
 crawl-sample:
 	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de", "job_id":"$(JOB_ID_SAMPLE)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(MAX_PAGES_SAMPLE), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 1, "max_rpm": 20}' \
+		-d '{"url": "https://www.hawk.de/jobs", "job_id":"$(JOB_ID_SAMPLE)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(MAX_PAGES_SAMPLE), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 1, "max_rpm": 20}' \
 		| $(PYTHON) -m json.tool
 
 crawl-site:
@@ -108,7 +108,7 @@ crawl-site-auto:
 			if [ "$$status" = "completed" ]; then break; fi; \
 			sleep 10; \
 		done; \
-		failed=$$(docker compose exec -T crawler python -c "import json; p='/app/shared/$(JOB_ID_FULL)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
+		failed=$$(docker compose exec -T crawler python -c "import json; p='/var/www/html/shared/$(JOB_ID_FULL)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
 		printf "Round %s: failed URLs = %s\\n" "$$round" "$$failed"; \
 		if [ "$$failed" -le "$(FAILED_THRESHOLD)" ]; then \
 			echo "Stopping: failed URLs <= $(FAILED_THRESHOLD)"; \
@@ -141,7 +141,7 @@ crawl-json-sitemap-auto:
 			if [ "$$status" = "completed" ]; then break; fi; \
 			sleep 10; \
 		done; \
-		failed=$$(docker compose exec -T crawler python -c "import json; p='/app/shared/$(JOB_ID_JSON_SITEMAP)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
+		failed=$$(docker compose exec -T crawler python -c "import json; p='/var/www/html/shared/$(JOB_ID_JSON_SITEMAP)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
 		printf "Round %s: failed URLs = %s\\n" "$$round" "$$failed"; \
 		if [ "$$failed" -le "$(FAILED_THRESHOLD)" ]; then \
 			echo "Stopping: failed URLs <= $(FAILED_THRESHOLD)"; \
@@ -162,7 +162,7 @@ build:
 	docker compose build
 
 up:
-	docker compose up --build -d
+	docker compose up --build
 
 down:
 	docker compose down
@@ -186,26 +186,30 @@ start-ui:
 
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
-	docker compose exec crawler sh -lc 'rm -rf /app/shared/$(JOB_ID)'
+	docker compose exec crawler sh -lc 'rm -rf /var/www/html/shared/$(JOB_ID)'
 
 ci-test:
 	docker build --target test -t crawler-test . && docker run crawler-test 
 
 help:
-	@echo "COMMAND             DESCRIPTION"
-	@echo "------------------------------------------------------------"
-	@printf "%-20s %s\n" "crawl-sitemap"       "To run crawler service against a site map."
-	@printf "%-20s %s\n" "crawl-test"          "Send test command to crawler service."
-	@printf "%-20s %s\n" "crawl-full"          "TODO: explain"
-	@printf "%-20s %s\n" "crawl-project"       "Display this help message"
-	@printf "%-20s %s\n" "jobs"                "Display all jobs"
-	@printf "%-20s %s\n" "cancel"              "Cancel a job via 'JOB_ID' variable."
-	@printf "%-20s %s\n" "build"               "Build the crawler service."
-	@printf "%-20s %s\n" "up"                  "Start the crawler service."
-	@printf "%-20s %s\n" "down"                "Stop the crawler service without removing volumes."
-	@printf "%-20s %s\n" "teardown"            "Teardown compose project and remove all connected resources."
-	@printf "%-20s %s\n" "logs"                "Show live service logs."
-	@printf "%-20s %s\n" "virtualenv"          "Setup virtualenv."
-	@printf "%-20s %s\n" "setup"               "Setup requirements"
-	@printf "%-20s %s\n" "ci-test"             "To run ci tests"
-	@printf "%-20s %s\n" "help"                "Display this help message"
+	@echo "COMMAND                     DESCRIPTION"
+	@echo "----------------------------------------------------------------------"
+	@printf "%-28s %s\n" "crawl"                    "Full pipeline: scrape sitemap then crawl site with auto discovery."
+	@printf "%-28s %s\n" "crawl-profile-sitemap"    "Scrape profile-based XML sitemap pages."
+	@printf "%-28s %s\n" "crawl-sample"             "Sample crawl (100 pages, low concurrency)."
+	@printf "%-28s %s\n" "crawl-site"               "Full site crawl (up to 40k pages)."
+	@printf "%-28s %s\n" "crawl-site-sitemap-only"  "Crawl sitemap only, no page scraping."
+	@printf "%-28s %s\n" "crawl-site-auto"          "Auto site crawl with retry rounds for failed URLs."
+	@printf "%-28s %s\n" "crawl-json-sitemap"       "Crawl JSON sitemap from project URL."
+	@printf "%-28s %s\n" "crawl-json-sitemap-auto"  "Auto JSON sitemap crawl with retry rounds."
+	@printf "%-28s %s\n" "jobs"                     "Display all jobs."
+	@printf "%-28s %s\n" "cancel"                   "Cancel a job: make cancel <job_id> or make cancel JOB_ID=<id>."
+	@printf "%-28s %s\n" "clean-shared"             "Remove shared data for a job: make clean-shared <job_id>."
+	@printf "%-28s %s\n" "build"                    "Build the crawler service."
+	@printf "%-28s %s\n" "up"                       "Build and start the crawler service."
+	@printf "%-28s %s\n" "down"                     "Stop the crawler service."
+	@printf "%-28s %s\n" "logs"                     "Show live service logs."
+	@printf "%-28s %s\n" "start-ui"                 "Install deps, audit fix, and start UI dev server."
+	@printf "%-28s %s\n" "audit-ui-fix"             "Run npm audit fix in ui/."
+	@printf "%-28s %s\n" "ci-test"                  "Run CI tests in Docker."
+	@printf "%-28s %s\n" "help"                     "Display this help message."

@@ -154,7 +154,7 @@ RABBITMQ_MGMT_API_URL=http://localhost:15672/api
 RABBITMQ_MGMT_USER=guest
 RABBITMQ_MGMT_PASSWORD=guest
 PROFILES_HOST_DIR=../profiles
-PROFILES_CONTAINER_DIR=/app/profiles
+PROFILES_CONTAINER_DIR=/var/www/html/profiles
 ```
 
 Leave `PUBLIC_API_BASE_URL` empty for normal local development so browser calls use the same-origin SvelteKit API routes.
@@ -168,7 +168,7 @@ CustomCrawler/
 ├── Makefile                         # Root developer/operator shortcuts
 ├── docker-compose.yml               # Service orchestration
 ├── profiles/                        # Crawler profile JSON files
-├── src/                             # Python crawler/backend modules
+├── hawki_crawler/                   # Python crawler/backend modules
 │   ├── app/main.py
 │   ├── crawler/
 │   ├── common/
@@ -176,7 +176,7 @@ CustomCrawler/
 │   └── services/
 ├── ui/                              # SvelteKit admin UI
 │   ├── package.json
-│   ├── src/app.css
+│   ├── src/var/www/html.css
 │   ├── src/lib/api/
 │   ├── src/lib/components/
 │   ├── src/lib/server/
@@ -190,10 +190,10 @@ CustomCrawler/
 | File or folder | Purpose |
 |----------------|---------|
 | `Makefile` | Project shortcuts for crawling, Docker lifecycle, job cancellation, shared-output cleanup, and UI startup. |
-| `src/app/main.py` | Python crawler API entrypoint. |
-| `src/crawler/` | Crawling logic, profile loading, sitemap parsing, URL policy, content parsing, storage, progress tracking. |
-| `src/common/` | Shared job schemas, logging setup, pipeline event definitions. |
-| `src/rabbitmq/` | RabbitMQ producer/communication helpers. |
+| `hawki_crawler/var/www/html/main.py` | Python crawler API entrypoint. |
+| `hawki_crawler/crawler/` | Crawling logic, profile loading, sitemap parsing, URL policy, content parsing, storage, progress tracking. |
+| `hawki_crawler/common/` | Shared job schemas, logging setup, pipeline event definitions. |
+| `hawki_crawler/rabbitmq/` | RabbitMQ producer/communication helpers. |
 | `profiles/` | JSON profile files used by crawler jobs and editable from the UI. |
 | `ui/src/routes/` | SvelteKit UI pages and SvelteKit API routes. |
 | `ui/src/lib/api/index.ts` | Production UI HTTP client. All UI API calls should go through this file. |

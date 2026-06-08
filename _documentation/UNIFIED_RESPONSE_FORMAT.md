@@ -92,7 +92,7 @@ curl -X POST http://localhost:8004/crawl \
   "event": "job_completed",
   "data": {
     "pages_crawled": 10,
-    "output_directory": "/app/shared/a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
+    "output_directory": "/var/www/html/shared/a5338c8f-9605-4e5f-8ed5-6757e5770fa0",
     "success": true,
     "error": null
   },

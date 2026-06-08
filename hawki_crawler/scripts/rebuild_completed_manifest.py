@@ -38,7 +38,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Rebuild completed_urls.json for an existing crawl job directory."
     )
-    parser.add_argument("job_dir", help="Path to the crawl job directory, e.g. /app/shared/Site_Test_20")
+    parser.add_argument("job_dir", help="Path to the crawl job directory, e.g. /var/www/html/shared/Site_Test_20")
     args = parser.parse_args()
     return asyncio.run(rebuild_manifest(Path(args.job_dir)))
 

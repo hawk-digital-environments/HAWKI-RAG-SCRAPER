@@ -18,7 +18,7 @@ Instead of managing state through a manager class, we now have a `JobState` obje
 ```python
 from services import JobStateManager
 
-job_state_manager = JobStateManager(job_id, base_path="/app/shared")
+job_state_manager = JobStateManager(job_id, base_path="/var/www/html/shared")
 await job_state_manager.initialize()
 await job_state_manager.set_status("running")
 await job_state_manager.increment_completed()
@@ -29,7 +29,7 @@ state = await job_state_manager.get_state()
 ```python
 from services import JobState
 
-job_state = JobState(job_id, base_path="/app/shared")
+job_state = JobState(job_id, base_path="/var/www/html/shared")
 await job_state.initialize()
 await job_state.set_status("running")
 await job_state.increment_completed()
@@ -152,7 +152,7 @@ from services import JobState, CommunicationFactory
 
 async def run_job(job_id: str):
     # Create job state
-    job_state = JobState(job_id, base_path="/app/shared")
+    job_state = JobState(job_id, base_path="/var/www/html/shared")
     await job_state.initialize()
 
     # Create communication service (based on .env config)

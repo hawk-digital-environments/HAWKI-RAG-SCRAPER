@@ -63,6 +63,15 @@ docker compose logs -f
 docker compose down
 ```
 
+> **Named volume permissions:** If you are using the external `rawki_shared_storage` volume for the first time
+> (or after switching base images), ensure it is owned by the container user (`www-data`, UID 33):
+>
+> ```bash
+> docker run --rm -v rawki_shared_storage:/data alpine chown -R 33:33 /data
+> ```
+>
+> This is a one-time operation. The application creates new files as `www-data` going forward.
+
 
 ## Documentation
 
