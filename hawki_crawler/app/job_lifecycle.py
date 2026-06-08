@@ -40,7 +40,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     - JobState: Persistent state tracking
     - StorageManager: File I/O operations
     """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
     communication_method = os.getenv("COMMUNICATION_METHOD", "none")
 
     logger.info("=" * 60)

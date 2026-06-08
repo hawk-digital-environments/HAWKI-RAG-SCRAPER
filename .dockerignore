@@ -45,6 +45,10 @@ docker-compose.yml
 # Testing
 test*.py
 
+# Node
+ui/node_modules/
+ui/.svelte-kit/
+
 # macOS
 .DS_Store
 

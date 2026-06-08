@@ -33,7 +33,7 @@ The frontend does not call the crawler and RabbitMQ services directly by default
 | `RABBITMQ_MGMT_USER` | `guest` | RabbitMQ management user. |
 | `RABBITMQ_MGMT_PASSWORD` | `guest` | RabbitMQ management password. |
 | `PROFILES_HOST_DIR` | `../profiles` from `ui/` | Host path for editable profile JSON files. |
-| `PROFILES_CONTAINER_DIR` | `/app/profiles` | Container path written into crawl submissions. |
+| `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | Container path written into crawl submissions. |
 
 ### GET /api/profiles
 
@@ -47,7 +47,7 @@ Lists profile JSON files and `.json.example` templates.
     {
       "name": "hawk",
       "hostPath": "/path/to/profiles/hawk.json",
-      "containerPath": "/app/profiles/hawk.json",
+      "containerPath": "/var/www/html/profiles/hawk.json",
       "match_hosts": ["hawk.de", "*.hawk.de"],
       "profile": {},
       "readonlyExample": false

@@ -95,7 +95,7 @@ All events now send consistent `JobStateData` structures:
   "updated_at": "2025-12-03T10:05:00Z",
   "completed_at": null,
   "current_url": "https://example.com/page-45",
-  "output_directory": "/app/shared/123",
+  "output_directory": "/var/www/html/shared/123",
   "error": null
 }
 ```

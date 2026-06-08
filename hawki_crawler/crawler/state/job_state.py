@@ -54,7 +54,7 @@ class JobState:
     Listeners can be communication services that need to broadcast state updates.
 
     Usage:
-        job_state = JobState(job_id="123", base_path="/app/data/jobs")
+        job_state = JobState(job_id="123", base_path="/var/www/html/shared")
         await job_state.initialize()
 
         # Register observer
@@ -65,13 +65,13 @@ class JobState:
         await job_state.increment_completed()
     """
 
-    def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
+    def __init__(self, job_id: str, base_path: str = "/var/www/html/shared"):
         """
         Initialize job state.
 
         Args:
             job_id: Unique identifier for the job
-            base_path: Base directory for job data (default: /app/data/jobs)
+            base_path: Base directory for job data (default: /var/www/html/shared)
         """
         self.base_path = Path(base_path)
         self.job_dir = self.base_path / job_id

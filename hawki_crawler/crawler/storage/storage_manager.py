@@ -11,7 +11,7 @@ Why this exists:
 - Makes it easy to change storage backend in the future
 
 Directory Structure:
-/app/data/jobs/{job_id}/
+/var/www/html/shared/{job_id}/
     ├── job_state.json          # Job metadata (managed by JobStateManager)
     ├── pages/
     │   └── {hash[0]}/{hash[1]}/{hash[2]}/{hash[3]}/{full_hash}/
@@ -48,13 +48,13 @@ class StorageManager:
     - Efficient I/O (streaming where applicable)
     """
 
-    def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
+    def __init__(self, job_id: str, base_path: str = "/var/www/html/shared"):
         """
         Initialize storage manager.
 
         Args:
             job_id: Unique identifier for the job
-            base_path: Base directory for job data (default: /app/data/jobs)
+            base_path: Base directory for job data (default: /var/www/html/shared)
         """
         self.job_id = job_id
         self.base_path = Path(base_path)

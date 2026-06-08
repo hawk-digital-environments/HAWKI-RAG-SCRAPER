@@ -34,8 +34,8 @@ class UrlPolicyService:
         candidates.extend(
             [
                 Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
-                Path("/app/forbidden_urls.txt"),
-                Path("/app/shared/forbidden_urls.txt"),
+                Path("/var/www/html/forbidden_urls.txt"),
+                Path("/var/www/html/shared/forbidden_urls.txt"),
                 Path("forbidden_urls.txt"),
             ]
         )

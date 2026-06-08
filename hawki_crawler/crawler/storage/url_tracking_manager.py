@@ -81,7 +81,7 @@ class URLTrackingManager:
     def __init__(
         self,
         job_id: str,
-        base_path: str = "/app/data/jobs",
+        base_path: str = "/var/www/html/shared",
         forbidden_hosts: Optional[List[str]] = None,
         forbidden_patterns: Optional[List[str]] = None,
         forbidden_rules_file: Optional[str] = None,
@@ -91,7 +91,7 @@ class URLTrackingManager:
 
         Args:
             job_id: Unique identifier for the job
-            base_path: Base directory for job data (default: /app/data/jobs)
+            base_path: Base directory for job data (default: /var/www/html/shared)
         """
         self.job_id = job_id
         self.base_path = Path(base_path)
@@ -115,7 +115,7 @@ class URLTrackingManager:
             paths.append(Path(env_path))
         if self._forbidden_rules_file:
             paths.append(Path(self._forbidden_rules_file))
-        paths.append(Path("/app/forbidden_urls.txt"))
+        paths.append(Path("/var/www/html/forbidden_urls.txt"))
         paths.append(Path(__file__).resolve().parents[3] / "forbidden_urls.txt")
         forbidden_path = next((p for p in paths if p.exists()), None)
         hosts = set(self._profile_forbidden_hosts)

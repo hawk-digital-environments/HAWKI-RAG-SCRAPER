@@ -7,7 +7,7 @@ import { env } from '$env/dynamic/private';
 
 const NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const profilesHostDir = env.PROFILES_HOST_DIR ?? path.resolve(process.cwd(), '..', 'profiles');
-const profilesContainerDir = env.PROFILES_CONTAINER_DIR ?? '/app/profiles';
+const profilesContainerDir = env.PROFILES_CONTAINER_DIR ?? '/var/www/html/profiles';
 
 function normalizeName(raw) {
 	if (typeof raw !== 'string') {
