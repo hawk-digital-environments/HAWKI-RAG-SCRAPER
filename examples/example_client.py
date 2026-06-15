@@ -4,18 +4,26 @@ Example client for the Crawl4AI FastAPI service
 Demonstrates how to submit crawl jobs and monitor their progress
 """
 
-import requests
-import time
+import os
 import sys
+import time
 import uuid
 from typing import Optional
+
+import requests
 
 
 class CrawlClient:
     """Client for interacting with the Crawl4AI API"""
 
-    def __init__(self, base_url: str = "http://localhost:8000"):
-        self.base_url = base_url.rstrip('/')
+    def __init__(self, base_url: Optional[str] = None):
+        configured_url = (
+            base_url
+            or os.getenv("CRAWLER_URL")
+            or os.getenv("CRAWLER_API_BASE_URL")
+            or "http://localhost:8041"
+        )
+        self.base_url = configured_url.split(",")[0].rstrip('/')
 
     def submit_crawl(self, config: dict) -> Optional[dict]:
         """Submit a crawl job"""
@@ -227,7 +235,7 @@ def main():
 
 def print_usage():
     """Print usage information"""
-    print("\nUsage: python example_client.py [example_number|list]")
+    print("\nUsage: python examples/example_client.py [example_number|list]")
     print("\nExamples:")
     print("  1    - Crawl a sitemap")
     print("  2    - URL discovery mode")
