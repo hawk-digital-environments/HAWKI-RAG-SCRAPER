@@ -68,11 +68,3 @@ export interface Job {
 	failedPages?: string[];
 	dataExpired?: boolean;
 }
-
-export interface Queue {
-	name: string;
-	vhost?: string;
-	ready: number;
-	unacked: number;
-	total: number;
-}

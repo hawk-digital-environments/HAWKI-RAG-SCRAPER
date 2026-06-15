@@ -9,7 +9,7 @@ The crawler includes a clean, maintainable service layer with five core componen
 1. **JobStateManager** - Persistent job state tracking
 2. **StorageManager** - Centralized file I/O operations
 3. **URLTrackingManager** - URL discovery and tracking with dates
-4. **ProgressTracker** - Rate-limited progress broadcasting
+4. **ProgressTracker** - Local progress snapshots
 5. **SummaryManager** - Job summary creation and export
 
 These services are **completely optional** and the crawler maintains full backwards compatibility with the original implementation.
@@ -135,27 +135,12 @@ The crawler constructor now accepts optional service components:
 crawler = CrawlerService(
     config,
     job_id=job_id,                          # Optional: unique job ID
-    event_emitter=event_emitter,            # Optional: for real-time events
     job_state_manager=job_state_manager,    # Optional: for state tracking
     storage_manager=storage_manager         # Optional: for file I/O
 )
 ```
 
 **Backwards Compatibility**: If services are not provided (None), the crawler uses the original implementation.
-
-### Event Hooks
-
-Events are emitted at key points without changing business logic:
-
-```python
-# Before fetching URL
-if self.event_emitter:
-    await self.event_emitter.url_fetching(url, page_number, total_pages)
-
-# After scraping succeeds
-if self.event_emitter:
-    await self.event_emitter.url_scraped(url, page_number, success=True)
-```
 
 ### State Updates
 

@@ -1,92 +1,83 @@
 # Crawl4AI FastAPI Service
 
-A FastAPI interface for the crawl4ai library that provides intelligent web crawling with sitemap support, URL discovery, rate limiting, and structured data extraction.
+A FastAPI interface for the crawl4ai library with sitemap support, URL discovery,
+rate limiting, structured page output, and a SvelteKit admin UI.
 
 ## Features
 
-- **Sitemap Support**: Automatically detects and parses XML sitemaps
-- **URL Discovery Mode**: Discovers and crawls internal links from pages
-- **Rate Limiting**: Configurable request throttling (RPM or custom delay)
-- **Image Handling**: Downloads images with selective exclusions via CSS selectors
-- **Structured Output**: Generates JSON metadata and Markdown content files
-- **Concurrent Crawling**: Parallel request processing with configurable concurrency
-- **Date Extraction**: Extract dates using custom CSS selectors
+- Sitemap parsing and profile-driven sitemap scraping.
+- URL discovery from crawled pages.
+- Configurable request rate and concurrency.
+- Image, PDF, and supported file downloading.
+- JSON metadata and Markdown content output.
+- Persistent per-job state, URL tracking, logs, and summaries.
 
-## Pipeline Events (Scrape -> Convert -> Ingest)
+## Quick Start
 
-The scraper now supports RabbitMQ producer publishing for file discovery events without changing
-the existing crawl and storage behavior.
+See [QUICKSTART.md](QUICKSTART.md) for a full setup walkthrough.
 
-- Event published: `scrape.file.discovered`
-- Exchange: `pipeline.events` (durable, direct by default)
-- Routing key: `scrape.file.discovered`
-- Publish point: after a supported file is fully written to the existing `files/` directory
-- No conversion or ingestion is executed from this repo
-
-Environment variables:
+For Docker, create the external storage volume and network once, then start the
+service:
 
 ```bash
-COMMUNICATION_ENABLED=true
-COMMUNICATION_METHOD=rabbitmq
-
-RABBITMQ_HOST=rabbitmq
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
-RABBITMQ_VHOST=/
-RABBITMQ_HEARTBEAT=30
-RABBITMQ_CONNECTION_TIMEOUT=30
-
-RABBITMQ_EVENTS_EXCHANGE=pipeline.events
-RABBITMQ_EVENTS_EXCHANGE_TYPE=direct
-RABBITMQ_FILE_DISCOVERED_ROUTING_KEY=scrape.file.discovered
-
-RABBITMQ_PUBLISHER_CONFIRMS=true
-RABBITMQ_PERSISTENT_MESSAGES=true
-RABBITMQ_MANDATORY_PUBLISH=true
-
-JOB_SCHEMA_VERSION=1
-JOB_SOURCE=scraper
+docker volume create rawki_shared_storage
+docker network create hawki-network 2>/dev/null || true
+docker run --rm -v rawki_shared_storage:/data alpine chown -R 33:33 /data
+docker compose up -d
 ```
 
-
-### Using Docker
+The Docker API is available at:
 
 ```bash
-# Build and start the service
-docker compose up -d
+http://localhost:8041
+```
 
-# View logs
-docker compose logs -f
+Useful commands:
 
-# Stop the service
+```bash
+docker compose logs -f crawler
 docker compose down
 ```
 
-> **Named volume permissions:** If you are using the external `rawki_shared_storage` volume for the first time
-> (or after switching base images), ensure it is owned by the container user (`www-data`, UID 33):
->
-> ```bash
-> docker run --rm -v rawki_shared_storage:/data alpine chown -R 33:33 /data
-> ```
->
-> This is a one-time operation. The application creates new files as `www-data` going forward.
+## Local Development
 
+```bash
+chmod +x start_server.sh
+./start_server.sh
+```
+
+The local API defaults to `http://localhost:8000` and stores job output under
+`output/shared/`.
+
+## Output
+
+Docker stores crawl jobs in the `rawki_shared_storage` volume at
+`/var/www/html/shared/{job_id}/`. Each job includes persistent state and
+hash-based page output:
+
+```text
+{job_id}/
+|-- job_state.json
+|-- summary.json
+`-- pages/
+    `-- a/b/c/d/{url_hash}/
+        |-- data.json
+        |-- content.md
+        |-- images/
+        `-- files/
+```
 
 ## Documentation
 
-Comprehensive documentation is available in the `_documentation` folder:
+Comprehensive documentation is available in the [_documentation](_documentation)
+folder:
 
-- **API Reference**: Detailed endpoint documentation
-- **Architecture**: System design and components
-- **Deployment Guide**: Production deployment instructions
-- **Configuration Guide**: Advanced configuration options
-- **Developer Guide**: Contributing and extending the service
+- [API Reference](_documentation/API_REFERENCE.md)
+- [Architecture](_documentation/ARCHITECTURE.md)
+- [Deployment Guide](_documentation/DEPLOYMENT.md)
+- [Configuration Guide](_documentation/CONFIGURATION.md)
+- [Developer Guide](_documentation/DEVELOPER_GUIDE.md)
 
 ## License
 
 MIT
-
-## Support
-
-For issues and questions, please open an issue on the project repository.

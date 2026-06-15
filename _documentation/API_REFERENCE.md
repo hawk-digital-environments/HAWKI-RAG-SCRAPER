@@ -8,8 +8,7 @@ Complete reference for the crawler API and the SvelteKit UI proxy endpoints.
 |---------|-------------|-------|
 | SvelteKit UI | `http://localhost:5173` | Started with `make start-ui` or `npm --prefix ui run dev`. |
 | UI API routes | Same origin as UI, `/api/...` | Browser-facing routes used by `ui/src/lib/api/index.ts`. |
-| Crawler API | `http://localhost:8040`, fallback `http://localhost:8000` | Configured with `CRAWLER_API_BASE_URL`. |
-| RabbitMQ management API | `http://localhost:15672/api` | Configured with `RABBITMQ_MGMT_API_URL`. |
+| Crawler API | `http://localhost:8041`, fallback `http://localhost:8000` | Configured with `CRAWLER_API_BASE_URL`. |
 
 For production, replace these with the deployment domains or set the environment variables described below.
 
@@ -17,21 +16,16 @@ For production, replace these with the deployment domains or set the environment
 
 Currently, the API does not require authentication. For production deployments, consider adding API key authentication or OAuth2.
 
-The UI server authenticates to RabbitMQ management with `RABBITMQ_MGMT_USER` and `RABBITMQ_MGMT_PASSWORD`.
-
 ## SvelteKit UI API Routes
 
-The frontend does not call the crawler and RabbitMQ services directly by default. Production UI pages and components call `ui/src/lib/api/index.ts`, and that client calls these SvelteKit API routes.
+The frontend does not call the crawler service directly by default. Production UI pages and components call `ui/src/lib/api/index.ts`, and that client calls these SvelteKit API routes.
 
 ### UI Environment Variables
 
 | Variable | Default | Responsibility |
 |----------|---------|----------------|
 | `PUBLIC_API_BASE_URL` | empty | Optional browser-visible API base. Leave empty for same-origin `/api/...`. |
-| `CRAWLER_API_BASE_URL` | `http://localhost:8040,http://localhost:8000` fallback list | Backend crawler API base URL(s). Comma-separated values are supported. |
-| `RABBITMQ_MGMT_API_URL` | `http://localhost:15672/api` | RabbitMQ management API base URL. |
-| `RABBITMQ_MGMT_USER` | `guest` | RabbitMQ management user. |
-| `RABBITMQ_MGMT_PASSWORD` | `guest` | RabbitMQ management password. |
+| `CRAWLER_API_BASE_URL` | `http://localhost:8041,http://localhost:8040,http://localhost:8000` fallback list | Backend crawler API base URL(s). Comma-separated values are supported. |
 | `PROFILES_HOST_DIR` | `../profiles` from `ui/` | Host path for editable profile JSON files. |
 | `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | Container path written into crawl submissions. |
 
@@ -111,28 +105,6 @@ Proxies crawler job cancellation to `POST /jobs/{jobId}/cancel`.
 
 Reads crawler output/file metadata and derives URL counters for the UI. The UI can use this for found/completed/missed counts where available.
 
-### GET /api/rabbitmq/queues
-
-Proxies RabbitMQ management queue state and normalizes it for UI display.
-
-**Response**
-
-```json
-{
-  "queues": [
-    {
-      "name": "rag_ingestion_jobs",
-      "vhost": "/",
-      "state": "running",
-      "messages": 12,
-      "messages_ready": 10,
-      "messages_unacknowledged": 2,
-      "consumers": 1
-    }
-  ]
-}
-```
-
 ## UI Client Data Models
 
 `ui/src/lib/api/index.ts` maps backend responses into `ui/src/lib/api/types.ts`.
@@ -142,7 +114,6 @@ Proxies RabbitMQ management queue state and normalizes it for UI display.
 | `Profile` | Display and edit crawler profile data. Profile ids map to profile file names. |
 | `Task` | UI task abstraction. Current backend has no persistent task API, so tasks are derived from profiles. |
 | `Job` | UI job abstraction mapped from crawler job status payloads. |
-| `Queue` | UI queue abstraction mapped from RabbitMQ management payloads. |
 
 ## Common Response Codes
 

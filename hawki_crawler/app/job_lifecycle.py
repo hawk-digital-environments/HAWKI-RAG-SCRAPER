@@ -1,12 +1,10 @@
 import asyncio
 import logging
 import os
-import traceback
 from contextlib import suppress
 from datetime import datetime
 from typing import Dict
 
-from hawki_crawler.crawler.communication.factory import CommunicationFactory
 from hawki_crawler.crawler.core.service import CrawlerService
 from hawki_crawler.crawler.models import CrawlConfig, CrawlResponse, CrawlStatus
 from hawki_crawler.crawler.state.job_state import JobState
@@ -36,21 +34,17 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     Background task to run crawl job.
 
     Integrates the service layer components:
-    - CommunicationFactory: optional message queue events
     - JobState: Persistent state tracking
     - StorageManager: File I/O operations
     """
     base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
-    communication_method = os.getenv("COMMUNICATION_METHOD", "none")
 
     logger.info("=" * 60)
     logger.info(f"[Job {job_id}] Starting crawl job")
     logger.info(f"[Job {job_id}] Target URL: {config.url}")
     logger.info(f"[Job {job_id}] Max Pages: {config.max_pages}")
-    logger.info(f"[Job {job_id}] Communication Method: {communication_method}")
     logger.info("=" * 60)
 
-    communication_service = CommunicationFactory.create(job_id)
     job_state = JobState(job_id, base_path=base_path)
     pause_event = pause_events.setdefault(job_id, asyncio.Event())
     pause_event.set()
@@ -80,22 +74,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         logger.info(f"[Job {job_id}] State manager initialized")
         sync_task = asyncio.create_task(_sync_job_progress())
 
-        # Connect to communication service (optional)
-        if communication_service:
-            try:
-                logger.info(f"[Job {job_id}] Attempting to connect to {communication_method}...")
-                connected = await communication_service.connect()
-                if connected:
-                    logger.info(f"[Job {job_id}] Successfully connected to {communication_method}")
-                else:
-                    logger.warning(f"[Job {job_id}] {communication_method} connection failed. Continuing without real-time event updates.")
-            except Exception as comm_error:
-                logger.error(f"[Job {job_id}] {communication_method} connection error: {comm_error}. Continuing without real-time event updates.")
-                logger.error(traceback.format_exc())
-        else:
-            logger.info(f"[Job {job_id}] No communication service configured (communication disabled or failed to initialize)")
-
-        logger.info(f"[Job {job_id}] Communication setup complete. Starting crawler...")
+        logger.info(f"[Job {job_id}] State setup complete. Starting crawler...")
 
         jobs[job_id].status = "running"
         jobs[job_id].message = "Crawling in progress..."
@@ -105,7 +84,6 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
         crawler = CrawlerService(
             config,
             job_id=job_id,
-            communication_service=communication_service,
             job_state=job_state,
             storage_manager=storage_manager,
             pause_event=pause_event
@@ -142,17 +120,6 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
             try:
                 await sync_task
             except asyncio.CancelledError:
-                pass
-        # Close communication connection
-        if communication_service and hasattr(communication_service, "disconnect"):
-            try:
-                await communication_service.disconnect()
-            except Exception:
-                pass
-        if crawler and hasattr(crawler, "file_event_publisher") and crawler.file_event_publisher:
-            try:
-                await crawler.file_event_publisher.close()
-            except Exception:
                 pass
         pause_events.pop(job_id, None)
         job_states.pop(job_id, None)

@@ -11,11 +11,10 @@ from aiohttp.http_exceptions import ContentLengthError
 
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
-from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 
 
 class FileDownloader:
-    """Download PDFs and supported files, then persist and notify."""
+    """Download PDFs and supported files, then persist them."""
 
     def __init__(
         self,
@@ -23,14 +22,12 @@ class FileDownloader:
         rate_limiter: Any,
         headers: Dict[str, str],
         asset_saver: AssetSaver,
-        file_event_notifier: FileEventNotifier,
         logger: Optional[Any] = None,
         policy: Optional[AssetPolicy] = None,
     ) -> None:
         self.rate_limiter = rate_limiter
         self.headers = headers
         self.asset_saver = asset_saver
-        self.file_event_notifier = file_event_notifier
         self.logger = logger or logging.getLogger("crawler")
         self.policy = policy or AssetPolicy()
 
@@ -94,12 +91,6 @@ class FileDownloader:
                             incomplete=incomplete,
                             error=last_error,
                         )
-                        if not incomplete:
-                            await self.file_event_notifier.publish_saved_file_event(
-                                file_url=pdf_url,
-                                page_url=page_url or pdf_url,
-                                file_entry=result,
-                            )
                         return result
                 except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
                     last_error = exc
@@ -181,12 +172,6 @@ class FileDownloader:
                             incomplete=incomplete and bool(last_error),
                             error=last_error,
                         )
-                        if not (incomplete and last_error):
-                            await self.file_event_notifier.publish_saved_file_event(
-                                file_url=file_url,
-                                page_url=page_url or file_url,
-                                file_entry=result,
-                            )
                         return result
                 except (aiohttp.ClientPayloadError, ContentLengthError) as exc:
                     last_error = exc

@@ -17,10 +17,10 @@ from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
 import aiohttp
 from crawl4ai.async_configs import CrawlerRunConfig
 
-from hawki_crawler.crawler.communication.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
+from hawki_crawler.crawler.state.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.sitemap.service import SitemapService
 
 
@@ -57,7 +57,6 @@ class ServiceParseAssetsMixinProtocol(Protocol):
     headers: Dict[str, str]
     http_session: Optional[aiohttp.ClientSession]
     storage_manager: Any
-    file_event_publisher: Any
     job_id: Optional[str]
     job_logger: logging.LoggerAdapter
 
@@ -66,14 +65,6 @@ class ServiceParseAssetsMixinProtocol(Protocol):
     async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]: ...
     def _filename_from_content_disposition(self, header_value: str) -> Optional[str]: ...
     def _should_skip_file_download(self, url: str, filename: Optional[str], content_type: str) -> bool: ...
-    async def _publish_saved_file_event(
-        self,
-        *,
-        file_url: str,
-        page_url: Optional[str],
-        file_entry: Dict[str, str],
-    ) -> None: ...
-
 
 class ServiceParseContentMixinProtocol(Protocol):
     """Dependencies used while converting rendered HTML into page metadata."""

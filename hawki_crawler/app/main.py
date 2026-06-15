@@ -27,16 +27,6 @@ def _log_startup_configuration() -> None:
     logger.info("=" * 60)
     logger.info("Crawl4AI Service Starting...")
     logger.info("=" * 60)
-    logger.info(f"Communication Method: {os.getenv('COMMUNICATION_METHOD', 'none')}")
-    logger.info(f"Communication Enabled: {os.getenv('COMMUNICATION_ENABLED', 'true')}")
-
-    comm_method = os.getenv('COMMUNICATION_METHOD', 'none').lower()
-    if comm_method == 'rabbitmq':
-        logger.info(f"RabbitMQ Host: {os.getenv('RABBITMQ_HOST', 'localhost')}")
-        logger.info(f"RabbitMQ Port: {os.getenv('RABBITMQ_PORT', '5672')}")
-        logger.info(f"RabbitMQ User: {os.getenv('RABBITMQ_USER', 'guest')}")
-        logger.info(f"RabbitMQ Exchange: {os.getenv('RABBITMQ_EXCHANGE', 'scrape-events')}")
-
     logger.info(f"Data Path: {os.getenv('DATA_PATH', '/var/www/html/shared')}")
     logger.info("=" * 60)
 

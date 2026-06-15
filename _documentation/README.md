@@ -1,6 +1,6 @@
 # CustomCrawler Documentation
 
-Welcome to the CustomCrawler documentation. This project contains a Python crawler service, Docker/RabbitMQ support, profile-driven crawl configuration, and a SvelteKit admin UI for monitoring jobs and managing crawler profiles.
+Welcome to the CustomCrawler documentation. This project contains a Python crawler service, Docker support, profile-driven crawl configuration, and a SvelteKit admin UI for monitoring jobs and managing crawler profiles.
 
 ## Documentation Structure
 

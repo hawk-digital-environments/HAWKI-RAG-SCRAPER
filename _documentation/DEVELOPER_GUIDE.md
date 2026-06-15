@@ -22,7 +22,7 @@ This guide helps developers understand the CustomCrawler codebase, including the
 
 - Python 3.9 or higher
 - Node.js and npm for the SvelteKit UI
-- Docker and Docker Compose for the crawler/RabbitMQ stack
+- Docker and Docker Compose for the crawler stack
 - GNU Make for project shortcuts
 - Git
 - Code editor (VS Code recommended)
@@ -149,10 +149,7 @@ Useful UI environment variables:
 
 ```bash
 PUBLIC_API_BASE_URL=
-CRAWLER_API_BASE_URL=http://localhost:8040
-RABBITMQ_MGMT_API_URL=http://localhost:15672/api
-RABBITMQ_MGMT_USER=guest
-RABBITMQ_MGMT_PASSWORD=guest
+CRAWLER_API_BASE_URL=http://localhost:8041
 PROFILES_HOST_DIR=../profiles
 PROFILES_CONTAINER_DIR=/var/www/html/profiles
 ```
@@ -171,9 +168,7 @@ CustomCrawler/
 ├── hawki_crawler/                   # Python crawler/backend modules
 │   ├── app/main.py
 │   ├── crawler/
-│   ├── common/
-│   ├── rabbitmq/
-│   └── services/
+│   └── common/
 ├── ui/                              # SvelteKit admin UI
 │   ├── package.json
 │   ├── src/var/www/html.css
@@ -192,8 +187,7 @@ CustomCrawler/
 | `Makefile` | Project shortcuts for crawling, Docker lifecycle, job cancellation, shared-output cleanup, and UI startup. |
 | `hawki_crawler/var/www/html/main.py` | Python crawler API entrypoint. |
 | `hawki_crawler/crawler/` | Crawling logic, profile loading, sitemap parsing, URL policy, content parsing, storage, progress tracking. |
-| `hawki_crawler/common/` | Shared job schemas, logging setup, pipeline event definitions. |
-| `hawki_crawler/rabbitmq/` | RabbitMQ producer/communication helpers. |
+| `hawki_crawler/common/` | Shared logging setup and internal helpers. |
 | `profiles/` | JSON profile files used by crawler jobs and editable from the UI. |
 | `ui/src/routes/` | SvelteKit UI pages and SvelteKit API routes. |
 | `ui/src/lib/api/index.ts` | Production UI HTTP client. All UI API calls should go through this file. |
@@ -201,13 +195,13 @@ CustomCrawler/
 | `ui/src/lib/api/stub.ts` | Mock data layer for local experiments only; do not import by default. |
 | `ui/src/lib/ui/` | Generic UI primitives such as buttons, badges, tables, cards, alerts, and page layout. |
 | `ui/src/lib/components/` | Crawler-specific forms and widgets such as `ProfileForm`, `TaskForm`, `EntrypointList`, and `ConfirmDialog`. |
-| `ui/src/lib/server/` | Server-only SvelteKit helpers for crawler/RabbitMQ API configuration and fetch fallback. |
+| `ui/src/lib/server/` | Server-only SvelteKit helpers for crawler API configuration and fetch fallback. |
 
 ### UI Route Responsibilities
 
 | Route | Responsibility |
 |-------|----------------|
-| `/` | Running jobs dashboard and RabbitMQ queue overview. |
+| `/` | Running jobs dashboard. |
 | `/jobs/[jobId]` | Job detail page. Reads `jobId` from params, loads job state, polls while running, and sends cancel requests. |
 | `/profiles` | Lists profile JSON files. |
 | `/profiles/new` | Creates a new profile JSON file. |
@@ -230,7 +224,6 @@ CustomCrawler/
 | `GET /api/crawler/jobs` | Proxies to crawler `GET /jobs`. |
 | `POST /api/crawler/job/[jobId]/cancel` | Proxies a job cancel request. |
 | `GET /api/crawler/job/[jobId]/summary` | Reads crawler output metadata and derives URL counts. |
-| `GET /api/rabbitmq/queues` | Proxies RabbitMQ management queue state. |
 
 ### UI Component Responsibilities
 

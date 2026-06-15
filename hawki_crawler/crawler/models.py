@@ -62,7 +62,7 @@ class CrawlResponse(BaseModel):
     """
     Response for crawl job submission.
 
-    Structure matches event_emitter format for consistency:
+    Structure uses a simple API event envelope:
     - event: The type of event (e.g., "job_submitted")
     - data: Object containing status, message, and other metadata
     - timestamp: ISO-8601 timestamp
