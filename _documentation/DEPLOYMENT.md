@@ -80,8 +80,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./output:/app/output
-      - ./logs:/app/logs
+      - ./output:/var/www/html/output
+      - ./logs:/var/www/html/logs
     environment:
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS}
@@ -157,7 +157,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
-WORKDIR /app
+WORKDIR /var/www/html
 
 # Copy requirements
 COPY requirements.txt .
@@ -173,11 +173,11 @@ RUN playwright install-deps chromium
 COPY main.py models.py crawler_service.py ./
 
 # Create output directory
-RUN mkdir -p /app/output
+RUN mkdir -p /var/www/html/output
 
 # Create non-root user
 RUN useradd -m -u 1000 crawler && \
-    chown -R crawler:crawler /app
+    chown -R crawler:crawler /var/www/html
 
 # Switch to non-root user
 USER crawler
@@ -505,7 +505,7 @@ spec:
             cpu: "2000m"
         volumeMounts:
         - name: output
-          mountPath: /app/output
+          mountPath: /var/www/html/output
         livenessProbe:
           httpGet:
             path: /health
@@ -751,6 +751,25 @@ async def crawl(config: CrawlConfig, api_key: str = Security(verify_api_key)):
 
 ---
 
+## Service Mesh / External Reverse Proxy
+
+When running behind another reverse proxy (e.g. Traefik, Istio, or an external nginx), the container's internal nginx still handles routing between gunicorn (Python backend) and the SvelteKit frontend. Only one environment variable needs to change:
+
+- **`ORIGIN`** — Set this to the externally-facing URL. SvelteKit uses it for CSRF protection and generating absolute URLs/redirects. For example, if the service is reachable at `https://crawler.example.com`, set `ORIGIN=https://crawler.example.com`.
+
+The other environment variables are internal and don't need changes:
+
+| Variable | Default | Affected by external proxy? |
+|---|---|---|
+| `ORIGIN` | `http://localhost:80` | **Yes** — must match the external URL |
+| `CRAWLER_API_BASE_URL` | `http://localhost:80` | No — internal (SvelteKit → nginx → gunicorn) |
+| `PUBLIC_API_BASE_URL` | `/ui` | No — relative path |
+| `NODE_SERVICE_PORT` | `3000` | No — internal (nginx → SvelteKit) |
+
+The outer reverse proxy should pass standard forwarding headers (`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`) through to the container.
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
@@ -811,8 +830,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"  # Bind to localhost only
     volumes:
-      - ./output:/app/output:rw
-      - ./logs:/app/logs:rw
+      - ./output:/var/www/html/output:rw
+      - ./logs:/var/www/html/logs:rw
     environment:
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
       - MAX_CONCURRENT_TASKS=5

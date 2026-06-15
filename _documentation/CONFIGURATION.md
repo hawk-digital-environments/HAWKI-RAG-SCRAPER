@@ -105,7 +105,7 @@ start-ui:
 | `RABBITMQ_MGMT_USER` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management username. |
 | `RABBITMQ_MGMT_PASSWORD` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management password. |
 | `PROFILES_HOST_DIR` | `../profiles` when running from `ui/` | `ui/src/routes/api/profiles/*` | Host directory where editable profile JSON files are read/written. |
-| `PROFILES_CONTAINER_DIR` | `/app/profiles` | `ui/src/routes/api/profiles/*` | Container path sent in crawl submissions as `site_profile_path`. |
+| `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | `ui/src/routes/api/profiles/*` | Container path sent in crawl submissions as `site_profile_path`. |
 
 ### UI API Flow
 

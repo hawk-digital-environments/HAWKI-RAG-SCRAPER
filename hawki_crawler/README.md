@@ -7,7 +7,7 @@ The services layer provides modular, scalable components for the crawler applica
 ## Directory Structure
 
 ```
-src/crawler/
+hawki_crawler/crawler/
 ├── communication/          # Communication layer (RabbitMQ or none)
 │   ├── interface.py        # CommunicationInterface (ABC)
 │   ├── factory.py          # CommunicationFactory
@@ -51,7 +51,7 @@ Factory for creating communication service instances based on environment config
 
 **Usage:**
 ```python
-from src.crawler.communication import CommunicationFactory
+from hawki_crawler.crawler.communication import CommunicationFactory
 
 comm = CommunicationFactory.create(job_id="123")
 if comm:
@@ -103,9 +103,9 @@ Unified job state object with observer pattern for automatic synchronization.
 
 **Usage:**
 ```python
-from src.crawler.state import JobState
+from hawki_crawler.crawler.state import JobState
 
-job_state = JobState(job_id="123", base_path="/app/shared")
+job_state = JobState(job_id="123", base_path="/var/www/html/shared")
 await job_state.initialize()
 
 # Register observer for auto-broadcasting
@@ -129,7 +129,7 @@ Rate-limited progress tracking with background emission loop.
 
 **Usage:**
 ```python
-from src.crawler.state import ProgressTracker
+from hawki_crawler.crawler.state import ProgressTracker
 
 tracker = ProgressTracker(event_emitter=comm, emit_interval=1.0)
 await tracker.start()
@@ -154,9 +154,9 @@ Centralized file I/O operations for job data with hash-based directories.
 
 **Usage:**
 ```python
-from src.crawler.storage import StorageManager
+from hawki_crawler.crawler.storage import StorageManager
 
-storage = StorageManager(job_id, base_path="/app/shared")
+storage = StorageManager(job_id, base_path="/var/www/html/shared")
 hash_dir = storage.create_hash_directory(url_hash)
 await storage.save_hash_json(url_hash, metadata)
 await storage.save_hash_content(url_hash, markdown_content)

@@ -84,7 +84,7 @@ async def list_job_files(job_id: str):
     """
     List all files for a specific job.
     """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     if not storage_manager.get_job_directory().exists():
@@ -110,7 +110,7 @@ async def download_job_file(job_id: str, file_path: str):
     """
     Download a specific file from a job's directory.
     """
-    base_path = os.getenv("DATA_PATH", "/app/data/jobs")
+    base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     absolute_path = storage_manager.get_file_path(file_path)

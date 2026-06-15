@@ -104,7 +104,7 @@ def _event() -> FileDiscoveredEvent:
         source="scraper",
         url="https://example.com/files/sample.pdf",
         page_url="https://example.com/page",
-        local_path="/app/shared/sample/files/sample.pdf",
+        local_path="/var/www/html/shared/sample/files/sample.pdf",
         relative_path="files/sample.pdf",
         filename="sample.pdf",
         extension="pdf",

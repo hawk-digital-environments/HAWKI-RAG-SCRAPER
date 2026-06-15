@@ -63,13 +63,13 @@ class SummaryManager:
     - Format summary data for display
     """
 
-    def __init__(self, job_id: str, base_path: str = "/app/data/jobs"):
+    def __init__(self, job_id: str, base_path: str = "/var/www/html/shared"):
         """
         Initialize summary manager.
 
         Args:
             job_id: Unique identifier for the job
-            base_path: Base directory for job data (default: /app/data/jobs)
+            base_path: Base directory for job data (default: /var/www/html/shared)
         """
         self.job_id = job_id
         self.base_path = Path(base_path)

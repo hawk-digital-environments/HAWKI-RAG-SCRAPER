@@ -37,7 +37,7 @@ def _log_startup_configuration() -> None:
         logger.info(f"RabbitMQ User: {os.getenv('RABBITMQ_USER', 'guest')}")
         logger.info(f"RabbitMQ Exchange: {os.getenv('RABBITMQ_EXCHANGE', 'scrape-events')}")
 
-    logger.info(f"Data Path: {os.getenv('DATA_PATH', '/app/data/jobs')}")
+    logger.info(f"Data Path: {os.getenv('DATA_PATH', '/var/www/html/shared')}")
     logger.info("=" * 60)
 
 

@@ -6,7 +6,7 @@ services:
     image: crawl4ai-fastapi:latest
     container_name: crawl4ai-service
     ports:
-      - "8041:8000"
+      - "8041:80"
     environment:
       # Communication layer (rabbitmq or none)
       - COMMUNICATION_ENABLED=${COMMUNICATION_ENABLED:-true}
@@ -19,9 +19,6 @@ services:
       - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-INFO}
       # Maximum concurrent crawl tasks
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
-      # Server configuration
-      - HOST=${HOST:-0.0.0.0}
-      - PORT=${PORT:-8000}
       # Optional LLM Provider Keys (for advanced crawl4ai features)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -49,22 +46,24 @@ services:
       # Example: ws://laravel-app:6001 for Laravel WebSocket
       - WEBSOCKET_URL=${WEBSOCKET_URL:-}
       # Data storage path for job files
-      - DATA_PATH=${DATA_PATH:-/app/shared}
+      - DATA_PATH=${DATA_PATH:-/var/www/html/shared}
+      - PUID=33
+      - PGID=33
     volumes:
       # Site profiles
-      - ./profiles:/app/profiles:ro
+      - ./profiles:/var/www/html/profiles
       # Mount output directory for backwards compatibility
-      - ./output:/app/output
+      - ./output:/var/www/html/output
       # Forbidden hosts list
-      - ./forbidden_urls.txt:/app/forbidden_urls.txt:ro
+      - ./forbidden_urls.txt:/var/www/html/forbidden_urls.txt
       # Utility scripts
-      - ./src/scripts:/app/hawki_crawler/scripts:ro
+      - ./hawki_crawler/scripts:/var/www/html/hawki_crawler/scripts
       # Shared memory for Playwright (prevents crashes)
       - /dev/shm:/dev/shm
-      - rawki_shared_storage:/app/shared
+      - rawki_shared_storage:/var/www/html/shared
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
