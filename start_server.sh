@@ -1,38 +1,60 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Start script for Crawl4AI FastAPI Server
+set -euo pipefail
+
+APP_MODULE="${APP_MODULE:-hawki_crawler.app.main:app}"
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-8000}"
+DATA_PATH="${DATA_PATH:-$(pwd)/output/shared}"
 
 echo "========================================="
 echo "Starting Crawl4AI FastAPI Server"
 echo "========================================="
 
-# Check if virtual environment exists
+mkdir -p "$DATA_PATH"
+export DATA_PATH
+
+if command -v uv >/dev/null 2>&1; then
+    echo "Installing dependencies with uv..."
+    uv sync --all-groups
+
+    echo "Installing Playwright Chromium..."
+    uv run playwright install chromium
+
+    echo ""
+    echo "========================================="
+    echo "Server starting on http://localhost:${PORT}"
+    echo "API Documentation: http://localhost:${PORT}/docs"
+    echo "Data path: ${DATA_PATH}"
+    echo "========================================="
+    echo ""
+
+    exec uv run --no-sync uvicorn "$APP_MODULE" --host "$HOST" --port "$PORT" --reload
+fi
+
+echo "uv not found; using env/ virtual environment fallback."
+
 if [ ! -d "env" ]; then
     echo "Creating virtual environment..."
     python3 -m venv env
 fi
 
-# Activate virtual environment
 echo "Activating virtual environment..."
 source env/bin/activate
 
-# Install/upgrade dependencies
-echo "Installing dependencies..."
-pip install -q --upgrade pip
-pip install -q -r requirements.txt
+echo "Installing dependencies with pip..."
+python -m pip install -q --upgrade pip
+python -m pip install -q -e .
 
-# Install playwright browsers if not already installed
-if [ ! -d "$HOME/.cache/ms-playwright" ]; then
-    echo "Installing Playwright browsers..."
-    playwright install chromium
-fi
+echo "Installing Playwright Chromium..."
+python -m playwright install chromium
 
-# Start the server
 echo ""
 echo "========================================="
-echo "Server starting on http://localhost:8000"
-echo "API Documentation: http://localhost:8000/docs"
+echo "Server starting on http://localhost:${PORT}"
+echo "API Documentation: http://localhost:${PORT}/docs"
+echo "Data path: ${DATA_PATH}"
 echo "========================================="
 echo ""
 
-uvicorn hawki_crawler.app.main:app --host 0.0.0.0 --port 8000 --reload
+exec python -m uvicorn "$APP_MODULE" --host "$HOST" --port "$PORT" --reload
