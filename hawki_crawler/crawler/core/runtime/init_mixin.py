@@ -4,7 +4,6 @@ from typing import Optional, Any
 
 import aiohttp
 
-from hawki_crawler.crawler.communication.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.core.runtime.state import build_crawl_runtime_state
 from hawki_crawler.crawler.core.runtime.job_helpers import build_job_helpers
 from hawki_crawler.crawler.core.runtime.defaults import (
@@ -15,6 +14,7 @@ from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.state.job_state import JobState
+from hawki_crawler.crawler.state.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.storage.runtime_storage import RuntimeStorageService
 from hawki_crawler.crawler.profiles import resolve_site_profile
@@ -27,14 +27,13 @@ class ServiceInitMixin:
         self,
         config: CrawlConfig,
         job_id: Optional[str] = None,
-        communication_service: Optional[Any] = None,
         job_state: Optional[JobState] = None,
         storage_manager: Optional[Any] = None,
         pause_event: Optional[asyncio.Event] = None
     ):
         self.config = config
         self._init_crawl_runtime_state(config, pause_event)
-        self._init_external_services(communication_service, job_state, storage_manager, job_id)
+        self._init_external_services(job_state, storage_manager, job_id)
         self._init_job_logger()
         self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
         self._init_url_policy()
@@ -60,13 +59,11 @@ class ServiceInitMixin:
 
     def _init_external_services(
         self,
-        communication_service: Optional[Any],
         job_state: Optional[JobState],
         storage_manager: Optional[Any],
         job_id: Optional[str],
     ) -> None:
         """References passed in from the API/job layer."""
-        self.communication_service = communication_service
         self.job_state = job_state
         self.storage_manager = storage_manager
         self.job_id = job_id
@@ -85,13 +82,11 @@ class ServiceInitMixin:
             job_id=job_id,
             storage_manager=self.storage_manager,
             site_profile=self.site_profile,
-            communication_service=self.communication_service,
             default_logger=self.job_logger,
         )
         self.progress_tracker = helpers.progress_tracker
         self.url_tracking_manager = helpers.url_tracking_manager
         self.summary_manager = helpers.summary_manager
-        self.file_event_publisher = helpers.file_event_publisher
         self.job_logger = helpers.job_logger
 
     def _init_runtime_clients(self) -> None:
@@ -106,8 +101,8 @@ class ServiceInitMixin:
         )
 
     def _init_progress_publisher(self) -> None:
-        """Inject progress/event publishing instead of inheriting a mixin."""
-        self.progress_publisher = ProgressPublisher(self.communication_service)
+        """Attach no-op progress publisher for internal crawl hooks."""
+        self.progress_publisher = ProgressPublisher()
 
     def _init_date_language(self) -> None:
         """Inject date/language parsing instead of inheriting a mixin."""

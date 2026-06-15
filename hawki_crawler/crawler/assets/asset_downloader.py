@@ -7,7 +7,6 @@ import aiohttp
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
-from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.assets.resource_detector import FetchHeadCallable, ResourceDetector
 
@@ -22,8 +21,6 @@ class AssetDownloader:
         headers: Dict[str, str],
         http_session: Optional[aiohttp.ClientSession],
         asset_saver: AssetSaver,
-        file_event_publisher: Optional[Any] = None,
-        job_id: Optional[str] = None,
         logger: Optional[Any] = None,
         policy: Optional[AssetPolicy] = None,
         fetch_head: Optional[FetchHeadCallable] = None,
@@ -32,21 +29,12 @@ class AssetDownloader:
         self.headers = headers
         self.http_session = http_session
         self.asset_saver = asset_saver
-        self.file_event_publisher = file_event_publisher
-        self.job_id = job_id
         self.logger = logger or logging.getLogger("crawler")
         self.policy = policy or AssetPolicy()
         self._fetch_head_override = fetch_head
 
     def _image_downloader(self) -> ImageDownloader:
         return ImageDownloader(rate_limiter=self.rate_limiter, logger=self.logger)
-
-    def _file_event_notifier(self) -> FileEventNotifier:
-        return FileEventNotifier(
-            file_event_publisher=self.file_event_publisher,
-            job_id=self.job_id,
-            logger=self.logger,
-        )
 
     def _resource_detector(self) -> ResourceDetector:
         return ResourceDetector(
@@ -62,22 +50,8 @@ class AssetDownloader:
             rate_limiter=self.rate_limiter,
             headers=self.headers,
             asset_saver=self.asset_saver,
-            file_event_notifier=self._file_event_notifier(),
             logger=self.logger,
             policy=self.policy,
-        )
-
-    async def publish_saved_file_event(
-        self,
-        *,
-        file_url: str,
-        page_url: Optional[str],
-        file_entry: Dict[str, str],
-    ) -> None:
-        await self._file_event_notifier().publish_saved_file_event(
-            file_url=file_url,
-            page_url=page_url,
-            file_entry=file_entry,
         )
 
     async def download_image(

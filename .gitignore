@@ -59,4 +59,5 @@ data/jobs
 
 # IDE with debug examples
 !.vscode/*
+.vscode/settings.json
 !.devcontainer/*

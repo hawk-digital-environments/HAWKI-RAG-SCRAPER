@@ -13,11 +13,8 @@ from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
-from hawki_crawler.crawler.assets.file_event_notifier import FileEventNotifier
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
-from hawki_crawler.crawler.communication import rabbitmq_service
-from hawki_crawler.crawler.communication.rabbitmq_service import RabbitMQCommunicationService
 from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
 from hawki_crawler.crawler.core.runtime.control import (
     request_browser_restart,
@@ -289,7 +286,6 @@ def test_job_file_logger_writes_job_context_once(tmp_path) -> None:
 def test_job_helpers_factory_wires_persistent_job_services(tmp_path) -> None:
     job_id = "job_helpers_regression"
     storage_manager = StorageManager(job_id=job_id, base_path=str(tmp_path))
-    communication_service = object()
     default_logger = logging.LoggerAdapter(logging.getLogger("crawler"), {"job_id": "unknown"})
     logger = logging.getLogger(f"crawler.{job_id}")
     handler_name = f"job_error_file_{job_id}"
@@ -304,24 +300,20 @@ def test_job_helpers_factory_wires_persistent_job_services(tmp_path) -> None:
             job_id=None,
             storage_manager=None,
             site_profile={},
-            communication_service=None,
             default_logger=default_logger,
         )
         helpers = build_job_helpers(
             job_id=job_id,
             storage_manager=storage_manager,
             site_profile={"forbidden": {"hosts": ["blocked.example"]}},
-            communication_service=communication_service,
             default_logger=default_logger,
         )
 
         assert fallback_helpers.job_logger is default_logger
         assert fallback_helpers.progress_tracker is None
         assert helpers.progress_tracker is not None
-        assert helpers.progress_tracker.event_emitter is communication_service
         assert helpers.url_tracking_manager is not None
         assert helpers.summary_manager is not None
-        assert helpers.file_event_publisher is not None
         assert storage_manager.get_job_directory().is_dir()
 
         helpers.job_logger.warning("helper ready")
@@ -871,59 +863,6 @@ async def test_image_downloader_saves_supported_image_without_network(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_file_event_notifier_publishes_saved_complete_files() -> None:
-    class FakeFileEventPublisher:
-        def __init__(self) -> None:
-            self.calls = []
-
-        async def publish_file_discovered(self, **kwargs):
-            self.calls.append(kwargs)
-            return SimpleNamespace(success=True, skipped=False, reason=None, error=None)
-
-    publisher = FakeFileEventPublisher()
-    notifier = FileEventNotifier(
-        file_event_publisher=publisher,
-        job_id="asset-job",
-        logger=logging.getLogger("test.file_event_notifier"),
-    )
-
-    await notifier.publish_saved_file_event(
-        file_url="https://example.com/files/report.pdf",
-        page_url="https://example.com/page",
-        file_entry={
-            "local_path": "/tmp/report.pdf",
-            "relative_path": "files/report.pdf",
-            "filename": "report.pdf",
-            "content_type": "application/pdf",
-        },
-    )
-    await notifier.publish_saved_file_event(
-        file_url="https://example.com/files/incomplete.pdf",
-        page_url="https://example.com/page",
-        file_entry={
-            "local_path": "/tmp/incomplete.pdf",
-            "filename": "incomplete.pdf",
-            "content_type": "application/pdf",
-            "incomplete": True,
-        },
-    )
-
-    assert publisher.calls == [
-        {
-            "url": "https://example.com/files/report.pdf",
-            "page_url": "https://example.com/page",
-            "job_id": "asset-job",
-            "local_path": "/tmp/report.pdf",
-            "relative_path": "files/report.pdf",
-            "filename": "report.pdf",
-            "extension": ".pdf",
-            "content_type": "application/pdf",
-            "payload": {"asset_type": "file"},
-        }
-    ]
-
-
-@pytest.mark.asyncio
 async def test_resource_detector_fetches_and_classifies_head_resources() -> None:
     class FakeRateLimiter:
         def __init__(self) -> None:
@@ -978,7 +917,7 @@ async def test_resource_detector_fetches_and_classifies_head_resources() -> None
 
 
 @pytest.mark.asyncio
-async def test_file_downloader_saves_pdf_and_notifies_without_network() -> None:
+async def test_file_downloader_saves_pdf_without_network() -> None:
     class FakeRateLimiter:
         def __init__(self) -> None:
             self.calls = 0
@@ -999,13 +938,6 @@ async def test_file_downloader_saves_pdf_and_notifies_without_network() -> None:
                 "filename": kwargs["filename"],
                 "content_type": kwargs["content_type"],
             }
-
-    class FakeNotifier:
-        def __init__(self) -> None:
-            self.calls = []
-
-        async def publish_saved_file_event(self, **kwargs) -> None:
-            self.calls.append(kwargs)
 
     class FakeStream:
         async def iter_chunked(self, _size):
@@ -1032,13 +964,11 @@ async def test_file_downloader_saves_pdf_and_notifies_without_network() -> None:
 
     rate_limiter = FakeRateLimiter()
     saver = FakeAssetSaver()
-    notifier = FakeNotifier()
     session = FakeSession()
     downloader = FileDownloader(
         rate_limiter=rate_limiter,
         headers={"User-Agent": "test"},
         asset_saver=saver,
-        file_event_notifier=notifier,
         logger=logging.getLogger("test.file_downloader"),
     )
 
@@ -1053,13 +983,6 @@ async def test_file_downloader_saves_pdf_and_notifies_without_network() -> None:
     assert rate_limiter.calls == 1
     assert saver.calls[0]["file_bytes"] == b"pdf-bytes"
     assert saver.calls[0]["page_number"] == 3
-    assert notifier.calls == [
-        {
-            "file_url": "https://example.com/files/report.pdf",
-            "page_url": "https://example.com/page",
-            "file_entry": result,
-        }
-    ]
 
 
 @pytest.mark.asyncio
@@ -1202,26 +1125,3 @@ def test_storage_manager_file_browser_lists_info_and_blocks_traversal(tmp_path) 
     assert info["type"] == "text/markdown"
     assert manager.get_file_path("../outside.txt") is None
     assert manager._get_file_type(page_dir / "unknown.bin") == "application/octet-stream"
-
-
-class _FailingAioPika:
-    async def connect_robust(self, *_args, **_kwargs):
-        raise rabbitmq_service.AMQPException("broker unavailable")
-
-
-@pytest.mark.asyncio
-async def test_rabbitmq_connection_failure_is_optional_and_publish_warning_is_not_spammed(caplog) -> None:
-    service = RabbitMQCommunicationService(job_id="job-1", host="rabbitmq")
-    service._aio_pika = _FailingAioPika()
-    service._max_reconnect_attempts = 1
-
-    with caplog.at_level("WARNING"):
-        connected = await service.connect()
-        first_publish = await service.send_stage(SimpleNamespace(value="stage"))
-        second_publish = await service.send_report_progress({"completed": 0})
-
-    assert connected is False
-    assert first_publish is False
-    assert second_publish is False
-    assert caplog.text.count("RabbitMQ is not connected; skipping event publishing for this job") == 1
-    assert "broker unavailable" in caplog.text

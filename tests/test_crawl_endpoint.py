@@ -153,9 +153,6 @@ async def test_crawl_endpoint(client, data_path, wait_for_status, list_files, do
     target_url = "https://www.hawk.de/de/hochschule/fakultaeten/ressourcenmanagement"
     expected_text = "Bei uns stehen die nachhaltige Zukunft von Natur und Gesellschaft im Mittelpunkt."
 
-    monkeypatch.setenv("COMMUNICATION_METHOD", "none")
-    monkeypatch.setenv("COMMUNICATION_ENABLED", "false")
-
     async def fake_parse_sitemap(self, sitemap_url):
         if self.url_tracking_manager:
             await self.url_tracking_manager.add_urls_from_sitemap([(target_url, None)])

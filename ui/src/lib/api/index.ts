@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/public';
-import type { Job, JobStatus, Profile, ProfileInput, Queue, Task, TaskInput } from './types';
+import { base } from '$app/paths';
+import type { Job, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
 
 type ApiFetch = typeof fetch;
 
@@ -21,14 +22,6 @@ type CrawlerJobStatus = {
 	started_at?: string;
 	completed_at?: string;
 	output_directory?: string;
-};
-
-type QueueEntry = {
-	name: string;
-	vhost?: string;
-	messages?: number;
-	messages_ready?: number;
-	messages_unacknowledged?: number;
 };
 
 type TaskEntry = {
@@ -57,7 +50,11 @@ export class ApiError extends Error {
 const apiBaseUrl = (env.PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
 
 function endpoint(path: string): string {
-	return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+	const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+	if (apiBaseUrl) {
+		return `${apiBaseUrl}${normalizedPath}`;
+	}
+	return `${base}${normalizedPath}`;
 }
 
 async function request<T>(path: string, init?: RequestInit, apiFetch: ApiFetch = fetch): Promise<T> {
@@ -428,34 +425,4 @@ export async function restartJob(originalJobId: string): Promise<Job> {
 	const original = await getJob(originalJobId);
 	if (!original) throw new Error(`Job ${originalJobId} not found`);
 	throw new Error('Restarting jobs is not supported by the current crawler API.');
-}
-
-export async function getQueues(apiFetch?: ApiFetch): Promise<Queue[]> {
-	try {
-		const payload = await request<{ queues?: QueueEntry[] }>('/api/rabbitmq/queues', undefined, apiFetch);
-		return (payload.queues ?? []).map((queue) => ({
-			name: queue.name,
-			vhost: queue.vhost ?? '/',
-			ready: queue.messages_ready ?? 0,
-			unacked: queue.messages_unacknowledged ?? 0,
-			total: queue.messages ?? 0
-		}));
-	} catch (error) {
-		if (error instanceof ApiError) return [];
-		throw error;
-	}
-}
-
-export async function purgeQueue(name: string, vhost = '/'): Promise<void> {
-	await request('/api/rabbitmq/queues/purge', {
-		method: 'POST',
-		body: JSON.stringify({ name, vhost })
-	});
-}
-
-export async function deleteQueue(name: string, vhost = '/'): Promise<void> {
-	await request('/api/rabbitmq/queues/delete', {
-		method: 'POST',
-		body: JSON.stringify({ name, vhost })
-	});
 }

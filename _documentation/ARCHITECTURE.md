@@ -1,10 +1,10 @@
 # Architecture
 
-This document describes the current CustomCrawler architecture: the Python crawler service, profile-driven crawl configuration, RabbitMQ visibility, and the SvelteKit admin UI.
+This document describes the current CustomCrawler architecture: the Python crawler service, profile-driven crawl configuration, and the SvelteKit admin UI.
 
 ## Overview
 
-CustomCrawler is a web scraping and crawling system. The backend accepts crawl jobs, manages crawler execution, stores output in shared volumes, and exposes job state. The UI is a SvelteKit application under `ui/` that gives operators a structured admin surface for running jobs, editing profile JSON files, viewing queue state, and inspecting job details.
+CustomCrawler is a web scraping and crawling system. The backend accepts crawl jobs, manages crawler execution, stores output in shared volumes, and exposes job state. The UI is a SvelteKit application under `ui/` that gives operators a structured admin surface for running jobs, editing profile JSON files, and inspecting job details.
 
 The UI replacement in this branch is source-based SvelteKit, not generated `.svelte-kit` output. Generated files under `ui/.svelte-kit/` are build artifacts and should not be edited.
 
@@ -32,14 +32,13 @@ The UI replacement in this branch is source-based SvelteKit, not generated `.sve
 │  • /api/crawler/submit       proxy to crawler /crawl         │
 │  • /api/crawler/jobs         proxy to crawler /jobs          │
 │  • /api/crawler/job/...      cancel and summary helpers      │
-│  • /api/rabbitmq/queues      proxy to RabbitMQ management    │
-└───────────────┬───────────────────────────────┬─────────────┘
-                │                               │
-┌───────────────▼──────────────┐     ┌──────────▼─────────────┐
-│ Python Crawler API/Service    │     │ RabbitMQ Management API │
-│ POST /crawl, GET /jobs,       │     │ Queue depth/consumer    │
-│ POST /jobs/{jobId}/cancel     │     │ state                   │
-└───────────────┬──────────────┘     └────────────────────────┘
+└───────────────┬─────────────────────────────────────────────┘
+                │
+┌───────────────▼──────────────┐
+│ Python Crawler API/Service    │
+│ POST /crawl, GET /jobs,       │
+│ POST /jobs/{jobId}/cancel     │
+└───────────────┬──────────────┘
                 │
 ┌───────────────▼─────────────────────────────────────────────┐
 │ Crawler runtime, profile loading, sitemap parsing,          │
@@ -61,7 +60,7 @@ The UI replacement in this branch is source-based SvelteKit, not generated `.sve
 | `ui/src/routes/+layout.svelte` | Fixed sidebar, route navigation, active route detection, app shell. |
 | `ui/src/routes/+layout.ts` | Disables SSR for the UI shell with `ssr = false`; the UI runs as a browser app against API routes. |
 | `ui/src/lib/api/index.ts` | Real fetch-based typed API client. All production UI data access goes through this file. |
-| `ui/src/lib/api/types.ts` | UI-facing TypeScript models: `Profile`, `Task`, `Job`, `Queue`, entrypoints, status enums. |
+| `ui/src/lib/api/types.ts` | UI-facing TypeScript models: `Profile`, `Task`, `Job`, entrypoints, status enums. |
 | `ui/src/lib/api/stub.ts` | Mock/in-memory API retained for local experiments only; not imported by production routes. |
 | `ui/src/lib/ui/` | Reusable visual primitives such as buttons, cards, badges, forms, page layout, tables, alerts. |
 | `ui/src/lib/components/` | Domain components for crawler workflows: profile form, task form, dynamic lists, duration inputs, dialogs. |
@@ -71,7 +70,7 @@ The UI replacement in this branch is source-based SvelteKit, not generated `.sve
 
 | Route | Files | Responsibility |
 |-------|-------|----------------|
-| `/` | `ui/src/routes/+page.ts`, `+page.svelte` | Running jobs dashboard. Loads running jobs, profiles, derived tasks, and RabbitMQ queues. Rows link to job details. |
+| `/` | `ui/src/routes/+page.ts`, `+page.svelte` | Running jobs dashboard. Loads running jobs, profiles, and derived tasks. Rows link to job details. |
 | `/jobs/[jobId]` | `ui/src/routes/jobs/[jobId]/+page.ts`, `+page.svelte` | Job detail page. Reads `jobId` from route params, loads the matching job through the API client, shows status metadata and log-like status lines, polls while running, and can send stop requests. |
 | `/profiles` | `ui/src/routes/profiles/+page.ts`, `+page.svelte` | Profile list. Loads profile JSON files through `/api/profiles`, shows entrypoint and retention summary, links to profile detail. |
 | `/profiles/new` | `ui/src/routes/profiles/new/+page.svelte` | Profile creation form. Uses `ProfileForm` and posts through `createProfile()`. |
@@ -117,7 +116,6 @@ The UI replacement in this branch is source-based SvelteKit, not generated `.sve
 | `GET /api/crawler/jobs` | `ui/src/routes/api/crawler/jobs/+server.ts` | Proxies crawler `GET /jobs`. |
 | `POST /api/crawler/job/[jobId]/cancel` | `ui/src/routes/api/crawler/job/[jobId]/cancel/+server.ts` | Proxies crawler job cancellation. |
 | `GET /api/crawler/job/[jobId]/summary` | `ui/src/routes/api/crawler/job/[jobId]/summary/+server.ts` | Reads crawler file APIs and derives URL counts for a job. |
-| `GET /api/rabbitmq/queues` | `ui/src/routes/api/rabbitmq/queues/+server.ts` | Proxies RabbitMQ management queue state. |
 
 ### 5. UI API Client
 
@@ -128,7 +126,6 @@ The UI replacement in this branch is source-based SvelteKit, not generated `.sve
 - Throws `ApiError` for non-2xx responses.
 - Maps backend profile file shapes into UI `Profile` objects.
 - Maps crawler job payloads into UI `Job` objects.
-- Maps RabbitMQ queue payloads into UI `Queue` objects.
 - Derives manual tasks from profiles because the current backend has no persistent task API.
 
 ### 6. Python Crawler Application

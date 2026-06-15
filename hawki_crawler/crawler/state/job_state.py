@@ -4,7 +4,7 @@ JobState - Unified Job State Management
 This class provides a centralized, observable job state object that:
 - Represents the job_state.json structure
 - Automatically persists changes to disk
-- Notifies observers (like communication services) when state changes
+- Notifies in-process observers when state changes
 - Thread-safe with asyncio locks
 
 This replaces the old JobStateManager with a more object-oriented approach
@@ -50,8 +50,8 @@ class JobState:
     """
     Observable job state object with automatic persistence and notification.
 
-    This class uses the observer pattern to notify listeners when state changes.
-    Listeners can be communication services that need to broadcast state updates.
+    This class uses the observer pattern to notify in-process listeners when
+    state changes.
 
     Usage:
         job_state = JobState(job_id="123", base_path="/var/www/html/shared")

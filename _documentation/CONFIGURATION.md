@@ -100,10 +100,7 @@ start-ui:
 | Variable | Default | Used by | Description |
 |----------|---------|---------|-------------|
 | `PUBLIC_API_BASE_URL` | empty | `ui/src/lib/api/index.ts` | Optional browser-visible API base URL. Keep empty for same-origin `/api/...` during local development. |
-| `CRAWLER_API_BASE_URL` | `http://localhost:8040`, fallback `http://localhost:8000` | `ui/src/lib/server/config.ts` | Crawler API base URL list. Comma-separated values are supported. |
-| `RABBITMQ_MGMT_API_URL` | `http://localhost:15672/api` | `ui/src/lib/server/config.ts` | RabbitMQ management API base URL. |
-| `RABBITMQ_MGMT_USER` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management username. |
-| `RABBITMQ_MGMT_PASSWORD` | `guest` | `ui/src/lib/server/config.ts` | RabbitMQ management password. |
+| `CRAWLER_API_BASE_URL` | `http://localhost:8041`, fallback `http://localhost:8040,http://localhost:8000` | `ui/src/lib/server/config.ts` | Crawler API base URL list. Comma-separated values are supported. |
 | `PROFILES_HOST_DIR` | `../profiles` when running from `ui/` | `ui/src/routes/api/profiles/*` | Host directory where editable profile JSON files are read/written. |
 | `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | `ui/src/routes/api/profiles/*` | Container path sent in crawl submissions as `site_profile_path`. |
 
@@ -112,7 +109,7 @@ start-ui:
 The browser UI calls `ui/src/lib/api/index.ts`. That client calls same-origin SvelteKit API routes by default:
 
 ```text
-Browser page -> ui/src/lib/api/index.ts -> /api/... -> crawler/RabbitMQ/profile files
+Browser page -> ui/src/lib/api/index.ts -> /api/... -> crawler/profile files
 ```
 
 Do not import `ui/src/lib/api/stub.ts` from production routes. It is retained only as mock data for local experiments.

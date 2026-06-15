@@ -34,24 +34,9 @@ class ServiceParseAssetsMixin:
             headers=self.headers,
             http_session=getattr(self, "http_session", None),
             asset_saver=self._asset_saver(),
-            file_event_publisher=getattr(self, "file_event_publisher", None),
-            job_id=getattr(self, "job_id", None),
             logger=self._asset_logger(),
             policy=self._asset_policy(),
             fetch_head=fetch_head,
-        )
-
-    async def _publish_saved_file_event(
-        self: "ServiceParseAssetsMixinProtocol",
-        *,
-        file_url: str,
-        page_url: Optional[str],
-        file_entry: Dict[str, str],
-    ) -> None:
-        await self._asset_downloader().publish_saved_file_event(
-            file_url=file_url,
-            page_url=page_url,
-            file_entry=file_entry,
         )
 
     async def download_image(

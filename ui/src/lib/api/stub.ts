@@ -1,4 +1,4 @@
-import type { Job, JobStatus, Profile, ProfileInput, Queue, Task, TaskInput } from './types';
+import type { Job, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
 
 // ---------------------------------------------------------------------------
 // Initial mock data
@@ -208,13 +208,6 @@ const initialJobs: Job[] = [
 	}
 ];
 
-const BUILT_IN_QUEUES: Queue[] = [
-	{ name: 'file_conversion_jobs', ready: 0, unacked: 3, total: 3 },
-	{ name: 'file_conversion_jobs_retry', ready: 0, unacked: 0, total: 0 },
-	{ name: 'rag_ingestion_jobs', ready: 12, unacked: 5, total: 17 },
-	{ name: 'rag_ingestion_jobs_retry', ready: 2, unacked: 0, total: 2 }
-];
-
 // ---------------------------------------------------------------------------
 // In-memory store
 // ---------------------------------------------------------------------------
@@ -398,22 +391,4 @@ export function appendJobLog(id: string, line: string): void {
 	const job = jobs.get(id);
 	if (!job) return;
 	jobs.set(id, { ...job, log: [...job.log, line] });
-}
-
-// ---------------------------------------------------------------------------
-// Queue operations
-// ---------------------------------------------------------------------------
-
-export function getQueues(): Queue[] {
-	const runningQueues: Queue[] = getRunningJobs()
-		.filter((j) => j.status === 'running')
-		.map((j) => ({
-			name: `job-${j.id}`,
-			ready: Math.floor(Math.random() * 60) + 10,
-			unacked: Math.floor(Math.random() * 15) + 1,
-			total: 0
-		}))
-		.map((q) => ({ ...q, total: q.ready + q.unacked }));
-
-	return [...BUILT_IN_QUEUES, ...runningQueues];
 }

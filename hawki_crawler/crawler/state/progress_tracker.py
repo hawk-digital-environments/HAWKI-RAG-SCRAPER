@@ -1,11 +1,9 @@
 """
-ProgressTracker - Rate-Limited Progress Broadcasting
-====================================================
-This class manages progress tracking with rate-limited event emissions.
-It aggregates rapid updates and emits them at a controlled rate (1 per second).
+ProgressTracker - Crawl Progress State
+======================================
+This class manages local progress tracking for a crawl job.
 
 Why this exists:
-- Prevents flooding message channels with too many progress updates
 - Aggregates progress information efficiently
 - Ensures consistent progress reporting even under high load
 - Tracks scrape statistics (sessions, requests, errors, warnings)
@@ -13,17 +11,13 @@ Why this exists:
 Lifecycle:
 - Created when a crawl job starts
 - Updated on every URL processing event
-- Emits progress updates at most once per second
 - Final summary emitted when job completes
 """
 
 import asyncio
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
-
-from hawki_crawler.crawler.communication.interface import Stage
-
 
 class ProgressTracker:
     """
@@ -37,15 +31,13 @@ class ProgressTracker:
     - Statistics (sessions, requests, errors, warnings)
     """
 
-    def __init__(self, event_emitter: Optional[Any] = None, emit_interval: float = 1.0):
+    def __init__(self, emit_interval: float = 1.0):
         """
         Initialize progress tracker.
 
         Args:
-            event_emitter: Optional EventEmitter instance for broadcasting updates
-            emit_interval: Minimum interval between progress emissions (seconds)
+            emit_interval: Minimum interval between internal progress snapshots.
         """
-        self.event_emitter = event_emitter
         self.emit_interval = emit_interval
         self.last_emit_time = 0
         self.lock = asyncio.Lock()
@@ -108,18 +100,7 @@ class ProgressTracker:
             if stage in ["completed", "failed"]:
                 self.completed_at = datetime.utcnow().isoformat() + "Z"
 
-        # Emit stage event (outside the lock to avoid deadlock)
-        if self.event_emitter and hasattr(self.event_emitter, 'send_stage'):
-            stage_map = {
-                "initialization": Stage.INITIALIZATION,
-                "scraping": Stage.SCRAPING,
-                "completed": Stage.COMPLETED,
-                "failed": Stage.FAILED
-            }
-            if stage in stage_map:
-                await self.event_emitter.send_stage(stage_map[stage])
-
-        # Emit immediately on stage change (outside the lock to avoid deadlock)
+        # Refresh immediately on stage change (outside the lock to avoid deadlock).
         await self._emit_progress(force=True)
 
     async def set_total_urls(self, total: int):
@@ -300,25 +281,18 @@ class ProgressTracker:
 
     async def _emit_progress(self, force: bool = False):
         """
-        Emit progress update if enough time has passed.
+        Refresh progress timestamp if enough time has passed.
 
         Args:
             force: If True, emit regardless of time interval
         """
-        if not self.event_emitter:
-            return
-
         current_time = time.time()
 
         # Check if enough time has passed (unless forced)
         if not force and (current_time - self.last_emit_time) < self.emit_interval:
             return
 
-        # Get progress data
-        progress = await self.get_progress()
-
-        # Emit the event
-        await self.event_emitter.send_report_progress(progress)
+        await self.get_progress()
 
         # Update last emit time
         self.last_emit_time = current_time
