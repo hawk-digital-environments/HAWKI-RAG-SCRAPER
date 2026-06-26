@@ -21,11 +21,13 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Data storage path for job files
       - DATA_PATH=${DATA_PATH:-/var/www/html/shared}
-      - PUID=33
-      - PGID=33
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
     volumes:
       # Site profiles
       - ./profiles:/var/www/html/profiles
+      # UI task definitions
+      - ./tasks:/var/www/html/tasks
       # Mount output directory for backwards compatibility
       - ./output:/var/www/html/output
       # Forbidden hosts list

@@ -1,4 +1,4 @@
-import type { Job, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
+import type { Job, JobResultSummary, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
 
 // ---------------------------------------------------------------------------
 // Initial mock data
@@ -296,11 +296,44 @@ export function getAllJobs(): Job[] {
 }
 
 export function getRunningJobs(): Job[] {
-	return [...jobs.values()].filter((j) => j.status === 'running' || j.status === 'stopping');
+	return [...jobs.values()].filter((j) => j.status === 'pending' || j.status === 'running' || j.status === 'paused' || j.status === 'stopping');
+}
+
+export function getDashboardJobs(): Job[] {
+	return [...jobs.values()]
+		.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+		.slice(0, 25);
 }
 
 export function getJob(id: string): Job | undefined {
 	return jobs.get(id);
+}
+
+export function getJobSummary(id: string): JobResultSummary | undefined {
+	const job = jobs.get(id);
+	if (!job) return undefined;
+	const failedUrls = job.failedPages ?? [];
+	const completed = job.status === 'completed' ? Math.max(1, failedUrls.length ? 4 : 1) : 0;
+	const failed = job.status === 'failed' ? 1 : failedUrls.length;
+	const total = completed + failed;
+	return {
+		status: job.status,
+		startedAt: job.startTime,
+		completedAt: job.endTime,
+		durationSeconds: job.endTime
+			? Math.max(0, (new Date(job.endTime).getTime() - new Date(job.startTime).getTime()) / 1000)
+			: undefined,
+		urls: {
+			total,
+			completed,
+			failed,
+			processing: job.status === 'running' ? 1 : 0,
+			successRate: total > 0 ? (completed / total) * 100 : 0
+		},
+		error: job.status === 'failed' ? 'Mock crawl failed' : undefined,
+		outputDirectory: `/var/www/html/shared/${job.id}`,
+		failedUrls
+	};
 }
 
 export function startJob(taskId: string): Job {

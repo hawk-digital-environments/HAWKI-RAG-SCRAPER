@@ -36,6 +36,8 @@
 
     --c-badge-running-bg: #dbeafe;
     --c-badge-running-text: #1d4ed8;
+    --c-badge-pending-bg: #e0f2fe;
+    --c-badge-pending-text: #0369a1;
     --c-badge-paused-bg: #fef3c7;
     --c-badge-paused-text: #92400e;
     --c-badge-stopping-bg: #fef3c7;

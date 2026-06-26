@@ -699,26 +699,42 @@ class ServiceCrawlExecutionMixin:
 
                         self.allow_over_max_pages = False
 
+            final_snapshot = await self.job_state.get_snapshot() if self.job_state else None
+            final_completed_urls = final_snapshot.completed_urls if final_snapshot else self.page_counter
+            final_failed_urls = final_snapshot.failed_urls if final_snapshot else 0
+            all_urls_failed = final_completed_urls == 0 and final_failed_urls > 0
+            final_stage = "failed" if all_urls_failed else "completed"
+            final_error = (
+                f"Crawl finished with 0 completed URLs and {final_failed_urls} failed URL(s)."
+                if all_urls_failed
+                else None
+            )
+
             if self.progress_tracker:
-                await self.progress_tracker.set_stage("completed")
-            await self.progress_publisher.send_stage(Stage.COMPLETED)
+                await self.progress_tracker.set_stage(final_stage)
+            await self.progress_publisher.send_stage(Stage.FAILED if all_urls_failed else Stage.COMPLETED)
             await finalize_crawl_summary(
                 progress_tracker=self.progress_tracker,
                 summary_manager=self.summary_manager,
                 send_summary=self.progress_publisher.send_summary,
                 job_logger=self.job_logger,
                 job_id=self.job_id,
-                stage="completed",
+                stage=final_stage,
                 output_directory=self.output_dir,
-                error=None,
+                error=final_error,
             )
             if self.job_state:
-                await self.job_state.set_status("completed")
+                if all_urls_failed:
+                    await self.job_state.set_error(final_error)
+                else:
+                    await self.job_state.set_status("completed")
 
             return {
                 'pages_crawled': self.page_counter,
                 'output_directory': str(self.output_dir),
-                'label': self.config.label
+                'label': self.config.label,
+                'status': final_stage,
+                'message': final_error or "Crawl completed successfully"
             }
 
         except Exception as e:

@@ -91,14 +91,29 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
 
         logger.info(f"[{job_id}] CrawlerService created. Starting crawl...")
         result = await crawler.crawl()
-        logger.info(f"[{job_id}] Crawl completed successfully!")
-
-        jobs[job_id].status = "completed"
-        jobs[job_id].message = "Crawl completed successfully"
         final_snapshot = await job_state.get_snapshot()
+        result_status = result.get("status") if isinstance(result, dict) else None
+        result_message = result.get("message") if isinstance(result, dict) else None
+        all_urls_failed = final_snapshot.completed_urls == 0 and final_snapshot.failed_urls > 0
+
+        if result_status == "failed" or all_urls_failed:
+            message = (
+                result_message
+                or f"Crawl finished with 0 completed URLs and {final_snapshot.failed_urls} failed URL(s)."
+            )
+            logger.warning("[%s] Crawl finished without successful pages: %s", job_id, message)
+            jobs[job_id].status = "failed"
+            jobs[job_id].message = message
+            if final_snapshot.status != "failed":
+                await job_state.set_error(message)
+        else:
+            logger.info(f"[{job_id}] Crawl completed successfully!")
+            jobs[job_id].status = "completed"
+            jobs[job_id].message = "Crawl completed successfully"
+
         jobs[job_id].pages_crawled = final_snapshot.completed_urls
         jobs[job_id].total_pages = _progress_total(final_snapshot)
-        jobs[job_id].output_directory = result['output_directory']
+        jobs[job_id].output_directory = result.get('output_directory') if isinstance(result, dict) else None
         jobs[job_id].completed_at = datetime.now()
 
     except asyncio.CancelledError:

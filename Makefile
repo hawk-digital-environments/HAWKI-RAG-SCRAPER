@@ -182,7 +182,7 @@ audit-ui-fix:
 start-ui:
 	npm install --prefix ui
 	$(MAKE) audit-ui-fix
-	npm --prefix ui run dev
+	CRAWLER_API_BASE_URL=$${CRAWLER_API_BASE_URL:-http://127.0.0.1:8041} PUBLIC_API_BASE_URL=$${PUBLIC_API_BASE_URL:-} npm --prefix ui run dev
 
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi

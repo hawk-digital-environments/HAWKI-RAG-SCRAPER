@@ -21,7 +21,7 @@
 		<nav class="sidebar-nav">
 			<div class="sidebar-section">Monitor</div>
 			<a href="{base}/" class="nav-link" class:active={isActive('/')}>
-				<span class="icon">▶</span> Running Jobs
+				<span class="icon">▶</span> Jobs
 			</a>
 
 			<div class="sidebar-section">Manage</div>
