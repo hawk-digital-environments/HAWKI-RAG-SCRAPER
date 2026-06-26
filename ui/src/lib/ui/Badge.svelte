@@ -2,7 +2,7 @@
 	interface Props {
 		/**
 		 * Controls colour via CSS custom properties.
-		 * Built-in statuses: running | paused | stopping | completed | failed | cancelled | manual | scheduled
+		 * Built-in statuses: pending | running | paused | stopping | completed | failed | cancelled | manual | scheduled
 		 * Any custom string falls back gracefully.
 		 */
 		status: string;
@@ -32,6 +32,10 @@
 	.badge-running {
 		background: var(--c-badge-running-bg);
 		color: var(--c-badge-running-text);
+	}
+	.badge-pending {
+		background: var(--c-badge-pending-bg);
+		color: var(--c-badge-pending-text);
 	}
 	.badge-paused {
 		background: var(--c-badge-paused-bg);

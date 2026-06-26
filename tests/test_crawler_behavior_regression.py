@@ -1104,6 +1104,59 @@ async def test_lifespan_shutdown_cancels_active_crawl_tasks() -> None:
     job_lifecycle.jobs.pop(job_id, None)
 
 
+@pytest.mark.asyncio
+async def test_job_lifecycle_marks_all_failed_crawl_as_failed(tmp_path, monkeypatch) -> None:
+    job_id = "all-failed-job"
+    monkeypatch.setenv("DATA_PATH", str(tmp_path))
+
+    class AllFailedCrawler:
+        def __init__(self, config, *, job_id, job_state, storage_manager, pause_event):
+            self.config = config
+            self.job_id = job_id
+            self.job_state = job_state
+            self.storage_manager = storage_manager
+
+        async def crawl(self):
+            await self.job_state.set_total_urls(1)
+            await self.job_state.increment_failed()
+            await self.job_state.set_status("completed")
+            return {
+                "pages_crawled": 0,
+                "output_directory": str(self.storage_manager.get_job_directory()),
+                "label": None,
+            }
+
+    monkeypatch.setattr(job_lifecycle, "CrawlerService", AllFailedCrawler)
+    job_lifecycle.jobs[job_id] = CrawlStatus(
+        job_id=job_id,
+        status="pending",
+        message="Crawl job submitted",
+        total_pages=1,
+        started_at=datetime.now(),
+    )
+
+    try:
+        await job_lifecycle.run_crawl_job(
+            job_id,
+            CrawlConfig(job_id=job_id, url="https://example.com", max_pages=1),
+        )
+
+        job = job_lifecycle.jobs[job_id]
+        assert job.status == "failed"
+        assert job.message == "Crawl finished with 0 completed URLs and 1 failed URL(s)."
+        assert job.pages_crawled == 0
+        assert job.total_pages == 1
+
+        state = json.loads((tmp_path / job_id / "job_state.json").read_text(encoding="utf-8"))
+        assert state["status"] == "failed"
+        assert state["error"] == "Crawl finished with 0 completed URLs and 1 failed URL(s)."
+    finally:
+        job_lifecycle.jobs.pop(job_id, None)
+        job_lifecycle.tasks.pop(job_id, None)
+        job_lifecycle.pause_events.pop(job_id, None)
+        job_lifecycle.job_states.pop(job_id, None)
+
+
 def test_storage_manager_file_browser_lists_info_and_blocks_traversal(tmp_path) -> None:
     manager = StorageManager("job-1", base_path=str(tmp_path))
     manager.ensure_job_directory()

@@ -6,11 +6,12 @@ Complete reference for the crawler API and the SvelteKit UI proxy endpoints.
 
 | Surface | Default URL | Notes |
 |---------|-------------|-------|
-| SvelteKit UI | `http://localhost:5173` | Started with `make start-ui` or `npm --prefix ui run dev`. |
+| SvelteKit UI | `http://localhost:5173/ui/` | Development UI started with `make start-ui` or `npm --prefix ui run dev`. |
 | UI API routes | Same origin as UI, `/api/...` | Browser-facing routes used by `ui/src/lib/api/index.ts`. |
-| Crawler API | `http://localhost:8041`, fallback `http://localhost:8000` | Configured with `CRAWLER_API_BASE_URL`. |
+| Crawler API | `http://127.0.0.1:8041`, fallback `http://localhost:8041` and local dev ports | Configured with `CRAWLER_API_BASE_URL`. |
 
 For production, replace these with the deployment domains or set the environment variables described below.
+The Docker-served UI is available at `http://localhost:8041/ui/`; browser tabs left on the Vite dev URL will report websocket errors after the dev server stops.
 
 ## Authentication
 
@@ -25,7 +26,7 @@ The frontend does not call the crawler service directly by default. Production U
 | Variable | Default | Responsibility |
 |----------|---------|----------------|
 | `PUBLIC_API_BASE_URL` | empty | Optional browser-visible API base. Leave empty for same-origin `/api/...`. |
-| `CRAWLER_API_BASE_URL` | `http://localhost:8041,http://localhost:8040,http://localhost:8000` fallback list | Backend crawler API base URL(s). Comma-separated values are supported. |
+| `CRAWLER_API_BASE_URL` | `http://127.0.0.1:8041,http://localhost:8041,http://127.0.0.1:8040,http://localhost:8040,http://127.0.0.1:8000,http://localhost:8000` fallback list | Backend crawler API base URL(s). Comma-separated values are supported. |
 | `PROFILES_HOST_DIR` | `../profiles` from `ui/` | Host path for editable profile JSON files. |
 | `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | Container path written into crawl submissions. |
 

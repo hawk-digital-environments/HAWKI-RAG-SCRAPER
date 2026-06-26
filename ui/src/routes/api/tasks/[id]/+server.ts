@@ -7,9 +7,10 @@ import type { RequestHandler } from './$types';
 
 type StoredTask = {
 	id: string;
-	name: string;
-	profileId: string;
+	name?: string;
+	profileId?: string;
 	schedule?: string;
+	deleted?: boolean;
 };
 
 const tasksHostFile = env.TASKS_HOST_FILE ?? path.resolve(process.cwd(), '..', 'tasks', 'tasks.json');
@@ -24,8 +25,13 @@ async function readTasks(): Promise<StoredTask[]> {
 						!!task &&
 						typeof task === 'object' &&
 						typeof (task as StoredTask).id === 'string' &&
-						typeof (task as StoredTask).name === 'string' &&
-						typeof (task as StoredTask).profileId === 'string'
+						(
+							(task as StoredTask).deleted === true ||
+							(
+								typeof (task as StoredTask).name === 'string' &&
+								typeof (task as StoredTask).profileId === 'string'
+							)
+						)
 					);
 				})
 			: [];
@@ -55,7 +61,7 @@ function normalizeTask(input: unknown, id: string): StoredTask | undefined {
 }
 
 export const GET: RequestHandler = async ({ params }) => {
-	const task = (await readTasks()).find((item) => item.id === params.id);
+	const task = (await readTasks()).find((item) => item.id === params.id && item.deleted !== true);
 	if (!task) return json({ error: 'Task not found' }, { status: 404 });
 	return json(task);
 };
@@ -81,6 +87,10 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 
 export const DELETE: RequestHandler = async ({ params }) => {
 	const tasks = await readTasks();
-	await writeTasks(tasks.filter((item) => item.id !== params.id));
+	const nextTasks = tasks.filter((item) => item.id !== params.id);
+	if (params.id.startsWith('manual-')) {
+		nextTasks.push({ id: params.id, deleted: true });
+	}
+	await writeTasks(nextTasks);
 	return json({ ok: true });
 };

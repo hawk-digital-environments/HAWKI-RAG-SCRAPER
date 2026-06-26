@@ -120,7 +120,7 @@ Create `.vscode/settings.json`:
 make up
 ```
 
-The crawler API is proxied by the UI through `ui/src/routes/api/crawler/*`. By default the UI server tries `CRAWLER_API_BASE_URL`, then falls back to `http://localhost:8040` and `http://localhost:8000`.
+The crawler API is proxied by the UI through `ui/src/routes/api/crawler/*`. By default the UI server tries `CRAWLER_API_BASE_URL`, then falls back to `http://127.0.0.1:8041`, `http://localhost:8041`, and local development ports.
 
 ### 8. Run the UI
 
@@ -134,7 +134,8 @@ make start-ui
 
 ```bash
 npm install --prefix ui
-npm --prefix ui run dev
+make audit-ui-fix
+CRAWLER_API_BASE_URL=${CRAWLER_API_BASE_URL:-http://127.0.0.1:8041} PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL:-} npm --prefix ui run dev
 ```
 
 This starts the SvelteKit development server for `ui/`. You can also run the commands manually:
@@ -149,12 +150,13 @@ Useful UI environment variables:
 
 ```bash
 PUBLIC_API_BASE_URL=
-CRAWLER_API_BASE_URL=http://localhost:8041
+CRAWLER_API_BASE_URL=http://127.0.0.1:8041
 PROFILES_HOST_DIR=../profiles
 PROFILES_CONTAINER_DIR=/var/www/html/profiles
 ```
 
 Leave `PUBLIC_API_BASE_URL` empty for normal local development so browser calls use the same-origin SvelteKit API routes.
+The Docker-served UI is `http://localhost:8041/ui/`. Use `http://localhost:5173/ui/` only while the SvelteKit dev server is running; otherwise Vite websocket reconnect errors are expected.
 
 ---
 

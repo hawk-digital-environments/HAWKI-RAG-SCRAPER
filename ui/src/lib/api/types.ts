@@ -1,6 +1,6 @@
 export type Protocol = 'https' | 'http';
 export type ConflictSource = 'sitemap' | 'page';
-export type JobStatus = 'running' | 'paused' | 'stopping' | 'completed' | 'failed' | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'paused' | 'stopping' | 'completed' | 'failed' | 'cancelled';
 
 export interface ConflictResolution {
 	last_modified: ConflictSource;
@@ -67,4 +67,21 @@ export interface Job {
 	log: string[];
 	failedPages?: string[];
 	dataExpired?: boolean;
+}
+
+export interface JobResultSummary {
+	status?: JobStatus;
+	startedAt?: string;
+	completedAt?: string;
+	durationSeconds?: number;
+	urls: {
+		total: number;
+		completed: number;
+		failed: number;
+		processing: number;
+		successRate: number;
+	};
+	error?: string;
+	outputDirectory?: string;
+	failedUrls: string[];
 }

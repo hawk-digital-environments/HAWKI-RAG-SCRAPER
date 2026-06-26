@@ -14,7 +14,7 @@ docker volume create rawki_shared_storage
 docker network create hawki-network 2>/dev/null || true
 
 # One-time permission fix for the shared storage volume.
-docker run --rm -v rawki_shared_storage:/data alpine chown -R 33:33 /data
+docker run --rm -v rawki_shared_storage:/data alpine chown -R "${PUID:-1000}:${PGID:-1000}" /data
 
 docker compose up -d
 ```

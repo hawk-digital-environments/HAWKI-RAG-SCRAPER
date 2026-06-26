@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { crawlerApiBaseUrls } from '$lib/server/config';
+import { crawlerApiBaseUrls, crawlerConnectionHint } from '$lib/server/config';
 import { fetchCrawler } from '$lib/server/crawler-client';
 
 export const POST: RequestHandler = async ({ request, fetch }) => {
@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 		return json(
 			{
 				error: `Crawler request failed: ${error}`,
-				hint: 'Check crawler container and restart it if needed: docker restart crawl4ai-service',
+				hint: crawlerConnectionHint,
 				attempted_endpoints: crawlerApiBaseUrls
 			},
 			{ status: 502 }

@@ -7,9 +7,10 @@ import type { RequestHandler } from './$types';
 
 type StoredTask = {
 	id: string;
-	name: string;
-	profileId: string;
+	name?: string;
+	profileId?: string;
 	schedule?: string;
+	deleted?: boolean;
 };
 
 const tasksHostFile = env.TASKS_HOST_FILE ?? path.resolve(process.cwd(), '..', 'tasks', 'tasks.json');
@@ -32,8 +33,13 @@ async function readTasks(): Promise<StoredTask[]> {
 						!!task &&
 						typeof task === 'object' &&
 						typeof (task as StoredTask).id === 'string' &&
-						typeof (task as StoredTask).name === 'string' &&
-						typeof (task as StoredTask).profileId === 'string'
+						(
+							(task as StoredTask).deleted === true ||
+							(
+								typeof (task as StoredTask).name === 'string' &&
+								typeof (task as StoredTask).profileId === 'string'
+							)
+						)
 					);
 				})
 			: [];
@@ -68,7 +74,11 @@ function normalizeTask(input: unknown, fallbackId: string): StoredTask | undefin
 }
 
 export const GET: RequestHandler = async () => {
-	return json({ tasks: await readTasks() });
+	const tasks = await readTasks();
+	return json({
+		tasks: tasks.filter((task) => task.deleted !== true),
+		deletedTaskIds: tasks.filter((task) => task.deleted === true).map((task) => task.id)
+	});
 };
 
 export const POST: RequestHandler = async ({ request }) => {

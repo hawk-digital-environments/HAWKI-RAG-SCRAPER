@@ -1,13 +1,21 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { crawlerApiBaseUrls } from '$lib/server/config';
+import { crawlerApiBaseUrls, crawlerConnectionHint } from '$lib/server/config';
 import { fetchCrawler } from '$lib/server/crawler-client';
 
 type SummaryCounts = {
 	found: number;
 	completed: number;
 	missed: number;
+};
+
+type FileEntry = {
+	path?: unknown;
+};
+
+type UrlChunkEntry = {
+	status?: unknown;
 };
 
 function segmentEncode(pathname: string): string {
@@ -39,6 +47,47 @@ function deriveCounts(summary: unknown): SummaryCounts {
 	return { found, completed, missed };
 }
 
+function failedUrlsFromChunk(chunk: unknown): string[] {
+	if (!chunk || typeof chunk !== 'object') return [];
+	const urls: string[] = [];
+	for (const [url, value] of Object.entries(chunk)) {
+		const entry = value as UrlChunkEntry;
+		if (entry && typeof entry === 'object' && entry.status === 'failed') {
+			urls.push(url);
+		}
+	}
+	return urls;
+}
+
+async function readFailedUrls(
+	serverFetch: typeof globalThis.fetch,
+	jobId: string,
+	files: FileEntry[]
+): Promise<string[]> {
+	const chunkPaths = files
+		.map((file) => (typeof file.path === 'string' ? file.path : ''))
+		.filter((path) => path.startsWith('url_chunks/') && path.endsWith('.json'))
+		.sort();
+
+	const failedUrls: string[] = [];
+	for (const chunkPath of chunkPaths) {
+		const encodedPath = segmentEncode(chunkPath);
+		const { response } = await fetchCrawler(
+			serverFetch,
+			`/jobs/${encodeURIComponent(jobId)}/files/${encodedPath}`
+		);
+		if (!response.ok) continue;
+
+		try {
+			failedUrls.push(...failedUrlsFromChunk(await response.json()));
+		} catch {
+			continue;
+		}
+	}
+
+	return failedUrls;
+}
+
 export const GET: RequestHandler = async ({ fetch, params }) => {
 	const { jobId } = params;
 	if (!jobId) {
@@ -54,10 +103,10 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 			return json({ found: false, summary: null, counts: null }, { status: 200 });
 		}
 		const filesPayload = await filesResponse.json();
-		const files: Array<Record<string, unknown>> = Array.isArray(filesPayload?.files)
-			? (filesPayload.files as Array<Record<string, unknown>>)
+		const files: FileEntry[] = Array.isArray(filesPayload?.files)
+			? (filesPayload.files as FileEntry[])
 			: [];
-		const summaryFile = files.find((file: Record<string, unknown>) => {
+		const summaryFile = files.find((file: FileEntry) => {
 			const path = typeof file.path === 'string' ? file.path : '';
 			return path.endsWith('summary.json');
 		});
@@ -76,13 +125,14 @@ export const GET: RequestHandler = async ({ fetch, params }) => {
 		}
 		const summary = await summaryResponse.json();
 		const counts = deriveCounts(summary);
+		const failedUrls = await readFailedUrls(fetch, jobId, files);
 
-		return json({ found: true, summary, counts }, { status: 200 });
+		return json({ found: true, summary, counts, failedUrls }, { status: 200 });
 	} catch (error) {
 		return json(
 			{
 				error: `Failed to load summary: ${error}`,
-				hint: 'Check crawler container and restart it if needed: docker restart crawl4ai-service',
+				hint: crawlerConnectionHint,
 				attempted_endpoints: crawlerApiBaseUrls
 			},
 			{ status: 502 }

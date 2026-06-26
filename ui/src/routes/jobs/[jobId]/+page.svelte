@@ -9,7 +9,7 @@
 	import PageContent from '$lib/ui/PageContent.svelte';
 	import Breadcrumb from '$lib/ui/Breadcrumb.svelte';
 	import TableWrap from '$lib/ui/TableWrap.svelte';
-	import { getJob, getJobLog, stopJob, finalizeStopJob, retryJob, restartJob, pauseJob, resumeJob } from '$lib/api';
+	import { getJob, getJobLog, getJobSummary, stopJob, finalizeStopJob, retryJob, restartJob, pauseJob, resumeJob } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 
@@ -17,14 +17,16 @@
 	const initialData = untrack(() => data);
 
 	let job = $state<Job>({ ...initialData.job });
+	let summary = $state(initialData.summary);
 
 	type LogKind = 'progress' | 'pause' | 'info' | 'debug';
 
-	const isRunning = $derived(job.status === 'running');
+	const failedUrls = $derived(summary?.failedUrls?.length ? summary.failedUrls : (job.failedPages ?? []));
+	const isRunning = $derived(job.status === 'running' || job.status === 'pending');
 	const isPaused = $derived(job.status === 'paused');
 	const isStopping = $derived(job.status === 'stopping');
 	const isTerminal = $derived(['completed', 'failed', 'cancelled'].includes(job.status));
-	const hasFailedPages = $derived((job.failedPages?.length ?? 0) > 0);
+	const hasFailedPages = $derived(failedUrls.length > 0);
 	const isCompleteFailure = $derived(job.status === 'failed');
 
 	function formatDate(iso: string) {
@@ -93,20 +95,43 @@
 		return lines;
 	}
 
+	async function refreshJobSummary(fallbackJob = job) {
+		const nextSummary = await getJobSummary(fallbackJob.id);
+		if (!nextSummary) return;
+		summary = nextSummary;
+		job = {
+			...fallbackJob,
+			status: nextSummary.status ?? fallbackJob.status,
+			startTime: nextSummary.startedAt ?? fallbackJob.startTime,
+			endTime: nextSummary.completedAt ?? fallbackJob.endTime,
+			failedPages: nextSummary.failedUrls.length > 0 ? nextSummary.failedUrls : fallbackJob.failedPages
+		};
+	}
+
 	$effect(() => {
 		if (!didLoadJobLog) {
 			didLoadJobLog = true;
 			void refreshJobLog();
+			void refreshJobSummary();
 		}
 	});
 
 	$effect(() => {
-		if (job.status === 'running' || job.status === 'paused') {
+		if (job.status === 'pending' || job.status === 'running' || job.status === 'paused' || job.status === 'stopping') {
 			pollInterval = setInterval(async () => {
 				const updated = await getJob(job.id);
 				const fallback = updated ?? job;
 				const lines = await getJobLog(fallback.id);
-				job = { ...fallback, log: lines.length > 0 ? lines : fallback.log };
+				const nextSummary = await getJobSummary(fallback.id);
+				summary = nextSummary ?? summary;
+				job = {
+					...fallback,
+					status: nextSummary?.status ?? fallback.status,
+					startTime: nextSummary?.startedAt ?? fallback.startTime,
+					endTime: nextSummary?.completedAt ?? fallback.endTime,
+					log: lines.length > 0 ? lines : fallback.log,
+					failedPages: nextSummary?.failedUrls?.length ? nextSummary.failedUrls : fallback.failedPages
+				};
 			}, 5000);
 		} else {
 			clearInterval(pollInterval);
@@ -119,9 +144,13 @@
 		if (updated) {
 			job = { ...updated };
 			await refreshJobLog(updated);
+			await refreshJobSummary(updated);
 			setTimeout(async () => {
 				const finalized = await finalizeStopJob(job.id);
-				if (finalized) await refreshJobLog(finalized);
+				if (finalized) {
+					await refreshJobLog(finalized);
+					await refreshJobSummary(finalized);
+				}
 			}, 2000);
 		}
 	}
@@ -132,6 +161,7 @@
 		const paused = updated ?? { ...current, status: 'paused' as const };
 		job = { ...paused };
 		await refreshJobLog(paused);
+		await refreshJobSummary(paused);
 	}
 
 	async function handleResume() {
@@ -140,6 +170,7 @@
 		const running = updated ?? { ...current, status: 'running' as const };
 		job = { ...running };
 		await refreshJobLog(running);
+		await refreshJobSummary(running);
 	}
 
 	async function handleRetry() {
@@ -157,7 +188,7 @@
 
 <PageContent title="Job {job.id}" subtitle={data.task ? `Task: ${data.task.name}` : undefined}>
 	{#snippet breadcrumb()}
-		<Breadcrumb items={[{ label: 'Running Jobs', href: `${base}/` }, { label: 'Job details' }]} />
+		<Breadcrumb items={[{ label: 'Jobs', href: `${base}/` }, { label: 'Job details' }]} />
 	{/snippet}
 	{#snippet actions()}
 		{#if isRunning}
@@ -260,12 +291,55 @@
 	<!-- Failed pages list -->
 	{#if hasFailedPages && isTerminal}
 		<div class="mb-4">
-			<Card title="Failed pages ({job.failedPages?.length})">
+			<Card title="Failed pages ({failedUrls.length})">
 				<ul class="failed-list">
-					{#each job.failedPages ?? [] as url}
+					{#each failedUrls as url}
 						<li class="mono">{url}</li>
 					{/each}
 				</ul>
+			</Card>
+		</div>
+	{/if}
+
+	{#if summary}
+		<div class="mb-4">
+			<Card title="Result summary">
+				<div class="result-grid">
+					<div class="result-item">
+						<span class="meta-label">URLs found</span>
+						<span class="meta-value mono">{summary.urls.total}</span>
+					</div>
+					<div class="result-item">
+						<span class="meta-label">Completed</span>
+						<span class="meta-value mono">{summary.urls.completed}</span>
+					</div>
+					<div class="result-item">
+						<span class="meta-label">Failed</span>
+						<span class="meta-value mono">{summary.urls.failed}</span>
+					</div>
+					<div class="result-item">
+						<span class="meta-label">Success rate</span>
+						<span class="meta-value mono">{summary.urls.successRate.toFixed(2)}%</span>
+					</div>
+					{#if summary.durationSeconds}
+						<div class="result-item">
+							<span class="meta-label">Duration</span>
+							<span class="meta-value mono">{duration(summary.startedAt ?? job.startTime, summary.completedAt)}</span>
+						</div>
+					{/if}
+					{#if summary.outputDirectory}
+						<div class="result-item result-wide">
+							<span class="meta-label">Output directory</span>
+							<span class="meta-value mono">{summary.outputDirectory}</span>
+						</div>
+					{/if}
+					{#if summary.error}
+						<div class="result-item result-wide">
+							<span class="meta-label">Error</span>
+							<span class="meta-value result-error">{summary.error}</span>
+						</div>
+					{/if}
+				</div>
 			</Card>
 		</div>
 	{/if}
@@ -320,6 +394,29 @@
 	}
 
 	.meta-value { font-size: 13px; color: var(--c-text); }
+
+	.result-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+		gap: 16px;
+	}
+
+	.result-item {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.result-wide {
+		grid-column: 1 / -1;
+	}
+
+	.result-error {
+		font-size: 13px;
+		color: var(--c-danger);
+		line-height: 1.5;
+	}
 
 	.failed-list {
 		list-style: none;

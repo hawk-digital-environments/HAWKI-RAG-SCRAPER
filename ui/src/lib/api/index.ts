@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { base } from '$app/paths';
-import type { Job, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
+import type { Job, JobResultSummary, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
 
 type ApiFetch = typeof fetch;
 
@@ -36,6 +36,33 @@ type JobLogPayload = {
 	lines?: string[];
 };
 
+type JobSummaryPayload = {
+	found?: boolean;
+	summary?: {
+		status?: string;
+		timing?: {
+			started_at?: string;
+			completed_at?: string;
+			duration_seconds?: number;
+		};
+		urls?: {
+			total?: number;
+			completed?: number;
+			failed?: number;
+			processing?: number;
+			success_rate?: number;
+		};
+		output_directory?: string;
+		error?: string;
+	};
+	counts?: {
+		found?: number;
+		completed?: number;
+		missed?: number;
+	};
+	failedUrls?: string[];
+};
+
 export class ApiError extends Error {
 	constructor(
 		message: string,
@@ -48,6 +75,9 @@ export class ApiError extends Error {
 }
 
 const apiBaseUrl = (env.PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
+const activeJobStatuses: JobStatus[] = ['pending', 'running', 'paused', 'stopping'];
+const clientJobsKey = 'crawler-submitted-jobs';
+const clientJobTtlMs = 24 * 60 * 60 * 1000;
 
 function endpoint(path: string): string {
 	const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -181,10 +211,14 @@ function taskToUi(task: TaskEntry): Task {
 
 function normalizeStatus(status: unknown): JobStatus {
 	const value = typeof status === 'string' ? status.toLowerCase() : 'running';
-	if (value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'stopping' || value === 'paused') {
+	if (value === 'pending' || value === 'running' || value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'stopping' || value === 'paused') {
 		return value;
 	}
 	return 'running';
+}
+
+function isActiveStatus(status: JobStatus): boolean {
+	return activeJobStatuses.includes(status);
 }
 
 function inferProfileIdFromJobId(jobId: string): string {
@@ -208,6 +242,90 @@ function rememberClientStart(jobId: string, startedAt: string): void {
 function getClientStart(jobId: string): string | undefined {
 	if (typeof sessionStorage === 'undefined') return undefined;
 	return sessionStorage.getItem(`crawler-job-start:${jobId}`) ?? undefined;
+}
+
+function readClientJobs(): Job[] {
+	if (typeof sessionStorage === 'undefined') return [];
+	try {
+		const raw = sessionStorage.getItem(clientJobsKey);
+		const parsed: unknown = raw ? JSON.parse(raw) : [];
+		if (!Array.isArray(parsed)) return [];
+		const now = Date.now();
+		return parsed
+			.filter((item): item is Job => {
+				if (!item || typeof item !== 'object') return false;
+				const candidate = item as Partial<Job>;
+				if (typeof candidate.id !== 'string' || typeof candidate.taskId !== 'string') return false;
+				if (typeof candidate.profileId !== 'string' || typeof candidate.startTime !== 'string') return false;
+				if (!candidate.status) return false;
+				return Number.isFinite(new Date(candidate.startTime).getTime());
+			})
+			.map((job) => ({
+				id: job.id,
+				taskId: job.taskId,
+				profileId: job.profileId,
+				status: normalizeStatus(job.status),
+				startTime: job.startTime,
+				endTime: typeof job.endTime === 'string' ? job.endTime : undefined,
+				log: Array.isArray(job.log)
+					? job.log.filter((line): line is string => typeof line === 'string')
+					: [],
+				failedPages: Array.isArray(job.failedPages)
+					? job.failedPages.filter((url): url is string => typeof url === 'string')
+					: [],
+				dataExpired: typeof job.dataExpired === 'boolean' ? job.dataExpired : undefined
+			}))
+			.filter((job) => now - new Date(job.startTime).getTime() < clientJobTtlMs);
+	} catch {
+		return [];
+	}
+}
+
+function writeClientJobs(jobs: Job[]): void {
+	if (typeof sessionStorage === 'undefined') return;
+	const deduped = new Map<string, Job>();
+	for (const job of sortJobsNewestFirst(jobs)) {
+		deduped.set(job.id, job);
+	}
+	sessionStorage.setItem(clientJobsKey, JSON.stringify([...deduped.values()].slice(0, 25)));
+}
+
+function rememberClientJob(job: Job): void {
+	rememberClientStart(job.id, job.startTime);
+	writeClientJobs([job, ...readClientJobs()]);
+}
+
+function sortJobsNewestFirst(jobs: Job[]): Job[] {
+	return [...jobs].sort((a, b) => {
+		const aTime = new Date(a.startTime).getTime();
+		const bTime = new Date(b.startTime).getTime();
+		return bTime - aTime;
+	});
+}
+
+function mergeRememberedJobs(backendJobs: Job[]): Job[] {
+	const remembered = readClientJobs();
+	const merged = new Map<string, Job>();
+
+	for (const job of remembered) {
+		merged.set(job.id, job);
+	}
+
+	for (const job of backendJobs) {
+		const previous = merged.get(job.id);
+		merged.set(job.id, {
+			...previous,
+			...job,
+			log: job.log.length > 0 ? job.log : (previous?.log ?? []),
+			failedPages: (job.failedPages?.length ?? 0) > 0 ? job.failedPages : (previous?.failedPages ?? [])
+		});
+	}
+
+	const jobs = sortJobsNewestFirst([...merged.values()]);
+	if (remembered.length > 0 || backendJobs.some((job) => remembered.some((known) => known.id === job.id))) {
+		writeClientJobs(jobs);
+	}
+	return jobs;
 }
 
 function jobToUi(job: CrawlerJobStatus): Job {
@@ -276,18 +394,20 @@ export async function getProfileTasks(profileId: string, apiFetch?: ApiFetch): P
 }
 
 export async function getAllTasks(apiFetch?: ApiFetch): Promise<Task[]> {
+	type TaskListPayload = { tasks?: TaskEntry[]; deletedTaskIds?: string[] };
 	const [profiles, payload] = await Promise.all([
 		getAllProfiles(apiFetch),
-		request<{ tasks?: TaskEntry[] }>('/api/tasks', undefined, apiFetch).catch((error) => {
-			if (error instanceof ApiError && error.status === 404) return { tasks: [] };
+		request<TaskListPayload>('/api/tasks', undefined, apiFetch).catch((error): TaskListPayload => {
+			if (error instanceof ApiError && error.status === 404) return { tasks: [], deletedTaskIds: [] };
 			throw error;
 		})
 	]);
 	const storedTasks = (payload.tasks ?? []).map(taskToUi);
 	const storedIds = new Set(storedTasks.map((task) => task.id));
+	const deletedIds = new Set(payload.deletedTaskIds ?? []);
 	const defaultTasks = profiles
 		.map(taskForProfile)
-		.filter((task) => !storedIds.has(task.id));
+		.filter((task) => !storedIds.has(task.id) && !deletedIds.has(task.id));
 	return [...defaultTasks, ...storedTasks].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -320,15 +440,19 @@ export async function getAllJobs(apiFetch?: ApiFetch): Promise<Job[]> {
 	try {
 		const payload = await request<{ jobs?: Record<string, CrawlerJobStatus> | CrawlerJobStatus[] }>('/api/crawler/jobs', undefined, apiFetch);
 		const jobs = Array.isArray(payload.jobs) ? payload.jobs : Object.values(payload.jobs ?? {});
-		return jobs.filter((job): job is CrawlerJobStatus => !!job?.job_id).map(jobToUi);
+		return mergeRememberedJobs(jobs.filter((job): job is CrawlerJobStatus => !!job?.job_id).map(jobToUi));
 	} catch (error) {
-		if (error instanceof ApiError) return [];
+		if (error instanceof ApiError && error.status === 404) return readClientJobs();
 		throw error;
 	}
 }
 
 export async function getRunningJobs(apiFetch?: ApiFetch): Promise<Job[]> {
-	return (await getAllJobs(apiFetch)).filter((job) => job.status === 'running' || job.status === 'paused' || job.status === 'stopping');
+	return (await getAllJobs(apiFetch)).filter((job) => isActiveStatus(job.status));
+}
+
+export async function getDashboardJobs(apiFetch?: ApiFetch): Promise<Job[]> {
+	return (await getAllJobs(apiFetch)).slice(0, 25);
 }
 
 export async function getJob(id: string, apiFetch?: ApiFetch): Promise<Job | undefined> {
@@ -347,6 +471,44 @@ export async function getJobLog(id: string, apiFetch?: ApiFetch): Promise<string
 			: [];
 	} catch (error) {
 		if (error instanceof ApiError) return [];
+		throw error;
+	}
+}
+
+function safeNumber(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+export async function getJobSummary(id: string, apiFetch?: ApiFetch): Promise<JobResultSummary | undefined> {
+	try {
+		const payload = await request<JobSummaryPayload>(
+			`/api/crawler/job/${encodeURIComponent(id)}/summary`,
+			undefined,
+			apiFetch
+		);
+		if (!payload.found || !payload.summary) return undefined;
+
+		const urls = payload.summary.urls ?? {};
+		return {
+			status: payload.summary.status ? normalizeStatus(payload.summary.status) : undefined,
+			startedAt: normalizeBackendDate(payload.summary.timing?.started_at),
+			completedAt: normalizeBackendDate(payload.summary.timing?.completed_at),
+			durationSeconds: safeNumber(payload.summary.timing?.duration_seconds),
+			urls: {
+				total: safeNumber(urls.total ?? payload.counts?.found),
+				completed: safeNumber(urls.completed ?? payload.counts?.completed),
+				failed: safeNumber(urls.failed ?? payload.counts?.missed),
+				processing: safeNumber(urls.processing),
+				successRate: safeNumber(urls.success_rate)
+			},
+			error: payload.summary.error,
+			outputDirectory: payload.summary.output_directory,
+			failedUrls: Array.isArray(payload.failedUrls)
+				? payload.failedUrls.filter((url): url is string => typeof url === 'string')
+				: []
+		};
+	} catch (error) {
+		if (error instanceof ApiError) return undefined;
 		throw error;
 	}
 }
@@ -383,7 +545,7 @@ export async function startJob(taskId: string): Promise<Job> {
 
 	const jobId = typeof response.job_id === 'string' ? response.job_id : generatedJobId;
 	rememberClientStart(jobId, submittedAt);
-	return {
+	const job: Job = {
 		id: jobId,
 		taskId: task.id,
 		profileId: profile.id,
@@ -392,6 +554,8 @@ export async function startJob(taskId: string): Promise<Job> {
 		log: [`Job submitted for ${profile.name}`],
 		failedPages: []
 	};
+	rememberClientJob(job);
+	return job;
 }
 
 export async function stopJob(id: string): Promise<Job | undefined> {
@@ -421,8 +585,31 @@ export async function retryJob(originalJobId: string): Promise<Job> {
 	throw new Error('Retrying failed pages is not supported by the current crawler API.');
 }
 
+async function resolveRestartTask(originalJobId: string, original?: Job): Promise<Task | undefined> {
+	const profileId = original?.profileId ?? inferProfileIdFromJobId(originalJobId);
+	const tasks = await getAllTasks();
+	const candidates = [
+		original?.taskId,
+		`manual-${profileId}`
+	].filter((taskId): taskId is string => !!taskId);
+
+	for (const taskId of candidates) {
+		const task = tasks.find((item) => item.id === taskId);
+		if (task) return task;
+	}
+
+	return tasks.find((task) => task.profileId === profileId);
+}
+
 export async function restartJob(originalJobId: string): Promise<Job> {
 	const original = await getJob(originalJobId);
-	if (!original) throw new Error(`Job ${originalJobId} not found`);
-	throw new Error('Restarting jobs is not supported by the current crawler API.');
+	const summary = original ? undefined : await getJobSummary(originalJobId);
+	if (!original && !summary) throw new Error(`Job ${originalJobId} not found`);
+
+	const task = await resolveRestartTask(originalJobId, original);
+	if (!task) {
+		throw new Error(`No task or profile could be found to restart job ${originalJobId}`);
+	}
+
+	return startJob(task.id);
 }

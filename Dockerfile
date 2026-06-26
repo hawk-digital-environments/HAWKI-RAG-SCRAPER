@@ -1,5 +1,5 @@
 # Multi-stage build for optimized Docker image
-FROM neunerlei/python-nginx:3.14 AS base
+FROM neunerlei/python-nginx:3.13 AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

@@ -92,7 +92,8 @@ The Makefile target installs UI dependencies and starts the SvelteKit dev server
 ```makefile
 start-ui:
 	npm install --prefix ui
-	npm --prefix ui run dev
+	$(MAKE) audit-ui-fix
+	CRAWLER_API_BASE_URL=$${CRAWLER_API_BASE_URL:-http://127.0.0.1:8041} PUBLIC_API_BASE_URL=$${PUBLIC_API_BASE_URL:-} npm --prefix ui run dev
 ```
 
 ### UI Environment Variables
@@ -100,7 +101,7 @@ start-ui:
 | Variable | Default | Used by | Description |
 |----------|---------|---------|-------------|
 | `PUBLIC_API_BASE_URL` | empty | `ui/src/lib/api/index.ts` | Optional browser-visible API base URL. Keep empty for same-origin `/api/...` during local development. |
-| `CRAWLER_API_BASE_URL` | `http://localhost:8041`, fallback `http://localhost:8040,http://localhost:8000` | `ui/src/lib/server/config.ts` | Crawler API base URL list. Comma-separated values are supported. |
+| `CRAWLER_API_BASE_URL` | `http://127.0.0.1:8041`, with `localhost` and local dev port fallbacks | `ui/src/lib/server/config.ts` | Crawler API base URL list. Comma-separated values are supported. |
 | `PROFILES_HOST_DIR` | `../profiles` when running from `ui/` | `ui/src/routes/api/profiles/*` | Host directory where editable profile JSON files are read/written. |
 | `PROFILES_CONTAINER_DIR` | `/var/www/html/profiles` | `ui/src/routes/api/profiles/*` | Container path sent in crawl submissions as `site_profile_path`. |
 
