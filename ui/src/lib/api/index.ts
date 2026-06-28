@@ -1,6 +1,15 @@
 import { env } from '$env/dynamic/public';
 import { base } from '$app/paths';
-import type { Job, JobResultSummary, JobStatus, Profile, ProfileInput, Task, TaskInput } from './types';
+import type {
+	Entrypoint,
+	Job,
+	JobResultSummary,
+	JobStatus,
+	Profile,
+	ProfileInput,
+	Task,
+	TaskInput
+} from './types';
 
 type ApiFetch = typeof fetch;
 
@@ -114,6 +123,41 @@ function asStringArray(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function asEntrypoints(value: unknown): Entrypoint[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item): Entrypoint[] => {
+		if (!item || typeof item !== 'object') return [];
+		const entry = item as Record<string, unknown>;
+		const type = entry.type;
+		const src = typeof entry.src === 'string' ? entry.src.trim() : '';
+		if (!src) return [];
+		if (type === 'host') {
+			const protocol = entry.protocol === 'http' ? 'http' : 'https';
+			return [{ type: 'host', src, protocol }];
+		}
+		if (type === 'sitemap') {
+			const conflict = entry.conflict_resolution;
+			const resolution =
+				conflict && typeof conflict === 'object'
+					? (conflict as Record<string, unknown>)
+					: undefined;
+			return [
+				{
+					type: 'sitemap',
+					src,
+					conflict_resolution: resolution
+						? {
+								last_modified: resolution.last_modified === 'page' ? 'page' : 'sitemap',
+								language: resolution.language === 'sitemap' ? 'sitemap' : 'page'
+							}
+						: undefined
+				}
+			];
+		}
+		return [];
+	});
+}
+
 function profileName(profile: Record<string, unknown>, fallback: string): string {
 	return typeof profile.name === 'string' && profile.name.trim() ? profile.name : fallback;
 }
@@ -124,6 +168,7 @@ function profileToUi(entry: ProfileEntry): Profile {
 	const discovery = profile.discovery && typeof profile.discovery === 'object' ? profile.discovery as Record<string, unknown> : {};
 	const forbidden = profile.forbidden && typeof profile.forbidden === 'object' ? profile.forbidden as Record<string, unknown> : {};
 	const content = profile.content && typeof profile.content === 'object' ? profile.content as Record<string, unknown> : {};
+	const explicitEntrypoints = asEntrypoints(profile.entrypoints);
 
 	const hostEntrypoints = entry.match_hosts
 		.filter((host) => !host.startsWith('*.'))
@@ -134,7 +179,12 @@ function profileToUi(entry: ProfileEntry): Profile {
 		id: entry.name,
 		name: profileName(profile, entry.name),
 		readonlyExample: entry.readonlyExample ?? false,
-		entrypoints: sitemapBase ? [...hostEntrypoints, { type: 'sitemap', src: sitemapBase }] : hostEntrypoints,
+		entrypoints:
+			explicitEntrypoints.length > 0
+				? explicitEntrypoints
+				: sitemapBase
+					? [...hostEntrypoints, { type: 'sitemap', src: sitemapBase }]
+					: hostEntrypoints,
 		discovery: { hosts: asStringArray(discovery.allowed_hosts ?? discovery.hosts) },
 		forbidden: {
 			hosts: asStringArray(forbidden.hosts),
@@ -165,6 +215,7 @@ function profileInputToBackend(input: ProfileInput): Record<string, unknown> {
 
 	return {
 		name: input.name,
+		entrypoints: input.entrypoints,
 		match_hosts: hostEntrypoints.map((entry) => entry.src),
 		discovery: input.discovery ? { allowed_hosts: input.discovery.hosts ?? [] } : undefined,
 		forbidden: input.forbidden,
@@ -176,6 +227,7 @@ function profileInputToBackend(input: ProfileInput): Record<string, unknown> {
 						base_url: sitemapEntrypoint.src,
 						start_page: 1,
 						pages: 1,
+						conflict_resolution: sitemapEntrypoint.conflict_resolution,
 						output_path: `data/${input.name}_sitemap.json`
 					}
 				: undefined,
