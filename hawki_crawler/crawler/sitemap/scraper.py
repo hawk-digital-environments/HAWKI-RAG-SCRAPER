@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 import unicodedata
 from typing import Dict, List, Optional, Union, Pattern
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler
@@ -125,7 +125,14 @@ class SitemapScraper:
             return {}
 
     def _build_page_url(self, page_number: int) -> str:
-        return f"{self.base_url}?page={page_number}"
+        parsed = urlparse(self.base_url)
+        query_items = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() != "page"
+        ]
+        query = urlencode([("page", str(page_number)), *query_items])
+        return parsed._replace(query=query).geturl()
 
     async def _fetch_page_html(self, crawler: AsyncWebCrawler, url: str) -> Optional[str]:
         """Render a sitemap page and return HTML."""

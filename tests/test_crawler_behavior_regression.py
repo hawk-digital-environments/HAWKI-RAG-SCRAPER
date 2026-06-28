@@ -41,6 +41,7 @@ from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.sitemap_mixin import ServiceSitemapMixin
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
+from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
 from hawki_crawler.crawler.storage.runtime_directories import (
@@ -488,6 +489,18 @@ def test_sitemap_runtime_state_resolves_paths_base_and_loads(monkeypatch, tmp_pa
     assert explicit_state.sitemap_base == "https://explicit.example/sitemap.xml"
     assert explicit_state.sitemap_map == {"path": {"value": "/tmp/explicit-sitemap.json"}}
     assert explicit_state.sitemap_urls == ["/tmp/explicit-sitemap.json"]
+
+
+def test_sitemap_scraper_page_url_preserves_existing_query_params() -> None:
+    scraper = SitemapScraper(
+        base_url="https://www.uni-hildesheim.de/sitemap.xml?sitemap=pages&cHash=abc123&page=9",
+        output_path="/tmp/site_sitemap.json",
+    )
+
+    assert (
+        scraper._build_page_url(2)
+        == "https://www.uni-hildesheim.de/sitemap.xml?page=2&sitemap=pages&cHash=abc123"
+    )
 
 
 def test_crawl_runtime_state_preserves_mutable_defaults() -> None:
