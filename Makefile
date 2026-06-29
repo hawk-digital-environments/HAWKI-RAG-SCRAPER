@@ -1,30 +1,41 @@
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+# Override any value at runtime, for example:
+#   make crawl SITE_PROFILE=/var/www/html/profiles/custom.json
+#   make crawl MAX_PAGES_FULL=1000 DISCOVERY_MODE=true
+
+# Sitemap settings used by the crawler service when `make crawl` is run.
 SITEMAP_PAGES ?= 6
 SITEMAP_START ?= 1
 SITEMAP_DIR ?= /var/www/html/shared/sitemaps
-SITE_PROFILE ?= /var/www/html/profiles/hawk.json
-SITE_SITEMAP_FILE ?= $(SITEMAP_DIR)/site_sitemap.json
 SITEMAP_BASE ?= https://www.hawk.de/sitemaps/main/sitemap.xml
+SITE_SITEMAP_FILE ?= $(SITEMAP_DIR)/site_sitemap.json
+
+# Site crawl settings.
 URL ?= https://www.hawk.de
-JSON_SITEMAP_URL ?= https://projekte.g.hawk.de/sitemap.json
-JSON_SITEMAP_FILE ?= $(SITEMAP_DIR)/json_sitemap.json
-JOB_ID_JSON_SITEMAP ?= JsonSitemap_Job
-JOB_ID_SAMPLE ?= Site_Sample
-JOB_ID_FULL ?= Site_Full
-MAX_PAGES_SAMPLE ?= 100
+SITE_PROFILE ?= /var/www/html/profiles/hawk.json
 MAX_PAGES_FULL ?=
 CRAWL_SITE_MAX_PAGES ?= 40000
-RESCRAPE_FAILED ?= false
-FAILED_THRESHOLD ?= 100
-MAX_RETRY_ROUNDS ?= 4
-PYTHON ?= python3
 DISCOVERY_MODE ?= false
 SKIP_IMAGES ?= false
 
+# Stable job name makes it easy to check, cancel, or clean a run.
+JOB_ID_FULL ?= Site_Full
+
+# Retry behavior for rerunning `make crawl` against failed URLs.
+RESCRAPE_FAILED ?= false
+
+# Local tooling and service endpoints.
+PYTHON ?= python3
 CRAWLER_HOST ?= http://localhost:8041
 
 .DEFAULT_GOAL := help
 
-# Allow `make cancel <job_id>` as shorthand
+# -----------------------------------------------------------------------------
+# Shorthand Arguments
+# -----------------------------------------------------------------------------
+# Let users write `make cancel <job_id>` instead of `make cancel JOB_ID=<job_id>`.
 ifeq ($(firstword $(MAKECMDGOALS)),cancel)
   ifneq ($(word 2,$(MAKECMDGOALS)),)
     override JOB_ID := $(word 2,$(MAKECMDGOALS))
@@ -32,7 +43,8 @@ ifeq ($(firstword $(MAKECMDGOALS)),cancel)
   endif
 endif
 
-# Allow `make clean-shared <job_id>` as shorthand
+# Let users write `make clean-shared <job_id>` instead of
+# `make clean-shared JOB_ID=<job_id>`.
 ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   ifneq ($(word 2,$(MAKECMDGOALS)),)
     override JOB_ID := $(word 2,$(MAKECMDGOALS))
@@ -40,136 +52,75 @@ ifeq ($(firstword $(MAKECMDGOALS)),clean-shared)
   endif
 endif
 
-.PHONY: crawl crawl-profile-sitemap crawl-sample crawl-site crawl-site-sitemap-only crawl-json-sitemap crawl-site-auto crawl-json-sitemap-auto build up down logs clean-shared audit-ui-fix start-ui ci-test
+.PHONY: \
+	crawl \
+	jobs \
+	cancel \
+	build \
+	up \
+	down \
+	logs \
+	audit-ui-fix \
+	start-ui \
+	clean-shared \
+	ci-test \
+	help
 
+# -----------------------------------------------------------------------------
+# Crawl Workflows
+# -----------------------------------------------------------------------------
+
+# Full recommended crawl. The API service handles sitemap scraping/loading when
+# `sitemap` is true, so this target only submits the job.
 crawl:
-	@set -e; \
-		$(MAKE) crawl-profile-sitemap SITEMAP_PAGES=$(SITEMAP_PAGES); \
-		sitemap_count=$$(docker compose exec -T crawler python3 -c "import json; from pathlib import Path; p = Path('$(SITE_SITEMAP_FILE)'); data = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; print(len(data) if isinstance(data, dict) else 0)"); \
-		echo "Sitemap URLs: $$sitemap_count"; \
-		if [ "$$sitemap_count" -le 0 ]; then \
-			echo "Stopping: sitemap is empty or missing at $(SITE_SITEMAP_FILE)"; \
-			exit 1; \
-		fi; \
-		if [ -n "$(strip $(MAX_PAGES_FULL))" ]; then \
-			effective_max_pages="$(MAX_PAGES_FULL)"; \
-			effective_discovery_mode=true; \
-			echo "Running crawl with explicit max_pages=$$effective_max_pages and discovery_mode=$$effective_discovery_mode"; \
-		else \
-			effective_max_pages="$$sitemap_count"; \
-			effective_discovery_mode=false; \
-			echo "Running crawl with sitemap-sized max_pages=$$effective_max_pages and discovery_mode=$$effective_discovery_mode"; \
-		fi; \
-		curl -s -X POST $(CRAWLER_HOST)/crawl \
-			-H "Content-Type: application/json" \
-			-d "{\"url\": \"$(URL)\", \"job_id\":\"$(JOB_ID_FULL)\", \"site_profile_path\":\"$(SITE_PROFILE)\", \"rescrape_failed\": $(RESCRAPE_FAILED), \"sitemap\": true, \"sitemap_base\": \"$(SITEMAP_BASE)\", \"sitemap_output\": \"$(SITE_SITEMAP_FILE)\", \"max_pages\": $$effective_max_pages, \"discovery_mode\": $$effective_discovery_mode, \"skip_images\": $(SKIP_IMAGES), \"max_concurrency\": 2, \"max_rpm\": 40}" \
-			| $(PYTHON) -m json.tool
-
-crawl-profile-sitemap:
-	docker compose exec -T crawler \
-		sh -lc 'mkdir -p $(SITEMAP_DIR) && \
-		python -m hawki_crawler.crawler.sitemap.scraper --sitemap \
-		--base-url $(SITEMAP_BASE) \
-		--profile $(SITE_PROFILE) \
-		--start-page $(SITEMAP_START) \
-		--pages $(SITEMAP_PAGES) \
-		--output $(SITE_SITEMAP_FILE)'
-
-crawl-sample:
 	curl -s -X POST $(CRAWLER_HOST)/crawl \
 		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de/jobs", "job_id":"$(JOB_ID_SAMPLE)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(MAX_PAGES_SAMPLE), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 1, "max_rpm": 20}' \
+		-d '{"url": "$(URL)", "job_id":"$(JOB_ID_FULL)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "sitemap_start_page": $(SITEMAP_START), "sitemap_pages": $(SITEMAP_PAGES), "max_pages": $(if $(strip $(MAX_PAGES_FULL)),$(MAX_PAGES_FULL),$(CRAWL_SITE_MAX_PAGES)), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 2, "max_rpm": 40}' \
 		| $(PYTHON) -m json.tool
 
-crawl-site:
-	curl -s -X POST $(CRAWLER_HOST)/crawl \
-		-H "Content-Type: application/json" \
-		-d '{"url": "https://www.hawk.de","job_id":"$(JOB_ID_FULL)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "max_pages": $(if $(strip $(MAX_PAGES_FULL)),$(MAX_PAGES_FULL),$(CRAWL_SITE_MAX_PAGES)), "discovery_mode": $(DISCOVERY_MODE), "skip_images": $(SKIP_IMAGES), "max_concurrency": 2, "max_rpm": 40}' \
-		| $(PYTHON) -m json.tool
+# -----------------------------------------------------------------------------
+# Job Controls
+# -----------------------------------------------------------------------------
 
-crawl-site-sitemap-only:
-	curl -s -X POST $(CRAWLER_HOST)/crawl \
-		-H "Content-Type: application/json" \
-		-d '{"url": "$(SITEMAP_BASE)","job_id":"$(JOB_ID_FULL)", "site_profile_path":"$(SITE_PROFILE)", "rescrape_failed": $(RESCRAPE_FAILED), "sitemap": true, "sitemap_base": "$(SITEMAP_BASE)", "sitemap_output": "$(SITE_SITEMAP_FILE)", "sitemap_only": true, "discovery_mode": false, "max_pages": 0, "skip_images": $(SKIP_IMAGES), "max_concurrency": 2, "max_rpm": 40}' \
-		| $(PYTHON) -m json.tool
-
-crawl-site-auto:
-	@round=0; \
-	while [ $$round -lt $(MAX_RETRY_ROUNDS) ]; do \
-		round=$$((round+1)); \
-		if [ $$round -eq 1 ]; then \
-			$(MAKE) crawl-site RESCRAPE_FAILED=false; \
-		else \
-			$(MAKE) crawl-site RESCRAPE_FAILED=true; \
-		fi; \
-		printf "Waiting for job %s to complete...\\n" "$(JOB_ID_FULL)"; \
-		while true; do \
-			status=$$(curl -s $(CRAWLER_HOST)/jobs/$(JOB_ID_FULL) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
-			if [ "$$status" = "completed" ]; then break; fi; \
-			sleep 10; \
-		done; \
-		failed=$$(docker compose exec -T crawler python -c "import json; p='/var/www/html/shared/$(JOB_ID_FULL)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
-		printf "Round %s: failed URLs = %s\\n" "$$round" "$$failed"; \
-		if [ "$$failed" -le "$(FAILED_THRESHOLD)" ]; then \
-			echo "Stopping: failed URLs <= $(FAILED_THRESHOLD)"; \
-			exit 0; \
-		fi; \
-	done; \
-	echo "Stopping: reached max retry rounds ($(MAX_RETRY_ROUNDS)) with failed URLs still > $(FAILED_THRESHOLD)"; \
-	exit 1
-
-crawl-json-sitemap:
-	docker compose run --rm crawler \
-		sh -lc 'mkdir -p $(SITEMAP_DIR) && curl -sSfL "$(JSON_SITEMAP_URL)" -o $(JSON_SITEMAP_FILE)'
-	curl -s -X POST $(CRAWLER_HOST)/crawl \
-		-H "Content-Type: application/json" \
-		-d '{"url": "$(JSON_SITEMAP_URL)", "job_id":"$(JOB_ID_JSON_SITEMAP)", "rescrape_failed": $(RESCRAPE_FAILED), "max_pages": 6000, "discovery_mode": false, "skip_images": false, "max_concurrency": 2, "max_rpm": 40}' \
-		| $(PYTHON) -m json.tool
-
-crawl-json-sitemap-auto:
-	@round=0; \
-	while [ $$round -lt $(MAX_RETRY_ROUNDS) ]; do \
-		round=$$((round+1)); \
-		if [ $$round -eq 1 ]; then \
-			$(MAKE) crawl-json-sitemap RESCRAPE_FAILED=false; \
-		else \
-			$(MAKE) crawl-json-sitemap RESCRAPE_FAILED=true; \
-		fi; \
-		printf "Waiting for job %s to complete...\\n" "$(JOB_ID_JSON_SITEMAP)"; \
-		while true; do \
-			status=$$(curl -s $(CRAWLER_HOST)/jobs/$(JOB_ID_JSON_SITEMAP) | $(PYTHON) -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))"); \
-			if [ "$$status" = "completed" ]; then break; fi; \
-			sleep 10; \
-		done; \
-		failed=$$(docker compose exec -T crawler python -c "import json; p='/var/www/html/shared/$(JOB_ID_JSON_SITEMAP)/summary.json'; d=json.load(open(p)); print(d.get('urls',{}).get('failed',0))"); \
-		printf "Round %s: failed URLs = %s\\n" "$$round" "$$failed"; \
-		if [ "$$failed" -le "$(FAILED_THRESHOLD)" ]; then \
-			echo "Stopping: failed URLs <= $(FAILED_THRESHOLD)"; \
-			exit 0; \
-		fi; \
-	done; \
-	echo "Stopping: reached max retry rounds ($(MAX_RETRY_ROUNDS)) with failed URLs still > $(FAILED_THRESHOLD)"; \
-	exit 1
-
+# List all crawler jobs reported by the API.
 jobs:
 	curl -s $(CRAWLER_HOST)/jobs | $(PYTHON) -m json.tool
 
+# Cancel a running job. Usage:
+#   make cancel JOB_ID=<job_id>
+#   make cancel <job_id>
 cancel:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make cancel JOB_ID=<id>  (or make cancel <id>)"; exit 1; fi
 	curl -s -X POST $(CRAWLER_HOST)/jobs/$(JOB_ID)/cancel | $(PYTHON) -m json.tool
 
+# -----------------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------------
+
+# Build the Docker image for the crawler service.
 build:
 	docker compose build
 
+# Start Docker services in the background, then launch the UI dev server in the
+# foreground. Stop the UI with Ctrl+C; Docker services continue until `make down`.
 up:
-	docker compose up --build
+	docker compose up --build -d
+	$(MAKE) start-ui
 
+# Stop and remove Docker Compose containers and networks for this project.
 down:
 	docker compose down
 
+# Follow Docker Compose logs for all services.
 logs:
 	docker compose logs -f
 
+# -----------------------------------------------------------------------------
+# UI
+# -----------------------------------------------------------------------------
+
+# Run npm audit fix for the UI. If dev-only advisories remain, allow the command
+# to continue only when production dependencies pass audit.
 audit-ui-fix:
 	@set -e; \
 		echo "Running npm audit fix in ui/"; \
@@ -179,34 +130,45 @@ audit-ui-fix:
 		echo "npm audit fix left advisories; checking production dependencies before continuing"; \
 		npm audit --omit=dev --prefix ui
 
+# Install UI dependencies, generate SvelteKit files, then start the UI dev
+# server. Polling avoids Linux inotify watcher exhaustion on busy workstations.
+# CRAWLER_API_BASE_URL defaults to the local crawler API unless overridden.
 start-ui:
 	npm install --prefix ui
 	$(MAKE) audit-ui-fix
-	CRAWLER_API_BASE_URL=$${CRAWLER_API_BASE_URL:-http://127.0.0.1:8041} PUBLIC_API_BASE_URL=$${PUBLIC_API_BASE_URL:-} npm --prefix ui run dev
+	npm --prefix ui exec svelte-kit sync
+	CHOKIDAR_USEPOLLING=$${CHOKIDAR_USEPOLLING:-true} CRAWLER_API_BASE_URL=$${CRAWLER_API_BASE_URL:-http://127.0.0.1:8041} PUBLIC_API_BASE_URL=$${PUBLIC_API_BASE_URL:-} npm --prefix ui run dev
 
+# -----------------------------------------------------------------------------
+# Maintenance and Tests
+# -----------------------------------------------------------------------------
+
+# Remove shared crawl output for one job from the crawler container.
+# Usage:
+#   make clean-shared JOB_ID=<job_id>
+#   make clean-shared <job_id>
 clean-shared:
 	@if [ -z "$(JOB_ID)" ]; then echo "Usage: make clean-shared JOB_ID=<id>"; exit 1; fi
 	docker compose exec crawler sh -lc 'rm -rf /var/www/html/shared/$(JOB_ID)'
 
+# Build the test image and run the containerized test suite.
 ci-test:
 	docker build --target test -t crawler-test . && docker run crawler-test 
 
+# -----------------------------------------------------------------------------
+# Help
+# -----------------------------------------------------------------------------
+
+# Print a human-readable command reference. This is the default target.
 help:
 	@echo "COMMAND                     DESCRIPTION"
 	@echo "----------------------------------------------------------------------"
-	@printf "%-28s %s\n" "crawl"                    "Full pipeline: scrape sitemap then crawl site with auto discovery."
-	@printf "%-28s %s\n" "crawl-profile-sitemap"    "Scrape profile-based XML sitemap pages."
-	@printf "%-28s %s\n" "crawl-sample"             "Sample crawl (100 pages, low concurrency)."
-	@printf "%-28s %s\n" "crawl-site"               "Full site crawl (up to 40k pages)."
-	@printf "%-28s %s\n" "crawl-site-sitemap-only"  "Crawl sitemap only, no page scraping."
-	@printf "%-28s %s\n" "crawl-site-auto"          "Auto site crawl with retry rounds for failed URLs."
-	@printf "%-28s %s\n" "crawl-json-sitemap"       "Crawl JSON sitemap from project URL."
-	@printf "%-28s %s\n" "crawl-json-sitemap-auto"  "Auto JSON sitemap crawl with retry rounds."
+	@printf "%-28s %s\n" "crawl"                    "Submit the sitemap-backed site crawl."
 	@printf "%-28s %s\n" "jobs"                     "Display all jobs."
 	@printf "%-28s %s\n" "cancel"                   "Cancel a job: make cancel <job_id> or make cancel JOB_ID=<id>."
 	@printf "%-28s %s\n" "clean-shared"             "Remove shared data for a job: make clean-shared <job_id>."
 	@printf "%-28s %s\n" "build"                    "Build the crawler service."
-	@printf "%-28s %s\n" "up"                       "Build and start the crawler service."
+	@printf "%-28s %s\n" "up"                       "Build and start the crawler service, then start the UI."
 	@printf "%-28s %s\n" "down"                     "Stop the crawler service."
 	@printf "%-28s %s\n" "logs"                     "Show live service logs."
 	@printf "%-28s %s\n" "start-ui"                 "Install deps, audit fix, and start UI dev server."
