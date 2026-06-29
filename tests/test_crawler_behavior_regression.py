@@ -15,6 +15,8 @@ from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
+from hawki_crawler.crawler.core.execution import execution_mixin as execution_module
+from hawki_crawler.crawler.core.execution.execution_mixin import ServiceCrawlExecutionMixin
 from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
 from hawki_crawler.crawler.core.runtime.control import (
     request_browser_restart,
@@ -35,6 +37,7 @@ from hawki_crawler.crawler.core.runtime.defaults import (
     resolve_output_directory,
 )
 from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_config
+from hawki_crawler.crawler.core.service import CrawlerService
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
 from hawki_crawler.crawler.policies.url_normalization import normalize_url
@@ -62,6 +65,111 @@ class _PolicyAndSitemapService(ServiceSitemapMixin):
         self.sitemap_lastmod = {}
         self.url_tracking_manager = None
         self.headers = {}
+
+
+class _FakeAsyncWebCrawler:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+
+class _FreshRescrapeService(ServiceCrawlExecutionMixin):
+    def __init__(self) -> None:
+        self.config = CrawlConfig(
+            job_id="fresh-rescrape",
+            url="https://example.com",
+            max_pages=1,
+            rescrape_failed=True,
+        )
+        self.job_id = "fresh-rescrape"
+        self.job_logger = logging.getLogger("test.fresh_rescrape")
+        self.http_session = None
+        self.url_tracking_manager = self.FakeUrlTrackingManager()
+        self.job_state = self.FakeJobState()
+        self.progress_tracker = None
+        self.progress_publisher = self.FakeProgressPublisher()
+        self.summary_manager = None
+        self.output_dir = "/tmp/fresh-rescrape"
+        self.headers = {}
+        self.url_policy = UrlPolicyService(crawl_host="example.com")
+        self.visited_urls = set()
+        self.to_visit = []
+        self.url_depth = {}
+        self.url_source = {}
+        self.page_counter = 0
+        self.abort_crawl = False
+        self.abort_reason = None
+        self.restart_crawler = False
+        self.restart_urls = []
+        self.restart_lock = asyncio.Lock()
+        self.browser_restart_count = 0
+        self.enable_browser_restarts = False
+        self.max_browser_restarts = 0
+        self.restart_reason = None
+        self.captured_to_visit = []
+
+    class FakeUrlTrackingManager:
+        def __init__(self) -> None:
+            self.added = []
+
+        async def initialize(self) -> None:
+            pass
+
+        async def purge_forbidden_hosts(self, forbidden_hosts) -> int:
+            return 0
+
+        async def get_all_urls(self):
+            return {}
+
+        async def add_url(self, url: str, *, source: str, sitemap_date=None) -> None:
+            self.added.append((url, source, sitemap_date))
+
+    class FakeJobState:
+        def __init__(self) -> None:
+            self.total_urls = []
+
+        async def set_status(self, status: str) -> None:
+            pass
+
+        async def set_total_urls(self, total: int) -> None:
+            self.total_urls.append(total)
+
+        async def get_snapshot(self):
+            return SimpleNamespace(completed_urls=0, failed_urls=0)
+
+        async def set_error(self, error: str) -> None:
+            pass
+
+    class FakeProgressPublisher:
+        async def send_stage(self, *args, **kwargs) -> None:
+            pass
+
+        async def send_summary(self, *args, **kwargs) -> None:
+            pass
+
+    async def run_sitemap_scrape(self) -> None:
+        pass
+
+    async def setup_directories(self) -> None:
+        pass
+
+    async def is_sitemap(self, url: str) -> bool:
+        return False
+
+    def lookup_sitemap_entry(self, url: str):
+        return None
+
+    def get_sitemap_date(self, sitemap_entry) -> None:
+        return None
+
+    async def _run_crawl_batches(self, crawler) -> None:
+        self.captured_to_visit = list(self.to_visit)
+        self.to_visit = []
 
 
 def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) -> None:
@@ -102,6 +210,18 @@ def test_url_normalization_removes_fragments_and_trailing_slashes() -> None:
     assert normalize_url("https://example.com/path/?a=1#section") == "https://example.com/path?a=1"
     assert normalize_url("https://example.com/") == "https://example.com/"
     assert normalize_url("https://example.com") == "https://example.com/"
+
+
+@pytest.mark.asyncio
+async def test_fresh_rescrape_failed_job_still_seeds_start_url(monkeypatch) -> None:
+    monkeypatch.setattr(execution_module, "AsyncWebCrawler", _FakeAsyncWebCrawler)
+    service = _FreshRescrapeService()
+
+    await service.crawl()
+
+    assert service.captured_to_visit == ["https://example.com/"]
+    assert service.url_tracking_manager.added == [("https://example.com/", "seed", None)]
+    assert service.job_state.total_urls == [1]
 
 
 def test_sitemap_json_loading_normalizes_metadata_and_filters_forbidden_urls(tmp_path) -> None:
@@ -562,6 +682,47 @@ def test_crawler_run_config_preserves_runtime_defaults() -> None:
     assert run_config.wait_until == "networkidle"
     assert run_config.page_timeout == 12345
     assert run_config.delay_before_return_html == 5.0
+    assert callable(run_config.fallback_fetch_function)
+
+
+def test_service_applies_profile_runtime_defaults_when_request_omits_them(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps({"wait_until": "networkidle", "page_timeout_ms": 12345}),
+        encoding="utf-8",
+    )
+
+    service = CrawlerService(
+        CrawlConfig(
+            job_id="profile-runtime-defaults",
+            url="https://example.com",
+            site_profile_path=str(profile_path),
+        )
+    )
+
+    assert service.config.wait_until == "networkidle"
+    assert service.config.page_timeout_ms == 12345
+
+
+def test_request_runtime_config_overrides_profile_defaults(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps({"wait_until": "networkidle", "page_timeout_ms": 12345}),
+        encoding="utf-8",
+    )
+
+    service = CrawlerService(
+        CrawlConfig(
+            job_id="request-runtime-defaults",
+            url="https://example.com",
+            site_profile_path=str(profile_path),
+            wait_until="domcontentloaded",
+            page_timeout_ms=5000,
+        )
+    )
+
+    assert service.config.wait_until == "domcontentloaded"
+    assert service.config.page_timeout_ms == 5000
 
 
 @pytest.mark.asyncio

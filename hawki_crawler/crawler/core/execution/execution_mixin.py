@@ -609,7 +609,7 @@ class ServiceCrawlExecutionMixin:
                     await self.job_state.set_total_urls(len(self.to_visit))
                 if self.progress_tracker:
                     await self.progress_tracker.set_total_urls(len(self.to_visit))
-            elif not resume_urls and not self.config.rescrape_failed:
+            elif not resume_urls:
                 self.to_visit = [start_url]
                 self.url_depth[start_url] = 0
                 self.url_source[start_url] = "seed"

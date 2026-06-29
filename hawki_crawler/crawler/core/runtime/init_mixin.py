@@ -36,6 +36,7 @@ class ServiceInitMixin:
         self._init_external_services(job_state, storage_manager, job_id)
         self._init_job_logger()
         self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
+        self._apply_site_profile_runtime_defaults(config)
         self._init_url_policy()
         self._init_progress_publisher()
         self._init_job_helpers(job_id)
@@ -130,6 +131,23 @@ class ServiceInitMixin:
     def _init_http_headers(self) -> None:
         """Default request headers used by HTTP and browser fetches."""
         self.headers = default_http_headers()
+
+    def _apply_site_profile_runtime_defaults(self, config: CrawlConfig) -> None:
+        """Use runtime defaults from the site profile when the request omits them."""
+        explicit_fields = getattr(config, "model_fields_set", set()) or set()
+        profile = self.site_profile or {}
+
+        wait_until = profile.get("wait_until")
+        if "wait_until" not in explicit_fields and isinstance(wait_until, str) and wait_until.strip():
+            config.wait_until = wait_until.strip()
+
+        page_timeout_ms = profile.get("page_timeout_ms")
+        if (
+            "page_timeout_ms" not in explicit_fields
+            and isinstance(page_timeout_ms, int)
+            and page_timeout_ms > 0
+        ):
+            config.page_timeout_ms = page_timeout_ms
 
     def _init_output_paths(self, config: CrawlConfig) -> None:
         """Resolve the label and output directory after job storage is known."""
