@@ -51,9 +51,9 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     storage_manager = StorageManager(job_id, base_path=base_path)
 
     def _progress_total(snapshot) -> int:
-        if config.max_pages > 0:
-            return config.max_pages
-        return snapshot.total_urls or (snapshot.completed_urls + snapshot.failed_urls)
+        # Keep 0 as the public signal for an unlimited crawl. The number of
+        # discovered URLs is queue progress, not a page limit.
+        return config.max_pages
 
     async def _sync_job_progress(poll_interval: float = 1.0):
         while True:

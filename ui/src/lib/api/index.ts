@@ -384,9 +384,10 @@ function jobToUi(job: CrawlerJobStatus): Job {
 	const status = normalizeStatus(job.status);
 	const started = getClientStart(job.job_id) ?? normalizeBackendDate(job.started_at) ?? new Date().toISOString();
 	const profileId = inferProfileIdFromJobId(job.job_id);
+	const totalPages = job.total_pages === 0 ? 'unlimited' : (job.total_pages ?? 0);
 	const log = [
 		`[${started}] ${status.toUpperCase()} ${job.message ?? 'Crawler job status loaded'}`,
-		`Pages crawled: ${job.pages_crawled ?? 0} / ${job.total_pages ?? 0}`
+		`Pages crawled: ${job.pages_crawled ?? 0} / ${totalPages}`
 	];
 
 	return {
