@@ -685,6 +685,16 @@ def test_crawler_run_config_preserves_runtime_defaults() -> None:
     assert callable(run_config.fallback_fetch_function)
 
 
+def test_max_pages_zero_remains_unlimited() -> None:
+    config = CrawlConfig(
+        job_id="unlimited-pages",
+        url="https://example.com",
+        max_pages=0,
+    )
+
+    assert config.max_pages == 0
+
+
 def test_service_applies_profile_runtime_defaults_when_request_omits_them(tmp_path) -> None:
     profile_path = tmp_path / "profile.json"
     profile_path.write_text(
@@ -1324,6 +1334,51 @@ async def test_job_lifecycle_marks_all_failed_crawl_as_failed(tmp_path, monkeypa
         state = json.loads((tmp_path / job_id / "job_state.json").read_text(encoding="utf-8"))
         assert state["status"] == "failed"
         assert state["error"] == "Crawl finished with 0 completed URLs and 1 failed URL(s)."
+    finally:
+        job_lifecycle.jobs.pop(job_id, None)
+        job_lifecycle.tasks.pop(job_id, None)
+        job_lifecycle.pause_events.pop(job_id, None)
+        job_lifecycle.job_states.pop(job_id, None)
+
+
+@pytest.mark.asyncio
+async def test_unlimited_job_does_not_report_discovered_urls_as_limit(tmp_path, monkeypatch) -> None:
+    job_id = "unlimited-job"
+    monkeypatch.setenv("DATA_PATH", str(tmp_path))
+
+    class UnlimitedCrawler:
+        def __init__(self, config, *, job_id, job_state, storage_manager, pause_event):
+            self.job_state = job_state
+            self.storage_manager = storage_manager
+
+        async def crawl(self):
+            await self.job_state.set_total_urls(2000)
+            await self.job_state.increment_completed()
+            return {
+                "status": "completed",
+                "pages_crawled": 1,
+                "output_directory": str(self.storage_manager.get_job_directory()),
+            }
+
+    monkeypatch.setattr(job_lifecycle, "CrawlerService", UnlimitedCrawler)
+    job_lifecycle.jobs[job_id] = CrawlStatus(
+        job_id=job_id,
+        status="pending",
+        message="Crawl job submitted",
+        total_pages=0,
+        started_at=datetime.now(),
+    )
+
+    try:
+        await job_lifecycle.run_crawl_job(
+            job_id,
+            CrawlConfig(job_id=job_id, url="https://example.com", max_pages=0),
+        )
+
+        job = job_lifecycle.jobs[job_id]
+        assert job.status == "completed"
+        assert job.pages_crawled == 1
+        assert job.total_pages == 0
     finally:
         job_lifecycle.jobs.pop(job_id, None)
         job_lifecycle.tasks.pop(job_id, None)
