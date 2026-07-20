@@ -4,11 +4,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
 
-from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
-from hawki_crawler.crawler.assets.resource_detector import FetchHeadCallable, ResourceDetector
+from hawki_crawler.crawler.parsing.resource_parser import ResourceParser
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicy
 
 
 class AssetDownloader:
@@ -22,28 +22,20 @@ class AssetDownloader:
         http_session: Optional[aiohttp.ClientSession],
         asset_saver: AssetSaver,
         logger: Optional[Any] = None,
-        policy: Optional[AssetPolicy] = None,
-        fetch_head: Optional[FetchHeadCallable] = None,
+        resource_policy: Optional[ResourcePolicy] = None,
+        resource_parser: Optional[ResourceParser] = None,
+        policy: Optional[ResourcePolicy] = None,
     ) -> None:
         self.rate_limiter = rate_limiter
         self.headers = headers
         self.http_session = http_session
         self.asset_saver = asset_saver
         self.logger = logger or logging.getLogger("crawler")
-        self.policy = policy or AssetPolicy()
-        self._fetch_head_override = fetch_head
+        self.resource_policy = resource_policy or policy or ResourcePolicy()
+        self.resource_parser = resource_parser or ResourceParser(self.resource_policy)
 
     def _image_downloader(self) -> ImageDownloader:
         return ImageDownloader(rate_limiter=self.rate_limiter, logger=self.logger)
-
-    def _resource_detector(self) -> ResourceDetector:
-        return ResourceDetector(
-            rate_limiter=self.rate_limiter,
-            http_session=self.http_session,
-            logger=self.logger,
-            policy=self.policy,
-            fetch_head=self._fetch_head_override,
-        )
 
     def _file_downloader(self) -> FileDownloader:
         return FileDownloader(
@@ -51,7 +43,8 @@ class AssetDownloader:
             headers=self.headers,
             asset_saver=self.asset_saver,
             logger=self.logger,
-            policy=self.policy,
+            resource_policy=self.resource_policy,
+            resource_parser=self.resource_parser,
         )
 
     async def download_image(
@@ -65,36 +58,19 @@ class AssetDownloader:
 
     async def fetch_head(self, url: str) -> Tuple[Optional[int], Dict[str, str]]:
         """Fetch HEAD request for a URL."""
-        return await self._resource_detector().fetch_head(url)
-
-    async def _resolve_head_headers(self, url: str, head_headers: Optional[Dict[str, str]]) -> Dict[str, str]:
-        return await self._resource_detector().resolve_head_headers(url, head_headers)
-
-    async def is_pdf_resource(
-        self,
-        url: str,
-        head_status: Optional[int] = None,
-        head_headers: Optional[Dict[str, str]] = None,
-    ) -> bool:
-        """Check if a URL points directly to a PDF."""
-        return await self._resource_detector().is_pdf_resource(
-            url,
-            head_status=head_status,
-            head_headers=head_headers,
-        )
-
-    async def is_file_resource(
-        self,
-        url: str,
-        head_status: Optional[int] = None,
-        head_headers: Optional[Dict[str, str]] = None,
-    ) -> bool:
-        """Check if a URL points directly to a non-PDF file."""
-        return await self._resource_detector().is_file_resource(
-            url,
-            head_status=head_status,
-            head_headers=head_headers,
-        )
+        await self.rate_limiter.acquire()
+        try:
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with self.http_session.head(
+                url,
+                allow_redirects=True,
+                timeout=timeout,
+            ) as response:
+                headers = {key.lower(): value for key, value in response.headers.items()}
+                return response.status, headers
+        except Exception as exc:
+            self.logger.warning("HEAD request failed for %s: %s", url, exc)
+            return None, {}
 
     async def fetch_and_save_pdf(
         self,

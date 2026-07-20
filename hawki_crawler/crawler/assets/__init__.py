@@ -6,7 +6,7 @@ from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
 from hawki_crawler.crawler.assets.asset_service_mixin import ServiceParseAssetsMixin
-from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
+from hawki_crawler.crawler.assets.resource_service_mixin import ServiceParseResourceMixin
 
 __all__ = [
     "AssetDownloader",
@@ -14,6 +14,6 @@ __all__ = [
     "AssetSaver",
     "FileDownloader",
     "ImageDownloader",
-    "ResourceDetector",
     "ServiceParseAssetsMixin",
+    "ServiceParseResourceMixin",
 ]

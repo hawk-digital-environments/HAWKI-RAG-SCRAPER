@@ -22,7 +22,8 @@ class SitemapService:
         self.is_discovery_url_allowed = is_discovery_url_allowed or (lambda url: True)
         self.normalize_url = normalize_url or (lambda url: url)
 
-    def normalize_url_key(self, url: str) -> Optional[str]:
+    @staticmethod
+    def normalize_url_key(url: str) -> Optional[str]:
         """Create a normalized key for quick sitemap map lookup."""
         if not url:
             return None
@@ -37,7 +38,8 @@ class SitemapService:
             url = url[len("www."):]
         return url.rstrip("/")
 
-    def normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]:
+    @staticmethod
+    def normalize_sitemap_meta(meta: Any) -> Dict[str, Any]:
         """Normalize sitemap metadata into a dict with a last_modified key when possible."""
         if isinstance(meta, dict):
             normalized = dict(meta)
@@ -51,7 +53,8 @@ class SitemapService:
             )
         return normalized
 
-    def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+    @staticmethod
+    def get_sitemap_date(entry: Optional[Dict[str, Any]]) -> Optional[str]:
         """Return the sitemap date from a sitemap entry when available."""
         if not entry:
             return None
@@ -117,7 +120,8 @@ class SitemapService:
                 return entry
         return None
 
-    def parse_http_date(self, date_str: Optional[str]) -> Optional[str]:
+    @staticmethod
+    def parse_http_date(date_str: Optional[str]) -> Optional[str]:
         if not date_str:
             return None
         try:

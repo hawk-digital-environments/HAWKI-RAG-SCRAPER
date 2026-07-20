@@ -14,7 +14,8 @@ class DateLanguageService:
     ) -> None:
         self.sitemap_lookup = sitemap_lookup
 
-    def parse_date_string(self, date_str: Optional[str]) -> Optional[str]:
+    @staticmethod
+    def parse_date_string(date_str: Optional[str]) -> Optional[str]:
         """Parse a free-form date string into ISO-8601 when possible."""
         if not date_str:
             return None

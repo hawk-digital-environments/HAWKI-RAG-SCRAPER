@@ -12,7 +12,6 @@ from hawki_crawler.crawler.core.runtime.defaults import (
 )
 from hawki_crawler.crawler.models import CrawlConfig
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
-from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.state.job_state import JobState
 from hawki_crawler.crawler.state.progress_publisher import ProgressPublisher
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
@@ -37,12 +36,12 @@ class ServiceInitMixin:
         self._init_job_logger()
         self.site_profile = resolve_site_profile(str(config.url), config.site_profile_path)
         self._apply_site_profile_runtime_defaults(config)
-        self._init_url_policy()
+        self._init_resource_services()
         self._init_progress_publisher()
         self._init_job_helpers(job_id)
         self._init_runtime_clients()
         self._init_sitemap_state()
-        self._init_url_policy()
+        self.resource_policy.crawl_host = self.crawl_host
         self._init_date_language()
         self._init_http_headers()
         self._init_output_paths(config)
@@ -93,13 +92,6 @@ class ServiceInitMixin:
     def _init_runtime_clients(self) -> None:
         """Clients that are opened lazily and closed after the crawl."""
         self.http_session: Optional[aiohttp.ClientSession] = None
-
-    def _init_url_policy(self) -> None:
-        """Inject URL policy decisions as a real service instead of a mixin."""
-        self.url_policy = UrlPolicyService(
-            site_profile=self.site_profile,
-            crawl_host=getattr(self, "crawl_host", None),
-        )
 
     def _init_progress_publisher(self) -> None:
         """Attach no-op progress publisher for internal crawl hooks."""

@@ -95,7 +95,8 @@ class PageDataStore:
             diagnostics_dir = page_dir / DIAGNOSTICS_DIRNAME
             await self._write_diagnostic(diagnostics_dir, "raw.html", raw_html or "")
 
-    async def _write_diagnostic(self, diagnostics_dir: Path, filename: str, content: str) -> None:
+    @staticmethod
+    async def _write_diagnostic(diagnostics_dir: Path, filename: str, content: str) -> None:
         diagnostics_dir.mkdir(exist_ok=True)
         diagnostic_file = diagnostics_dir / filename
         async with aiofiles.open(diagnostic_file, "w", encoding="utf-8") as f:

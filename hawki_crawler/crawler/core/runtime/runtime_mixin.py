@@ -2,7 +2,6 @@ from typing import Dict, Optional, TYPE_CHECKING
 
 from crawl4ai.async_configs import CrawlerRunConfig
 
-from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.core.runtime.control import (
     request_browser_restart,
     request_safe_stop,
@@ -23,13 +22,9 @@ class ServiceCrawlRuntimeMixin:
     """Runtime helpers used while a crawl job is active.
 
     These methods do not decide which URLs to crawl. They support the running
-    job by classifying URL types, stopping safely, restarting browser work when
-    needed, tracking memory pressure, and writing crawl output to storage.
+    job by stopping safely, restarting browser work when needed, tracking
+    memory pressure, and writing crawl output to storage.
     """
-
-    def looks_like_file_url(self: "ServiceCrawlRuntimeMixinProtocol", url: str) -> bool:
-        """Return True for URLs that should be downloaded instead of rendered."""
-        return AssetPolicy().looks_like_file_url(url)
 
     def _page_data_store(self: "ServiceCrawlRuntimeMixinProtocol") -> PageDataStore:
         return PageDataStore(

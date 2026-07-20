@@ -58,7 +58,8 @@ class FileBrowser:
             "type": self.get_file_type(filepath),
         }
 
-    def get_file_type(self, filepath: Path) -> str:
+    @staticmethod
+    def get_file_type(filepath: Path) -> str:
         suffix = filepath.suffix.lower()
 
         type_map = {
