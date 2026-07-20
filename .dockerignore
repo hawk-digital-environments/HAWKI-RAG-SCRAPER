@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+env/
+venv/
+ENV/
+crawl4ai-env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Output data (will be mounted as volume)
+output/
+
+# Environment files
+.env
+.env.local
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Testing
+test*.py
+
+# Node
+ui/node_modules/
+ui/.svelte-kit/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log

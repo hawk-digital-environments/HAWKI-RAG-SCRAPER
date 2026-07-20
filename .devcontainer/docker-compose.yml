@@ -1,0 +1,13 @@
+services:
+  crawler:
+    build:
+      context: ..
+      target: development
+      args:
+        USERNAME: ${USER:-dev}
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    volumes:
+      - ..:/workspace
+    user: "0:0"
+    entrypoint: sleep infinity

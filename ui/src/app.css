@@ -1,0 +1,113 @@
+/* =========================================================
+   Design tokens — all other styles live in +layout.svelte
+   ========================================================= */
+:root {
+    --c-bg: #f1f5f9;
+    --c-surface: #ffffff;
+    --c-border: #e2e8f0;
+    --c-border-subtle: #f1f5f9;
+
+    --c-text: #0f172a;
+    --c-text-secondary: #475569;
+    --c-text-muted: #6b7b91;
+
+    --c-primary: #2563eb;
+    --c-primary-hover: #1d4ed8;
+    --c-primary-fg: #ffffff;
+    --c-primary-light: #eff6ff;
+
+    --c-danger: #ef4444;
+    --c-danger-hover: #dc2626;
+    --c-danger-light: #fef2f2;
+    --c-danger-fg: #ffffff;
+
+    --c-success: #22c55e;
+    --c-success-light: #f0fdf4;
+    --c-warning: #f59e0b;
+    --c-warning-light: #fffbeb;
+
+    --c-nav-bg: #ffffff;
+    --c-nav-border: #e5e7eb;
+    --c-nav-text: #374151;
+    --c-nav-text-active: #1d4ed8;
+    --c-nav-active-bg: #eff6ff;
+    --c-nav-hover-bg: #f9fafb;
+    --c-nav-section: #9ca3af;
+
+    --c-badge-running-bg: #dbeafe;
+    --c-badge-running-text: #1d4ed8;
+    --c-badge-pending-bg: #e0f2fe;
+    --c-badge-pending-text: #0369a1;
+    --c-badge-paused-bg: #fef3c7;
+    --c-badge-paused-text: #92400e;
+    --c-badge-stopping-bg: #fef3c7;
+    --c-badge-stopping-text: #92400e;
+    --c-badge-completed-bg: #dcfce7;
+    --c-badge-completed-text: #15803d;
+    --c-badge-failed-bg: #fee2e2;
+    --c-badge-failed-text: #b91c1c;
+    --c-badge-cancelled-bg: #f1f5f9;
+    --c-badge-cancelled-text: #475569;
+    --c-badge-manual-bg: #ede9fe;
+    --c-badge-manual-text: #6d28d9;
+    --c-badge-scheduled-bg: #e0f2fe;
+    --c-badge-scheduled-text: #0369a1;
+
+    /* Radius: only used on form controls; panels and cards are square */
+    --radius-sm: 0;
+    --radius: 6px;
+    --radius-lg: 0;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-panel: 0 8px 32px rgb(0 0 0 / 0.1), 0 2px 8px rgb(0 0 0 / 0.06);
+
+    /* Layout */
+    --sidebar-width: 224px;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+}
+
+/* =========================================================
+   Base reset
+   ========================================================= */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    color: var(--c-text);
+    background: var(--c-bg);
+    -webkit-font-smoothing: antialiased;
+}
+
+a {
+    color: var(--c-primary);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+h1,
+h2,
+h3,
+h4 {
+    margin: 0;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+p {
+    margin: 0;
+}

@@ -1,0 +1,61 @@
+services:
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crawl4ai-fastapi:latest
+    container_name: crawl4ai-service
+    ports:
+      - "8041:80"
+    environment:
+      # Optional API security token
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-text}
+      - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-INFO}
+      # Maximum concurrent crawl tasks
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
+      # Data storage path for job files
+      - DATA_PATH=${DATA_PATH:-/var/www/html/shared}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    volumes:
+      # Site profiles
+      - ./profiles:/var/www/html/profiles
+      # UI task definitions
+      - ./tasks:/var/www/html/tasks
+      # Mount output directory for backwards compatibility
+      - ./output:/var/www/html/output
+      # Forbidden hosts list
+      - ./forbidden_urls.txt:/var/www/html/forbidden_urls.txt
+      # Utility scripts
+      - ./hawki_crawler/scripts:/var/www/html/hawki_crawler/scripts
+      # Shared memory for Playwright (prevents crashes)
+      - /dev/shm:/dev/shm
+      - rawki_shared_storage:/var/www/html/shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+volumes:
+  rawki_shared_storage:
+    external: true
+
+networks:
+  default:
+    name: hawki-network
+    external: true
