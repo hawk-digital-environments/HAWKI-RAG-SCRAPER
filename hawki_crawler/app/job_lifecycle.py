@@ -50,17 +50,12 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
     pause_event.set()
     storage_manager = StorageManager(job_id, base_path=base_path)
 
-    def _progress_total(snapshot) -> int:
-        # Keep 0 as the public signal for an unlimited crawl. The number of
-        # discovered URLs is queue progress, not a page limit.
-        return config.max_pages
-
     async def _sync_job_progress(poll_interval: float = 1.0):
         while True:
             snapshot = await job_state.get_snapshot()
             if job_id in jobs:
                 jobs[job_id].pages_crawled = snapshot.completed_urls
-                jobs[job_id].total_pages = _progress_total(snapshot)
+                jobs[job_id].total_pages = config.max_pages
                 jobs[job_id].output_directory = snapshot.output_directory or jobs[job_id].output_directory
             await asyncio.sleep(poll_interval)
 
@@ -112,7 +107,7 @@ async def run_crawl_job(job_id: str, config: CrawlConfig):
             jobs[job_id].message = "Crawl completed successfully"
 
         jobs[job_id].pages_crawled = final_snapshot.completed_urls
-        jobs[job_id].total_pages = _progress_total(final_snapshot)
+        jobs[job_id].total_pages = config.max_pages
         jobs[job_id].output_directory = result.get('output_directory') if isinstance(result, dict) else None
         jobs[job_id].completed_at = datetime.now()
 
@@ -169,7 +164,7 @@ def submit_crawl_job(config: CrawlConfig) -> CrawlResponse:
         job_id=job_id,
         status="pending",
         message="Crawl job submitted",
-        total_pages=config.max_pages if config.max_pages > 0 else 0,
+        total_pages=config.max_pages,
         started_at=datetime.now()
     )
     jobs[job_id] = job_status
