@@ -54,6 +54,9 @@ Thumbs.db
 # Playwright
 .playwright/
 
+# SvelteKit generated files
+/.svelte-kit/
+
 # Test files
 data/jobs
 
