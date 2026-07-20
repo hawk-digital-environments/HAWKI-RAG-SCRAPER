@@ -32,13 +32,13 @@ class ServiceParseContentMixin:
         return self._page_extractor().site_profile_extractors()
 
     def _extract_tags(self, soup: BeautifulSoup, selectors: Optional[List[str]] = None) -> List[str]:
-        return self._page_extractor().extract_tags(soup, selectors)
+        return PageExtractor.extract_tags(soup, selectors)
 
     def _fix_mojibake(self, text: str) -> str:
-        return self._page_extractor().fix_mojibake(text)
+        return PageExtractor.fix_mojibake(text)
 
     def _extract_result_markdown(self, result: Any) -> str:
-        return self._page_extractor().extract_result_markdown(result)
+        return PageExtractor.extract_result_markdown(result)
 
     def _clean_markdown_output(
         self: "ServiceParseContentMixinProtocol",

@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from hawki_crawler.crawler.sitemap.parser import SitemapParser
 from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicyClientMixin
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceSitemapMixinProtocol
@@ -13,13 +14,13 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger("crawler.sitemap")
 
 
-class ServiceSitemapMixin:
+class ServiceSitemapMixin(ResourcePolicyClientMixin):
     def _sitemap_service(self: "ServiceSitemapMixinProtocol") -> SitemapService:
         return SitemapService(
             sitemap_map=getattr(self, "sitemap_map", {}) or {},
-            is_forbidden_url=self.url_policy.is_forbidden_url,
-            is_discovery_url_allowed=self.url_policy.is_discovery_url_allowed,
-            normalize_url=self.url_policy.normalize_url,
+            is_forbidden_url=self.resource_policy.is_forbidden_url,
+            is_discovery_url_allowed=self.resource_policy.is_discovery_url_allowed,
+            normalize_url=self.resource_policy.normalize_url,
         )
 
     def _sitemap_parser(self: "ServiceSitemapMixinProtocol") -> SitemapParser:
@@ -27,7 +28,7 @@ class ServiceSitemapMixin:
             headers=getattr(self, "headers", {}) or {},
             sitemap_map=self.sitemap_map,
             sitemap_lastmod=self.sitemap_lastmod,
-            is_forbidden_url=self.url_policy.is_forbidden_url,
+            is_forbidden_url=self.resource_policy.is_forbidden_url,
             normalize_url_key=self._normalize_url_key,
             normalize_sitemap_meta=self._normalize_sitemap_meta,
             get_sitemap_date=self.get_sitemap_date,
@@ -36,13 +37,13 @@ class ServiceSitemapMixin:
         )
 
     def _normalize_url_key(self, url: str) -> Optional[str]:
-        return self._sitemap_service().normalize_url_key(url)
+        return SitemapService.normalize_url_key(url)
 
     def _normalize_sitemap_meta(self, meta: Any) -> Dict[str, Any]:
-        return self._sitemap_service().normalize_sitemap_meta(meta)
+        return SitemapService.normalize_sitemap_meta(meta)
 
     def get_sitemap_date(self, entry: Optional[Dict[str, Any]]) -> Optional[str]:
-        return self._sitemap_service().get_sitemap_date(entry)
+        return SitemapService.get_sitemap_date(entry)
 
     def load_sitemap_map(self: "ServiceSitemapMixinProtocol", path: str) -> Dict[str, Dict[str, str]]:
         return self._sitemap_service().load_sitemap_map(path)
@@ -57,7 +58,7 @@ class ServiceSitemapMixin:
         return self._sitemap_service().first_sitemap_entry(*urls)
 
     def parse_http_date(self, date_str: Optional[str]) -> Optional[str]:
-        return self._sitemap_service().parse_http_date(date_str)
+        return SitemapService.parse_http_date(date_str)
 
     async def run_sitemap_scrape(self: "ServiceSitemapMixinProtocol"):
         """Optionally scrape the sitemap JSON before crawling."""
@@ -85,8 +86,8 @@ class ServiceSitemapMixin:
         except Exception as e:
             LOGGER.error("Error scraping sitemap: %s", e, extra={"job_id": getattr(self, "job_id", None)})
 
-    async def is_sitemap(self, url: str) -> bool:
-        return await self._sitemap_parser().is_sitemap(url)
+    def is_sitemap(self, url: str) -> bool:
+        return SitemapParser.is_sitemap(url)
 
     async def parse_sitemap(self: "ServiceSitemapMixinProtocol", sitemap_url: str) -> List[str]:
         return await self._sitemap_parser().parse_sitemap(sitemap_url)

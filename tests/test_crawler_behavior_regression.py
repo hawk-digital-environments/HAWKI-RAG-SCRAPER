@@ -10,11 +10,11 @@ from crawl4ai.async_configs import CacheMode
 
 from hawki_crawler.app import job_lifecycle
 from hawki_crawler.crawler.models import CrawlConfig, CrawlStatus
+from hawki_crawler.crawler.assets.asset_downloader import AssetDownloader
 from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.assets.file_downloader import FileDownloader
 from hawki_crawler.crawler.assets.image_downloader import ImageDownloader
-from hawki_crawler.crawler.assets.resource_detector import ResourceDetector
 from hawki_crawler.crawler.core.execution import execution_mixin as execution_module
 from hawki_crawler.crawler.core.execution.execution_mixin import ServiceCrawlExecutionMixin
 from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
@@ -40,13 +40,19 @@ from hawki_crawler.crawler.core.runtime.run_config import build_crawler_run_conf
 from hawki_crawler.crawler.core.service import CrawlerService
 from hawki_crawler.crawler.parsing.content_helpers import clean_html_for_markdown, finalize_markdown_content
 from hawki_crawler.crawler.parsing.date_language import DateLanguageService
+from hawki_crawler.crawler.parsing.page_extractor import PageExtractor
+from hawki_crawler.crawler.parsing.resource_parser import ResourceParser
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicy
 from hawki_crawler.crawler.policies.url_normalization import normalize_url
 from hawki_crawler.crawler.policies.url_policy import UrlPolicyService
 from hawki_crawler.crawler.sitemap.sitemap_mixin import ServiceSitemapMixin
+from hawki_crawler.crawler.sitemap.parser import SitemapParser
 from hawki_crawler.crawler.sitemap.runtime_state import build_sitemap_runtime_state
 from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
 from hawki_crawler.crawler.storage.page_output import build_page_metadata, determine_content_status
+from hawki_crawler.crawler.storage.file_browser import FileBrowser
+from hawki_crawler.crawler.storage.page_data_store import PageDataStore
 from hawki_crawler.crawler.storage.runtime_directories import (
     create_runtime_page_directory,
     setup_output_directory,
@@ -158,7 +164,7 @@ class _FreshRescrapeService(ServiceCrawlExecutionMixin):
     async def setup_directories(self) -> None:
         pass
 
-    async def is_sitemap(self, url: str) -> bool:
+    def is_sitemap(self, url: str) -> bool:
         return False
 
     def lookup_sitemap_entry(self, url: str):
@@ -284,6 +290,30 @@ def test_date_language_service_detects_language_by_precedence() -> None:
         None,
     ) == "ES-MX"
     assert service.detect_language("<html></html>", None) is None
+
+
+def test_stateless_service_helpers_are_callable_on_classes(tmp_path) -> None:
+    assert SitemapService.normalize_url_key("https://www.example.com/page/") == "example.com/page"
+    assert SitemapService.normalize_sitemap_meta({"lastmod": "2026-01-01"}) == {
+        "lastmod": "2026-01-01",
+        "last_modified": "2026-01-01",
+    }
+    assert SitemapService.get_sitemap_date({"lastmod": "2026-01-01"}) == "2026-01-01"
+    assert SitemapService.parse_http_date(
+        "Wed, 20 May 2026 10:00:00 GMT"
+    ) == "2026-05-20T10:00:00+00:00"
+    assert SitemapParser.is_sitemap("https://example.com/sitemap.xml") is True
+
+    soup = BeautifulSoup('<meta name="keywords" content="one, two">', "html.parser")
+    assert PageExtractor.extract_tags(soup) == ["one", "two"]
+    assert PageExtractor.fix_mojibake("GrÃ¼n") == "Grün"
+    assert PageExtractor.extract_result_markdown(SimpleNamespace(markdown="content")) == "content"
+    assert DateLanguageService.parse_date_string(
+        "Wed, 20 May 2026 10:00:00 GMT"
+    ) == "2026-05-20T10:00:00+00:00"
+
+    assert isinstance(PageDataStore.__dict__["_write_diagnostic"], staticmethod)
+    assert FileBrowser.get_file_type(tmp_path / "report.pdf") == "application/pdf"
 
 
 @pytest.mark.asyncio
@@ -928,6 +958,7 @@ async def test_runtime_directories_delegate_or_create_legacy_paths(tmp_path) -> 
 
 def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
     policy = AssetPolicy()
+    parser = ResourceParser(policy)
     html = """
     <a href="/files/report.pdf?download=1">Report</a>
     <a href="/files/data.csv">Data</a>
@@ -935,10 +966,10 @@ def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
     <a href="/page">Page</a>
     """
 
-    assert policy.extract_pdf_links(html, "https://example.com/base/") == [
+    assert parser.extract_pdf_links(html, "https://example.com/base/") == [
         "https://example.com/files/report.pdf?download=1",
     ]
-    assert policy.extract_file_links(html, "https://example.com/base/") == [
+    assert parser.extract_file_links(html, "https://example.com/base/") == [
         "https://example.com/files/data.csv",
     ]
     assert policy.looks_like_file_url("https://example.com/media/12345") is True
@@ -957,12 +988,53 @@ def test_asset_policy_classifies_links_and_filenames_without_network() -> None:
         "app.exe",
         "application/x-msdownload",
     ) is True
-    assert policy.pdf_filename_from_url("https://example.com/März Bericht.pdf") == "Maerz_Bericht.pdf"
-    assert policy.file_filename_from_response(
+    assert parser.pdf_filename_from_url("https://example.com/März Bericht.pdf") == "Maerz_Bericht.pdf"
+    assert parser.file_filename_from_response(
         "https://example.com/download",
         "text/csv",
         "attachment; filename=fächer liste.csv",
     ) == "faecher_liste.csv"
+
+
+def test_resource_policy_and_parser_have_separate_responsibilities() -> None:
+    policy = ResourcePolicy(crawl_host="example.com")
+    parser = ResourceParser(policy)
+    html = """
+    <a href="/files/report.pdf?download=1">Report</a>
+    <a href="/files/data.csv">Data</a>
+    <a href="/videos/demo.mp4">Video</a>
+    """
+
+    assert not hasattr(policy, "extract_pdf_links")
+    assert ResourcePolicy.is_pdf_url(
+        "https://example.com/files/report.pdf?download=1"
+    ) is True
+    assert ResourcePolicy.is_file_resource(
+        "https://example.com/files/data.csv"
+    ) is True
+    assert ResourceParser.pdf_filename_from_url(
+        "https://example.com/files/report.pdf"
+    ) == "report.pdf"
+    assert policy.is_pdf_url("https://example.com/files/report.pdf?download=1") is True
+    assert policy.is_file_url("https://example.com/files/data.csv") is True
+    assert policy.is_video_url("https://example.com/videos/demo.mp4") is True
+    assert parser.extract_pdf_links(html, "https://example.com/") == [
+        "https://example.com/files/report.pdf?download=1",
+    ]
+    assert parser.extract_file_links(html, "https://example.com/") == [
+        "https://example.com/files/data.csv",
+    ]
+
+
+def test_crawler_service_shares_resource_policy_with_parser() -> None:
+    service = CrawlerService(
+        CrawlConfig(job_id="resource-services", url="https://example.com")
+    )
+
+    assert isinstance(service.resource_policy, ResourcePolicy)
+    assert isinstance(service._resource_parser, ResourceParser)
+    assert service._resource_parser.resource_policy is service.resource_policy
+    assert service.is_sitemap("https://example.com/sitemap.xml") is True
 
 
 @pytest.mark.asyncio
@@ -1047,7 +1119,7 @@ async def test_image_downloader_saves_supported_image_without_network(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_resource_detector_fetches_and_classifies_head_resources() -> None:
+async def test_asset_downloader_fetches_head_and_policy_classifies_resource() -> None:
     class FakeRateLimiter:
         def __init__(self) -> None:
             self.calls = 0
@@ -1073,31 +1145,29 @@ async def test_resource_detector_fetches_and_classifies_head_resources() -> None
             self.requested.append((url, kwargs))
             return FakeHeadResponse()
 
-    async def fake_fetch_head(_url):
-        return 200, {"content-type": "application/octet-stream"}
-
     rate_limiter = FakeRateLimiter()
     session = FakeHeadSession()
-    detector = ResourceDetector(
+    policy = ResourcePolicy()
+    downloader = AssetDownloader(
         rate_limiter=rate_limiter,
         http_session=session,
-        logger=logging.getLogger("test.resource_detector"),
-    )
-    detector_with_override = ResourceDetector(
-        rate_limiter=rate_limiter,
-        http_session=None,
-        logger=logging.getLogger("test.resource_detector"),
-        fetch_head=fake_fetch_head,
+        headers={},
+        asset_saver=object(),
+        logger=logging.getLogger("test.asset_downloader"),
+        resource_policy=policy,
     )
 
-    status, headers = await detector.fetch_head("https://example.com/report")
+    status, headers = await downloader.fetch_head("https://example.com/report")
 
     assert status == 200
     assert headers["content-type"] == "Application/PDF"
     assert headers["x-test"] == "yes"
     assert rate_limiter.calls == 1
-    assert await detector.is_pdf_resource("https://example.com/report", head_headers=headers) is True
-    assert await detector_with_override.is_file_resource("https://example.com/download") is True
+    assert policy.is_pdf_resource("https://example.com/report", headers) is True
+    assert policy.is_file_resource(
+        "https://example.com/download",
+        {"content-type": "application/octet-stream"},
+    ) is True
 
 
 @pytest.mark.asyncio

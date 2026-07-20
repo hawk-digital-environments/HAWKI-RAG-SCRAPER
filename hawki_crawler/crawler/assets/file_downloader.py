@@ -9,8 +9,9 @@ from typing import Any, Dict, Optional
 import aiohttp
 from aiohttp.http_exceptions import ContentLengthError
 
-from hawki_crawler.crawler.assets.asset_policy import AssetPolicy
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
+from hawki_crawler.crawler.parsing.resource_parser import ResourceParser
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicy
 
 
 class FileDownloader:
@@ -23,13 +24,16 @@ class FileDownloader:
         headers: Dict[str, str],
         asset_saver: AssetSaver,
         logger: Optional[Any] = None,
-        policy: Optional[AssetPolicy] = None,
+        resource_policy: Optional[ResourcePolicy] = None,
+        resource_parser: Optional[ResourceParser] = None,
+        policy: Optional[ResourcePolicy] = None,
     ) -> None:
         self.rate_limiter = rate_limiter
         self.headers = headers
         self.asset_saver = asset_saver
         self.logger = logger or logging.getLogger("crawler")
-        self.policy = policy or AssetPolicy()
+        self.resource_policy = resource_policy or policy or ResourcePolicy()
+        self.resource_parser = resource_parser or ResourceParser(self.resource_policy)
 
     async def fetch_and_save_pdf(
         self,
@@ -58,8 +62,9 @@ class FileDownloader:
                         timeout=aiohttp.ClientTimeout(total=60),
                     ) as response:
                         content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-                        if response.status not in (200, 206) or (
-                            "pdf" not in content_type and not pdf_url.lower().split("?")[0].endswith(".pdf")
+                        if response.status not in (200, 206) or not self.resource_policy.is_pdf_resource(
+                            pdf_url,
+                            {"content-type": content_type},
                         ):
                             return None
 
@@ -79,7 +84,7 @@ class FileDownloader:
                                 continue
                             return None
 
-                        filename = self.policy.pdf_filename_from_url(pdf_url)
+                        filename = self.resource_parser.pdf_filename_from_url(pdf_url)
 
                         result = await self.asset_saver.save_file_bytes(
                             file_url=pdf_url,
@@ -154,12 +159,16 @@ class FileDownloader:
                                 continue
                             return None
 
-                        filename = self.policy.file_filename_from_response(
+                        filename = self.resource_parser.file_filename_from_response(
                             file_url,
                             content_type,
                             content_disposition,
                         )
-                        if self.policy.should_skip_file_download(file_url, filename, content_type):
+                        if self.resource_policy.should_skip_file_download(
+                            file_url,
+                            filename,
+                            content_type,
+                        ):
                             return None
 
                         result = await self.asset_saver.save_file_bytes(

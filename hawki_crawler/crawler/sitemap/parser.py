@@ -35,7 +35,8 @@ class SitemapParser:
         self.url_tracking_manager = url_tracking_manager
         self.job_id = job_id
 
-    async def is_sitemap(self, url: str) -> bool:
+    @staticmethod
+    def is_sitemap(url: str) -> bool:
         """Return True when a URL looks like a sitemap resource."""
         url_lower = url.lower()
         if "sitemap" in url_lower or url_lower.endswith(".xml"):

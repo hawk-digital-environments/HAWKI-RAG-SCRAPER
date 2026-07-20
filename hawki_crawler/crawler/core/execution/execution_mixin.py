@@ -9,6 +9,7 @@ from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig
 
 from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicyClientMixin
 from hawki_crawler.crawler.state.stage import Stage
 from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceCrawlExecutionMixinProtocol
 
 
-class ServiceCrawlExecutionMixin:
+class ServiceCrawlExecutionMixin(ResourcePolicyClientMixin):
     """Main crawl workflow for one crawler job.
 
     This mixin owns the high-level crawl loop: pick URLs, crawl or download
@@ -126,7 +127,7 @@ class ServiceCrawlExecutionMixin:
             if self.job_state:
                 await self.job_state.set_current_url(url)
 
-            if self.url_policy.is_video_url(url):
+            if self.resource_policy.is_video_url(url):
                 self.job_logger.info("Skipping video URL: %s", url)
                 if self.url_tracking_manager:
                     await self.url_tracking_manager.set_completed(url, None)
@@ -178,7 +179,7 @@ class ServiceCrawlExecutionMixin:
                 return
 
             page_data = None
-            if await self.is_pdf_resource(url, head_status, head_headers):
+            if self.resource_policy.is_pdf_resource(url, head_headers):
                 # Direct PDF URLs are saved as file metadata without rendering a page.
                 pdf_entry = await self.fetch_and_save_pdf(
                     url,
@@ -217,7 +218,7 @@ class ServiceCrawlExecutionMixin:
                         'markdown': '',
                         'html_content': ''
                     }
-            elif await self.is_file_resource(url, head_status, head_headers):
+            elif self.resource_policy.is_file_resource(url, head_headers):
                 # Office documents and other supported files are downloaded directly.
                 file_entry = await self.fetch_and_save_file(
                     url,
@@ -289,7 +290,10 @@ class ServiceCrawlExecutionMixin:
                 file_entries = page_data['data'].get('files', [])
 
                 if page_data.get('html_content'):
-                    pdf_links = self.extract_pdf_links(page_data['html_content'], url)
+                    pdf_links = self._resource_parser.extract_pdf_links(
+                        page_data['html_content'],
+                        url,
+                    )
                     if pdf_links:
                         async with aiohttp.ClientSession(headers=self.headers) as pdf_session:
                             for pdf_url in pdf_links:
@@ -303,7 +307,10 @@ class ServiceCrawlExecutionMixin:
                                 if pdf_entry:
                                     pdf_entries.append(pdf_entry)
 
-                    file_links = self.extract_file_links(page_data['html_content'], url)
+                    file_links = self._resource_parser.extract_file_links(
+                        page_data['html_content'],
+                        url,
+                    )
                     if file_links:
                         async with aiohttp.ClientSession(headers=self.headers) as file_session:
                             for file_url in file_links:
@@ -351,7 +358,7 @@ class ServiceCrawlExecutionMixin:
                     for new_url in new_urls:
                         if self.abort_crawl:
                             break
-                        new_url = self.url_policy.normalize_url(new_url)
+                        new_url = self.resource_policy.normalize_url(new_url)
                         if urlparse(new_url).path.lower().endswith("piwik.php"):
                             continue
                         if new_url not in self.visited_urls and new_url not in self.to_visit:
@@ -426,7 +433,10 @@ class ServiceCrawlExecutionMixin:
                 await self._wait_if_paused()
                 continue
 
-            batch_html = [url for url in batch if not self.looks_like_file_url(url)]
+            batch_html = [
+                url for url in batch
+                if not self.resource_policy.looks_like_file_url(url)
+            ]
             batch_direct = [url for url in batch if url not in batch_html]
 
             results_by_url = {}
@@ -480,7 +490,7 @@ class ServiceCrawlExecutionMixin:
             if self.url_tracking_manager:
                 await self.url_tracking_manager.initialize()
                 removed = await self.url_tracking_manager.purge_forbidden_hosts(
-                    list(self.url_policy.get_forbidden_hosts())
+                    list(self.resource_policy.get_forbidden_hosts())
                 )
                 if removed:
                     self.job_logger.info("Removed %s forbidden URLs from tracking state", removed)
@@ -495,7 +505,7 @@ class ServiceCrawlExecutionMixin:
                 tracked = await self.url_tracking_manager.get_all_urls()
                 if tracked:
                     for url, meta in tracked.items():
-                        if self.url_policy.is_forbidden_url(url):
+                        if self.resource_policy.is_forbidden_url(url):
                             continue
                         status = (meta or {}).get("status")
                         if status in ("pending", "failed", "processing"):
@@ -542,7 +552,7 @@ class ServiceCrawlExecutionMixin:
                     self.job_id,
                     len(self.to_visit),
                 )
-            if not resume_urls and await self.is_sitemap(start_url):
+            if not resume_urls and self.is_sitemap(start_url):
                 # Sitemap entrypoint: parse the sitemap and seed the crawl queue.
                 self.job_logger.info("Detected sitemap: %s", start_url)
                 urls = await self.parse_sitemap(start_url)
@@ -667,7 +677,7 @@ class ServiceCrawlExecutionMixin:
                     await self.wait_for_memory_relief()
 
                 for retry_url in restart_urls:
-                    if self.url_policy.is_forbidden_url(retry_url):
+                    if self.resource_policy.is_forbidden_url(retry_url):
                         continue
                     if retry_url not in self.to_visit:
                         self.to_visit.insert(0, retry_url)
@@ -675,7 +685,11 @@ class ServiceCrawlExecutionMixin:
                 if self.config.rescrape_failed and self.url_tracking_manager:
                     # Optional cleanup pass: retry failed URLs for this job.
                     failed_urls = await self.url_tracking_manager.get_urls_by_status(["failed"])
-                    failed_urls = [url for url in failed_urls if not self.url_policy.is_forbidden_url(url)]
+                    failed_urls = [
+                        url
+                        for url in failed_urls
+                        if not self.resource_policy.is_forbidden_url(url)
+                    ]
                     if len(failed_urls) > 1:
                         rescrape_round = 0
                         max_rescrape_rounds = 10

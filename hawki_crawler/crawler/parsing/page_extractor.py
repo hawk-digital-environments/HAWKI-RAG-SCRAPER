@@ -65,7 +65,8 @@ class PageExtractor:
             "tag_selectors": profile.get("tag_selectors") or [],
         }
 
-    def extract_tags(self, soup: BeautifulSoup, selectors: Optional[List[str]] = None) -> List[str]:
+    @staticmethod
+    def extract_tags(soup: BeautifulSoup, selectors: Optional[List[str]] = None) -> List[str]:
         tags: List[str] = []
         default_selectors = ["meta[property='article:tag']", "meta[name='keywords']"]
         for selector in (selectors or []) + default_selectors:
@@ -82,7 +83,8 @@ class PageExtractor:
                 continue
         return tags
 
-    def fix_mojibake(self, text: str) -> str:
+    @staticmethod
+    def fix_mojibake(text: str) -> str:
         """Attempt to fix UTF-8 text that was decoded as latin-1/Windows-1252."""
         if not text:
             return text
@@ -96,7 +98,8 @@ class PageExtractor:
         repaired_score = repaired.count("Ã") + repaired.count("â")
         return repaired if repaired_score < original_score else text
 
-    def extract_result_markdown(self, result: Any) -> str:
+    @staticmethod
+    def extract_result_markdown(result: Any) -> str:
         """Return Crawl4AI markdown text regardless of whether it is stored as str or object."""
         markdown = getattr(result, "markdown", None)
         if not markdown:
