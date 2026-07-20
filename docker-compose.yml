@@ -16,9 +16,6 @@ services:
       - JOB_LOG_FILE_LEVEL=${JOB_LOG_FILE_LEVEL:-INFO}
       # Maximum concurrent crawl tasks
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-5}
-      # Optional LLM Provider Keys (for advanced crawl4ai features)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Data storage path for job files
       - DATA_PATH=${DATA_PATH:-/var/www/html/shared}
       - PUID=${PUID:-1000}
