@@ -178,9 +178,11 @@ class _FreshRescrapeService(ServiceCrawlExecutionMixin):
         self.to_visit = []
 
 
-def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) -> None:
+def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path, monkeypatch) -> None:
     rules_file = tmp_path / "forbidden_urls.txt"
     rules_file.write_text("blocked.example\n/private\n", encoding="utf-8")
+    missing_environment_file = tmp_path / "missing-forbidden-urls.txt"
+    monkeypatch.setenv("FORBIDDEN_URLS_FILE", str(missing_environment_file))
     service = UrlPolicyService(
         site_profile={
             "forbidden": {
@@ -191,6 +193,10 @@ def test_url_policy_blocks_forbidden_hosts_patterns_and_contact_forms(tmp_path) 
         }
     )
 
+    forbidden_files = service.get_forbidden_files()
+    assert rules_file in forbidden_files
+    assert missing_environment_file not in forbidden_files
+    assert all(path.is_file() for path in forbidden_files)
     assert service.is_forbidden_url("https://blocked.example/page") is True
     assert service.is_forbidden_url("https://sub.profile-blocked.example/page") is True
     assert service.is_forbidden_url("https://example.com/private/page") is True
