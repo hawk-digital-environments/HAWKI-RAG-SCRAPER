@@ -101,11 +101,10 @@ cancel:
 build:
 	docker compose build
 
-# Start Docker services in the background, then launch the UI dev server in the
-# foreground. Stop the UI with Ctrl+C; Docker services continue until `make down`.
+# Build and start the containerized crawler API and production UI.
 up:
 	docker compose up --build -d
-	$(MAKE) start-ui
+	@echo "UI available at http://localhost:8041/ui/"
 
 # Stop and remove Docker Compose containers and networks for this project.
 down:
@@ -168,7 +167,7 @@ help:
 	@printf "%-28s %s\n" "cancel"                   "Cancel a job: make cancel <job_id> or make cancel JOB_ID=<id>."
 	@printf "%-28s %s\n" "clean-shared"             "Remove shared data for a job: make clean-shared <job_id>."
 	@printf "%-28s %s\n" "build"                    "Build the crawler service."
-	@printf "%-28s %s\n" "up"                       "Build and start the crawler service, then start the UI."
+	@printf "%-28s %s\n" "up"                       "Build and start the containerized API and UI."
 	@printf "%-28s %s\n" "down"                     "Stop the crawler service."
 	@printf "%-28s %s\n" "logs"                     "Show live service logs."
 	@printf "%-28s %s\n" "start-ui"                 "Install deps, audit fix, and start UI dev server."
