@@ -37,27 +37,29 @@ class ResourcePolicy:
     def discovery_profile(self) -> Dict[str, Any]:
         return (self.site_profile or {}).get("discovery", {}) or {}
 
-    def get_forbidden_file_candidates(self) -> List[Path]:
-        profile_file = self.forbidden_profile.get("rules_file")
-        candidates = []
-        if profile_file:
+    def get_forbidden_files(self) -> List[Path]:
+        """Return configured forbidden-rule paths that point to existing files."""
+        candidates: List[Path] = []
+
+        if profile_file := self.forbidden_profile.get("rules_file"):
             candidates.append(Path(profile_file))
+
+        if environment_file := os.getenv("FORBIDDEN_URLS_FILE"):
+            candidates.append(Path(environment_file))
+
         candidates.extend(
             [
-                Path(os.getenv("FORBIDDEN_URLS_FILE", "")),
                 Path("/var/www/html/forbidden_urls.txt"),
                 Path("/var/www/html/shared/forbidden_urls.txt"),
                 Path("forbidden_urls.txt"),
             ]
         )
-        return candidates
+        return [path for path in candidates if path.is_file()]
 
     def get_forbidden_hosts(self) -> Set[str]:
         """Load forbidden hosts from the site profile and forbidden URL files."""
         hosts = {str(host).lower() for host in self.forbidden_profile.get("hosts", [])}
-        for path in self.get_forbidden_file_candidates():
-            if not path or str(path) == "." or not path.exists():
-                continue
+        for path in self.get_forbidden_files():
             try:
                 with path.open("r", encoding="utf-8") as file:
                     for line in file:
@@ -77,9 +79,7 @@ class ResourcePolicy:
             str(pattern).lower()
             for pattern in self.forbidden_profile.get("url_patterns", [])
         ]
-        for path in self.get_forbidden_file_candidates():
-            if not path or str(path) == "." or not path.exists():
-                continue
+        for path in self.get_forbidden_files():
             try:
                 with path.open("r", encoding="utf-8") as file:
                     for line in file:
