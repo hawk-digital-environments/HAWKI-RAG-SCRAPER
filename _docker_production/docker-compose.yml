@@ -1,0 +1,91 @@
+# This docker compose file defines the services for the production environment
+# of the HAWKI RAG Scraper application. It is the pull-only counterpart of the
+# build-based docker-compose.yml in the repository root: instead of building
+# the image from source, the single scraper image is pulled from the registry,
+# pinned to the version configured through HAWKI_RAG_SCRAPER_VERSION in the
+# .env file. For our own servers that registry is ghcr.io (see the
+# deploy-scraper-*.yml workflows); public deployments pull the Docker Hub
+# releases from publish-version.yml.
+#
+# The scraper runs as a single standalone service: the image is self-contained
+# (nginx, gunicorn with the FastAPI crawl API, the SvelteKit frontend server
+# and the Playwright chromium browser all live inside it), it joins no shared
+# network, and everything reaches it through the published port. Start the
+# stack with deploy.sh, which pulls a fresh image and starts the service.
+services:
+    # The HAWKI RAG Scraper. Serves the admin UI under /ui/ and the crawl API
+    # at / through the nginx + gunicorn + node trio shipped inside the image.
+    # Profiles, task definitions and crawl results live in named volumes, so
+    # they survive image updates without any host paths.
+    crawler:
+        container_name: hawki_rag_scraper
+        image: ${HAWKI_RAG_SCRAPER_IMAGE_REPOSITORY:-digitalenvironments/hawki-rag-scraper}:${HAWKI_RAG_SCRAPER_VERSION:-latest}
+        pull_policy: always
+        env_file:
+            - .env
+        environment:
+            # The image default, set explicitly so a stray ENVIRONMENT entry
+            # in .env cannot flip the stack into development tuning.
+            ENVIRONMENT: production
+        volumes:
+            # Crawl profiles the UI manages.
+            - profiles_storage:/var/www/html/profiles
+            # UI task definitions (cron schedules per profile).
+            - tasks_storage:/var/www/html/tasks
+            # Crawl output directory, kept for backwards compatibility.
+            - output_storage:/var/www/html/output
+            # Hosts and URL patterns the scraper must never visit. Edit the
+            # copy in this directory; empty lines and "#" comments are fine.
+            - ./forbidden_urls.txt:/var/www/html/forbidden_urls.txt
+            # Shared memory for Playwright (prevents chromium crashes).
+            - /dev/shm:/dev/shm
+            # Crawl results land here. The volume carries the same fixed name
+            # as in the HAWKI RAG production stack (rawki_shared_storage), so
+            # the crawled data stays reachable for that stack too: whichever
+            # stack starts first creates the volume, the other reuses it.
+            - shared_storage:/var/www/html/shared
+            # Name your own certificates cert.pem and key.pem in ./certs to
+            # serve HTTPS directly; without them the container self-signs.
+            - ./certs:/container/custom/certs
+        ports:
+            # Bind the scraper to a host port (loopback by default) so an
+            # external reverse proxy can forward traffic to it. Point
+            # DOCKER_PROJECT_IP in the .env file at the interface the proxy
+            # expects, or change HAWKI_RAG_SCRAPER_PORT if 8041 is taken.
+            - ${DOCKER_PROJECT_IP:-127.0.0.1}:${HAWKI_RAG_SCRAPER_PORT:-8041}:80
+        restart: always
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+        # Resource limits (adjust based on your needs). The memory headroom
+        # matters most: the Playwright chromium instances the crawler spawns
+        # are the biggest driver.
+        deploy:
+            resources:
+                limits:
+                    cpus: '2'
+                    memory: 8G
+                reservations:
+                    cpus: '1'
+                    memory: 1G
+        # Crawl jobs are chatty, so keep the json-file log driver bounded.
+        logging:
+            options:
+                max-size: "128m"
+                max-file: "3"
+
+volumes:
+    # Crawl results: same fixed name as in the HAWKI RAG production stack, so
+    # both stacks can share the data volume even though this stack joins no
+    # shared network. NOTE: "docker compose down -v" would remove this volume
+    # and its crawled data - use plain "docker compose down".
+    shared_storage:
+        name: rawki_shared_storage
+    # Private data volumes of this stack; compose creates them on first
+    # start and keeps them across container and image updates.
+    profiles_storage:
+    tasks_storage:
+    output_storage:
