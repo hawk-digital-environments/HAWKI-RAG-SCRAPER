@@ -23,13 +23,11 @@ System design and technical architecture:
 - UI-to-backend data mapping
 
 ### [Deployment Guide](./DEPLOYMENT.md)
-Production deployment instructions:
-- Docker deployment
-- Kubernetes deployment
-- Systemd service setup
-- Nginx reverse proxy configuration
-- SSL/TLS setup
-- Monitoring and logging
+Production deployment with the prebuilt Docker image:
+- The `_docker_production` Compose setup
+- Image version pinning (Docker Hub and internal registry)
+- Reverse proxy and HTTPS
+- Backups, troubleshooting and upgrades
 
 ### [Configuration Guide](./CONFIGURATION.md)
 Advanced configuration options:
