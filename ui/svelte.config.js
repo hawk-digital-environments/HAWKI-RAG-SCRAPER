@@ -9,7 +9,9 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		paths: {
-			base: '/ui'
+			// Configurable at build time via the PUBLIC_API_BASE_URL build arg
+			// (see the Dockerfile); falls back to the default public UI path.
+			base: process.env.PUBLIC_API_BASE_URL || '/ui'
 		}
 	}
 };

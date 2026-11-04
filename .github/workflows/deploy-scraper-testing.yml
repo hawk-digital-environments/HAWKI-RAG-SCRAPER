@@ -74,6 +74,12 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # SvelteKit/Vite inline PUBLIC_* values into the bundle at build
+          # time, so the UI base path has to be injected as a build arg. The
+          # default lives in the Dockerfile (/ui); set the repository
+          # variable PUBLIC_API_BASE_URL to deploy under a different path.
+          build-args: |
+            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL || '/ui' }}
 
   deploy:
     runs-on: ubuntu-latest
