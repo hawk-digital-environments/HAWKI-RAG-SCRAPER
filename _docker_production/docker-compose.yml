@@ -17,7 +17,7 @@ services:
     # at / through the nginx + gunicorn + node trio shipped inside the image.
     # Profiles, task definitions and crawl results live in named volumes, so
     # they survive image updates without any host paths.
-    crawler:
+    scraper:
         container_name: hawki_rag_scraper
         image: ${HAWKI_RAG_SCRAPER_IMAGE_REPOSITORY:-digitalenvironments/hawki-rag-scraper}:${HAWKI_RAG_SCRAPER_VERSION:-latest}
         pull_policy: always
@@ -61,7 +61,7 @@ services:
             retries: 3
             start_period: 40s
         # Resource limits (adjust based on your needs). The memory headroom
-        # matters most: the Playwright chromium instances the crawler spawns
+        # matters most: the Playwright chromium instances the scraper spawns
         # are the biggest driver.
         deploy:
             resources:
