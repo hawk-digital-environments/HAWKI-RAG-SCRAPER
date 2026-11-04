@@ -66,7 +66,7 @@ the volume already carries data from another stack.
 
 The compose file defines one service:
 
-* `crawler` - The complete scraper. Inside the image, supervisor manages three
+* `scraper` - The complete scraper. Inside the image, supervisor manages three
   processes: nginx (port 80, health-checked via `/health`), gunicorn serving
   the FastAPI crawl API, and the SvelteKit frontend server (the admin UI at
   `/ui/`). Playwright's chromium ships inside the image, so crawl jobs render
@@ -177,7 +177,7 @@ official image.
 
 | Symptom | Where to look |
 |---|---|
-| Container never becomes healthy | `docker compose logs crawler`; the API answers `/health` only after startup finished |
+| Container never becomes healthy | `docker compose logs scraper`; the API answers `/health` only after startup finished |
 | UI loads, form posts fail with 403 | `ORIGIN` does not match the public URL the browser uses |
 | Crawl jobs die with chromium errors | Shared memory or RAM: keep the `/dev/shm` mount, check the memory limit in the compose file |
 | `port is already allocated` | Set `HAWKI_RAG_SCRAPER_PORT` to a free port |
