@@ -1,56 +1,66 @@
-# Python
-__pycache__/
+# Version control / CI
+.git/
+.gitignore
+.gitattributes
+.github/
+_changelog
+
+# Python build artifacts
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *$py.class
 *.so
 .Python
-*.egg-info/
+**/*.egg-info/
 dist/
 build/
 
-# Virtual environments
+# Virtual environments (any local setup)
 env/
 venv/
 ENV/
 crawl4ai-env/
+**/.venv/
 
-# IDE
+# IDE / editor / OS droppings
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.DS_Store
+*.log
 
-# Git
-.git/
-.gitignore
-.gitattributes
+# Testing scratch files at the repo root
+test*.py
 
-# Documentation (not needed in container)
+# Documentation (not needed inside the container)
 *.md
 !README.md
 
-# Output data (will be mounted as volume)
-output/
+# Node / UI local build state - must not leak into the build context, where
+# it would bloat transfers and invalidate the COPY layers on every local
+# install/build
+ui/node_modules/
+ui/.svelte-kit/
+ui/build/
+ui/.env*
 
-# Environment files
+# Output data (mounted as volume at runtime)
+output/
+shared/
+
+# Runtime data that is mounted into the container at runtime, never baked
+# into the image
+profiles/
+tasks/
+
+# Environment files (builds get their values from build args instead)
 .env
 .env.local
 
-# Docker
+# Docker / compose definitions not needed inside the image
 Dockerfile
 docker-compose.yml
 .dockerignore
-
-# Testing
-test*.py
-
-# Node
-ui/node_modules/
-ui/.svelte-kit/
-
-# macOS
-.DS_Store
-
-# Logs
-*.log
