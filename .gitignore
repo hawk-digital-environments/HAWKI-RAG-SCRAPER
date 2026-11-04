@@ -64,3 +64,7 @@ data/jobs
 !.vscode/*
 .vscode/settings.json
 !.devcontainer/*
+
+# The production deployment example ships the forbidden-urls sample file,
+# even though "*.txt" is ignored for the runtime data it collects.
+!_docker_production/forbidden_urls.txt
