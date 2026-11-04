@@ -27,7 +27,6 @@ Create a `.env` file in the project root:
 # .env
 
 # API Configuration
-CRAWL4AI_API_TOKEN=your_secure_token_here
 API_HOST=0.0.0.0
 API_PORT=8000
 API_WORKERS=4
@@ -71,7 +70,6 @@ API_WORKERS = int(os.getenv("API_WORKERS", "4"))
 services:
   crawler:
     environment:
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
       - MAX_CONCURRENT_TASKS=5
       - LOG_LEVEL=INFO
       - HEADLESS_BROWSER=true

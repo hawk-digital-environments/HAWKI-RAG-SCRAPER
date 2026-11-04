@@ -8,8 +8,6 @@ services:
     ports:
       - "8041:80"
     environment:
-      # Optional API security token
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-text}
