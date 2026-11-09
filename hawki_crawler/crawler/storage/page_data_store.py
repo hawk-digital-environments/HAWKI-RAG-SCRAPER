@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict
 
-import aiofiles
-
 from hawki_crawler.crawler.storage.page_output import DIAGNOSTICS_DIRNAME
+from hawki_crawler.runtime.writes import AsyncFile
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 
 class PageDataStore:
@@ -81,11 +81,11 @@ class PageDataStore:
     ) -> None:
         page_dir = await self.create_page_directory(page_number)
         json_filename = page_dir / "data.json"
-        async with aiofiles.open(json_filename, "w", encoding="utf-8") as f:
+        async with AsyncFile(json_filename, "w", encoding="utf-8") as f:
             await f.write(json.dumps(page_data["data"], indent=2, ensure_ascii=False, allow_nan=False))
 
         md_filename = page_dir / "content.md"
-        async with aiofiles.open(md_filename, "w", encoding="utf-8") as f:
+        async with AsyncFile(md_filename, "w", encoding="utf-8") as f:
             await f.write(page_data["markdown"] if page_data["markdown"] else "")
 
         if low_quality_content:
@@ -97,7 +97,7 @@ class PageDataStore:
 
     @staticmethod
     async def _write_diagnostic(diagnostics_dir: Path, filename: str, content: str) -> None:
-        diagnostics_dir.mkdir(exist_ok=True)
+        guarded_mkdir(diagnostics_dir, exist_ok=True)
         diagnostic_file = diagnostics_dir / filename
-        async with aiofiles.open(diagnostic_file, "w", encoding="utf-8") as f:
+        async with AsyncFile(diagnostic_file, "w", encoding="utf-8") as f:
             await f.write(content)

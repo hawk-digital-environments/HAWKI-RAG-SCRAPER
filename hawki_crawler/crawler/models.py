@@ -1,13 +1,19 @@
-from pydantic import BaseModel, Field, HttpUrl, ConfigDict, model_validator
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class CrawlConfig(BaseModel):
     """Configuration for crawl job"""
     model_config = ConfigDict(populate_by_name=True)
 
-    job_id: str = Field(..., description="Unique identifier for the crawl job")
+    job_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,190}$", description="Permanent crawl identity; never reused")
+    source_id: Optional[str] = None
+    source_url: Optional[str] = None
+    generation: Optional[int] = None
+    url_ingestion_operation_id: Optional[str] = None
+    metadata: Optional[dict] = None
     url: HttpUrl = Field(..., description="The starting URL to crawl")
     max_pages: int = Field(default=100, ge=0, description="Maximum number of pages to crawl (0 = unlimited)")
     output_dir: str = Field(default="output", description="Directory to store crawled data")
@@ -36,6 +42,14 @@ class CrawlConfig(BaseModel):
     sitemap_pages: Optional[int] = Field(default=None, description="Number of sitemap pages to scrape")
     wait_until: str = Field(default="domcontentloaded", description="Playwright waitUntil condition")
     page_timeout_ms: int = Field(default=90000, ge=1, description="Page timeout in milliseconds")
+
+    @model_validator(mode="after")
+    def _network_input(self):
+        from hawki_crawler.runtime.network import approve_url
+        approve_url(str(self.url))
+        if self.sitemap_base:
+            approve_url(self.sitemap_base)
+        return self
 
     @model_validator(mode="before")
     @classmethod

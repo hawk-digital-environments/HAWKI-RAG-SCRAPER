@@ -32,16 +32,19 @@ Lifecycle:
 - Final state written when job completes or fails
 """
 
-import json
-import os
 import asyncio
 import hashlib
+import json
 import logging
-from urllib.parse import urlparse
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+import os
 from datetime import datetime
-import aiofiles
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+from hawki_crawler.runtime.writes import AsyncFile, assert_writable
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
+from hawki_crawler.runtime.writes import unlink as guarded_unlink
 
 LOGGER = logging.getLogger("crawler.url_tracking")
 
@@ -153,6 +156,7 @@ class URLTrackingManager:
         Initialize the tracking system.
         Must be called before using the manager.
         """
+        assert_writable(self.index_file)
         # Resume from existing state if present
         if self.chunks_dir.exists():
             chunk_files = list(self.chunks_dir.glob("urls_chunk_*.json"))
@@ -161,8 +165,8 @@ class URLTrackingManager:
                 return
 
         # Create job directory and chunks directory if needed
-        self.job_dir.mkdir(parents=True, exist_ok=True)
-        self.chunks_dir.mkdir(exist_ok=True)
+        guarded_mkdir(self.job_dir, parents=True, exist_ok=True)
+        guarded_mkdir(self.chunks_dir, exist_ok=True)
 
         # Initialize index file
         await self._write_index()
@@ -174,7 +178,9 @@ class URLTrackingManager:
         Args:
             urls_with_dates: List of (url, lastmod_date) tuples
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             timestamp = datetime.utcnow().isoformat() + "Z"
 
             # Count total entries including duplicates
@@ -216,7 +222,9 @@ class URLTrackingManager:
             source: Source of discovery (e.g., "discovery", "seed")
             sitemap_date: Optional sitemap lastmod date if available
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             if self._is_forbidden_url(url):
                 return
             if url not in self.urls:
@@ -244,7 +252,9 @@ class URLTrackingManager:
             url: URL being processed
             page_number: Page number assigned to this URL
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             if url in self.urls:
                 self.urls[url]["status"] = "processing"
                 self.urls[url]["page_number"] = page_number
@@ -260,7 +270,9 @@ class URLTrackingManager:
             url: URL that was completed
             header_dates: Optional dictionary with 'last_modified' and 'date' keys
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             if url in self.urls:
                 timestamp = datetime.utcnow().isoformat() + "Z"
                 self.urls[url]["status"] = "completed"
@@ -284,7 +296,9 @@ class URLTrackingManager:
             url: URL that failed
             error: Error message
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             if url in self.urls:
                 timestamp = datetime.utcnow().isoformat() + "Z"
                 self.urls[url]["status"] = "failed"
@@ -299,7 +313,9 @@ class URLTrackingManager:
         Args:
             url: URL to reset
         """
+        assert_writable(self.index_file)
         async with self.lock:
+            assert_writable(self.index_file)
             if url in self.urls:
                 self.urls[url]["status"] = "pending"
                 self.urls[url]["error"] = None
@@ -359,6 +375,7 @@ class URLTrackingManager:
 
     async def _write_index(self):
         """Write index file with metadata about chunks."""
+        assert_writable(self.index_file)
         try:
             index_data = {
                 "total_entries": self.total_entries_detected,
@@ -367,7 +384,7 @@ class URLTrackingManager:
                 "total_chunks": (len(self.urls) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE if self.urls else 0,
                 "last_updated": datetime.utcnow().isoformat() + "Z"
             }
-            async with aiofiles.open(self.index_file, 'w', encoding='utf-8') as f:
+            async with AsyncFile(self.index_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(index_data, indent=2, ensure_ascii=False))
         except Exception as e:
             LOGGER.warning(
@@ -379,9 +396,10 @@ class URLTrackingManager:
 
     async def _write_chunk(self, chunk_num: int, chunk_data: Dict[str, Dict[str, Any]]):
         """Write a specific chunk to disk."""
+        assert_writable(self.index_file)
         try:
             chunk_file = self._get_chunk_file(chunk_num)
-            async with aiofiles.open(chunk_file, 'w', encoding='utf-8') as f:
+            async with AsyncFile(chunk_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(chunk_data, indent=2, ensure_ascii=False))
         except Exception as e:
             LOGGER.warning(
@@ -401,6 +419,7 @@ class URLTrackingManager:
         1. Chunked files (unique URLs only, split into chunks)
         2. Index file (metadata with total_entries including duplicates)
         """
+        assert_writable(self.index_file)
         try:
             # Organize URLs into chunks
             url_list = list(self.urls.items())
@@ -421,7 +440,7 @@ class URLTrackingManager:
             for chunk_file in self.chunks_dir.glob("urls_chunk_*.json"):
                 if chunk_file.name not in expected:
                     try:
-                        chunk_file.unlink()
+                        guarded_unlink(chunk_file)
                     except Exception as e:
                         LOGGER.warning(
                             "Failed to delete stale URL chunk %s for %s: %s",
@@ -448,7 +467,7 @@ class URLTrackingManager:
         try:
             chunk_file = self._get_chunk_file(chunk_num)
             if chunk_file.exists():
-                async with aiofiles.open(chunk_file, 'r', encoding='utf-8') as f:
+                async with AsyncFile(chunk_file, 'r', encoding='utf-8') as f:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:
@@ -471,7 +490,7 @@ class URLTrackingManager:
             if self.chunks_dir.exists():
                 total_chunks = 0
                 if self.index_file.exists():
-                    async with aiofiles.open(self.index_file, 'r', encoding='utf-8') as f:
+                    async with AsyncFile(self.index_file, 'r', encoding='utf-8') as f:
                         index_data = json.loads(await f.read())
                         total_chunks = index_data.get('total_chunks', 0)
                         self.total_entries_detected = index_data.get('total_entries', 0)
@@ -484,7 +503,7 @@ class URLTrackingManager:
                 else:
                     chunk_files = sorted(self.chunks_dir.glob("urls_chunk_*.json"))
                     for chunk_file in chunk_files:
-                        async with aiofiles.open(chunk_file, 'r', encoding='utf-8') as f:
+                        async with AsyncFile(chunk_file, 'r', encoding='utf-8') as f:
                             chunk_data = json.loads(await f.read())
                         all_urls.update(chunk_data)
                     self.total_entries_detected = len(all_urls)
@@ -505,11 +524,13 @@ class URLTrackingManager:
 
     async def purge_forbidden_hosts(self, forbidden_hosts: List[str]) -> int:
         """Remove URLs matching forbidden hosts and rewrite state files."""
+        assert_writable(self.index_file)
         if not forbidden_hosts:
             return 0
         forbidden = {h.lower() for h in forbidden_hosts}
         removed = 0
         async with self.lock:
+            assert_writable(self.index_file)
             for url in list(self.urls.keys()):
                 host = (urlparse(url).hostname or "").lower()
                 if not host:

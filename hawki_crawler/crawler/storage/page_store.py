@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-import aiofiles
-
 from hawki_crawler.crawler.storage.page_output import (
     CONTENT_FILENAME,
     METADATA_FILENAME,
     PAGE_ROOT_DIRNAME,
 )
+from hawki_crawler.runtime.writes import AsyncFile
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 
 class PageStore:
@@ -33,15 +33,15 @@ class PageStore:
         create_files_dir: bool = False,
     ) -> Path:
         hash_dir = self.get_hash_directory(url_hash)
-        hash_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(hash_dir, parents=True, exist_ok=True)
 
         if create_images_dir:
             images_dir = hash_dir / "images"
-            images_dir.mkdir(exist_ok=True)
+            guarded_mkdir(images_dir, exist_ok=True)
 
         if create_files_dir:
             files_dir = hash_dir / "files"
-            files_dir.mkdir(exist_ok=True)
+            guarded_mkdir(files_dir, exist_ok=True)
 
         return hash_dir
 
@@ -52,38 +52,38 @@ class PageStore:
         create_files_dir: bool = False,
     ) -> Path:
         page_dir = self.get_page_directory(page_number)
-        page_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(page_dir, parents=True, exist_ok=True)
 
         if create_images_dir:
             images_dir = page_dir / "images"
-            images_dir.mkdir(exist_ok=True)
+            guarded_mkdir(images_dir, exist_ok=True)
 
         if create_files_dir:
             files_dir = page_dir / "files"
-            files_dir.mkdir(exist_ok=True)
+            guarded_mkdir(files_dir, exist_ok=True)
 
         return page_dir
 
     async def save_hash_json(self, url_hash: str, data: Dict[str, Any]) -> None:
         json_file = self.get_hash_directory(url_hash) / METADATA_FILENAME
 
-        async with aiofiles.open(json_file, "w", encoding="utf-8") as f:
+        async with AsyncFile(json_file, "w", encoding="utf-8") as f:
             await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
 
     async def save_hash_content(self, url_hash: str, content: str) -> None:
         content_file = self.get_hash_directory(url_hash) / CONTENT_FILENAME
 
-        async with aiofiles.open(content_file, "w", encoding="utf-8") as f:
+        async with AsyncFile(content_file, "w", encoding="utf-8") as f:
             await f.write(content if content else "")
 
     async def save_page_json(self, page_number: int, data: Dict[str, Any]) -> None:
         json_file = self.get_page_directory(page_number) / METADATA_FILENAME
 
-        async with aiofiles.open(json_file, "w", encoding="utf-8") as f:
+        async with AsyncFile(json_file, "w", encoding="utf-8") as f:
             await f.write(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
 
     async def save_page_content(self, page_number: int, content: str) -> None:
         content_file = self.get_page_directory(page_number) / CONTENT_FILENAME
 
-        async with aiofiles.open(content_file, "w", encoding="utf-8") as f:
+        async with AsyncFile(content_file, "w", encoding="utf-8") as f:
             await f.write(content if content else "")

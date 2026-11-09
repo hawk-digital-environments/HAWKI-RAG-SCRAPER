@@ -1,7 +1,8 @@
-import os
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -34,10 +35,12 @@ def _log_startup_configuration() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_startup_configuration()
+    job_lifecycle.runtime_store()
     try:
         yield
     finally:
         await job_lifecycle.cancel_active_crawl_tasks()
+        job_lifecycle.close_runtime_stores()
         logger.info("Crawl4AI Service shutdown complete")
 
 

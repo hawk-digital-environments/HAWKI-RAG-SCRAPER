@@ -1,19 +1,23 @@
 """
 Generic sitemap/table scraper using crawl4ai.
 """
+
 import argparse
 import asyncio
 import json
 import logging
 import re
-from pathlib import Path
 import unicodedata
-from typing import Dict, List, Optional, Union, Pattern
+from pathlib import Path
+from typing import Dict, List, Optional, Pattern, Union
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from bs4 import BeautifulSoup
-from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CacheMode, CrawlerRunConfig
+
+from hawki_crawler.runtime.browser import SafeBrowser as AsyncWebCrawler
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
+from hawki_crawler.runtime.writes import open_sync
 
 try:
     import yaml  # type: ignore
@@ -354,8 +358,8 @@ class SitemapScraper:
         return output
 
     def _write_output(self, data: Dict[str, Dict[str, Optional[str]]]) -> None:
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.output_path.open("w", encoding="utf-8") as f:
+        guarded_mkdir(self.output_path.parent, parents=True, exist_ok=True)
+        with open_sync(self.output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         LOGGER.info("Saved %s records to %s", len(data), self.output_path)
 

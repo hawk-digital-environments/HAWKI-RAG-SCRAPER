@@ -3,8 +3,12 @@ import asyncio
 import json
 from pathlib import Path
 
+from hawki_crawler.crawler.storage.page_output import (
+    METADATA_FILENAME,
+    PAGE_ROOT_DIRNAME,
+)
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
-from hawki_crawler.crawler.storage.page_output import METADATA_FILENAME, PAGE_ROOT_DIRNAME
+from hawki_crawler.runtime.writes import unlink as guarded_unlink
 
 
 async def rebuild_manifest(job_dir: Path) -> int:
@@ -21,7 +25,7 @@ async def rebuild_manifest(job_dir: Path) -> int:
 
     manifest_path = storage.get_completed_urls_manifest_path()
     if manifest_path.exists():
-        manifest_path.unlink()
+        guarded_unlink(manifest_path)
 
     completed = 0
     for metadata_file in metadata_files:

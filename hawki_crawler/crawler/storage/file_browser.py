@@ -32,7 +32,7 @@ class FileBrowser:
 
         try:
             filepath = filepath.resolve()
-            if not str(filepath).startswith(str(self.job_dir.resolve())):
+            if not filepath.is_relative_to(self.job_dir.resolve()):
                 return None
         except Exception:
             return None

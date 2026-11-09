@@ -6,8 +6,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
-from bs4 import BeautifulSoup
 import html2text
+from bs4 import BeautifulSoup
 
 from hawki_crawler.crawler.parsing.content_helpers import (
     clean_html_for_markdown,
@@ -20,6 +20,7 @@ from hawki_crawler.crawler.parsing.content_quality import (
     detect_language_confidence,
 )
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
+from hawki_crawler.runtime.network import SafeSession
 
 
 class PageExtractor:
@@ -330,7 +331,7 @@ class PageExtractor:
                     page_dir = await self.create_page_directory(page_number)
                     images_dir = page_dir / "images"
 
-                async with aiohttp.ClientSession(headers=self.headers) as session:
+                async with SafeSession(headers=self.headers) as session:
                     for img_url in images:
                         filename = await self.download_image(img_url, session, images_dir)
                         if filename:

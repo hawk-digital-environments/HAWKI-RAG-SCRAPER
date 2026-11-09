@@ -30,12 +30,13 @@ Lifecycle:
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 from hawki_crawler.crawler.storage.asset_store import AssetStore
 from hawki_crawler.crawler.storage.completed_manifest import CompletedUrlManifestStore
 from hawki_crawler.crawler.storage.file_browser import FileBrowser
 from hawki_crawler.crawler.storage.page_store import PageStore
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 
 class StorageManager:
@@ -82,7 +83,7 @@ class StorageManager:
 
     def ensure_job_directory(self):
         """Create the job directory if it doesn't exist."""
-        self.job_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(self.job_dir, parents=True, exist_ok=True)
 
     def get_hash_directory(self, url_hash: str) -> Path:
         """

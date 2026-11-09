@@ -1,7 +1,10 @@
 import asyncio
-from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, CacheMode
+
 from bs4 import BeautifulSoup
+from crawl4ai.async_configs import BrowserConfig, CacheMode, CrawlerRunConfig
+
+from hawki_crawler.runtime.browser import SafeBrowser as AsyncWebCrawler
+
 
 async def test_crawl():
     url = "https://www.hawki.info/roadmap"
@@ -46,7 +49,7 @@ async def test_crawl():
             clean_text = '\n\n'.join(lines)
 
             print(f"\nExtracted text length: {len(clean_text)}")
-            print(f"\nFirst 1000 chars of extracted text:")
+            print("\nFirst 1000 chars of extracted text:")
             print(clean_text[:1000])
 
         print("\n=== Checking for images ===")

@@ -1,4 +1,5 @@
 import { crawlerApiBaseUrls } from './config';
+import { fetchEndpoints } from './fetch-endpoints.js';
 
 type ServerFetch = typeof fetch;
 
@@ -7,18 +8,5 @@ export async function fetchCrawler(
 	pathname: string,
 	init?: RequestInit
 ): Promise<{ response: Response; url: string }> {
-	const errors: string[] = [];
-	const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
-
-	for (const baseUrl of crawlerApiBaseUrls) {
-		const url = `${baseUrl.replace(/\/$/, '')}${normalizedPath}`;
-		try {
-			const response = await serverFetch(url, init);
-			return { response, url };
-		} catch (error) {
-			errors.push(`${url}: ${error}`);
-		}
-	}
-
-	throw new Error(errors.join('; ') || 'No crawler API endpoints configured');
+	return fetchEndpoints(crawlerApiBaseUrls, serverFetch, pathname, init);
 }

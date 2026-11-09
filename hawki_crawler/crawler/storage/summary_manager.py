@@ -47,8 +47,10 @@ Lifecycle:
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
-import aiofiles
+from typing import Any, Dict, Optional
+
+from hawki_crawler.runtime.writes import AsyncFile
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 LOGGER = logging.getLogger("crawler.summary")
 
@@ -84,14 +86,14 @@ class SummaryManager:
             summary: Summary dictionary to save
         """
         # Ensure job directory exists
-        self.job_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(self.job_dir, parents=True, exist_ok=True)
 
         # Add job_id to summary if not present
         if "job_id" not in summary:
             summary["job_id"] = self.job_id
 
         try:
-            async with aiofiles.open(self.summary_file, 'w', encoding='utf-8') as f:
+            async with AsyncFile(self.summary_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(summary, indent=2, ensure_ascii=False))
         except Exception as e:
             LOGGER.error("Error saving summary for %s: %s", self.job_id, e, extra={"job_id": self.job_id})
@@ -105,7 +107,7 @@ class SummaryManager:
         """
         try:
             if self.summary_file.exists():
-                async with aiofiles.open(self.summary_file, 'r', encoding='utf-8') as f:
+                async with AsyncFile(self.summary_file, 'r', encoding='utf-8') as f:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:

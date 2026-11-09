@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 import aiohttp
 from bs4 import BeautifulSoup
 
+from hawki_crawler.runtime.network import SafeSession
 
 LOGGER = logging.getLogger("crawler.sitemap")
 
@@ -49,7 +50,7 @@ class SitemapParser:
         """Parse sitemap resources and return crawlable URLs."""
         urls_with_dates = []
         try:
-            async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with SafeSession(headers=self.headers) as session:
                 async with session.get(
                     sitemap_url,
                     timeout=aiohttp.ClientTimeout(total=30),

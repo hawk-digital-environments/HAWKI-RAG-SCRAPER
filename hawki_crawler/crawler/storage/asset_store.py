@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Callable
 
-import aiofiles
+from hawki_crawler.runtime.writes import AsyncFile
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 
 class AssetStore:
@@ -32,17 +33,17 @@ class AssetStore:
         images_dir = self.get_hash_images_directory(url_hash)
         filepath = images_dir / filename
 
-        async with aiofiles.open(filepath, "wb") as f:
+        async with AsyncFile(filepath, "wb") as f:
             await f.write(image_data)
 
         return filename
 
     async def save_hash_pdf(self, url_hash: str, filename: str, pdf_data: bytes) -> str:
         files_dir = self.get_hash_files_directory(url_hash)
-        files_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(files_dir, parents=True, exist_ok=True)
         filepath = files_dir / filename
 
-        async with aiofiles.open(filepath, "wb") as f:
+        async with AsyncFile(filepath, "wb") as f:
             await f.write(pdf_data)
 
         return filename
@@ -51,17 +52,17 @@ class AssetStore:
         images_dir = self.get_images_directory(page_number)
         filepath = images_dir / filename
 
-        async with aiofiles.open(filepath, "wb") as f:
+        async with AsyncFile(filepath, "wb") as f:
             await f.write(image_data)
 
         return filename
 
     async def save_pdf(self, page_number: int, filename: str, pdf_data: bytes) -> str:
         files_dir = self.get_files_directory(page_number)
-        files_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(files_dir, parents=True, exist_ok=True)
         filepath = files_dir / filename
 
-        async with aiofiles.open(filepath, "wb") as f:
+        async with AsyncFile(filepath, "wb") as f:
             await f.write(pdf_data)
 
         return filename

@@ -111,6 +111,12 @@ FROM base AS test
 
 USER root
 
+# Disposable browser transport fixtures use local public/private IP aliases and
+# a private test CA. These tools do not alter production runtime configuration.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends iproute2 libnss3-tools
+
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 
 WORKDIR /tests
@@ -124,10 +130,12 @@ RUN /container/entrypoint/entrypoint.sh
 
 RUN --mount=type=cache,target=/root/.cache \
     uv sync --all-groups
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    uv run playwright install --with-deps chromium
+    uv run playwright install --with-deps chromium \
+    && chmod -R o+rX /opt/ms-playwright
 
 CMD ["uv", "run", "--no-sync", "pytest", "-vvv"]
 ENTRYPOINT []

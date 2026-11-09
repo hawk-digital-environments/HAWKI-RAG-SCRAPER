@@ -16,8 +16,12 @@ Lifecycle:
 
 import asyncio
 import time
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any, Dict
+
+from hawki_crawler.runtime.scope import current_scope
+from hawki_crawler.runtime.writes import assert_writable
+
 
 class ProgressTracker:
     """
@@ -38,6 +42,8 @@ class ProgressTracker:
         Args:
             emit_interval: Minimum interval between internal progress snapshots.
         """
+        scope = current_scope.get()
+        self._admission_path = scope.root if scope else None
         self.emit_interval = emit_interval
         self.last_emit_time = 0
         self.lock = asyncio.Lock()
@@ -72,6 +78,7 @@ class ProgressTracker:
 
     async def start(self):
         """Start the background emission task."""
+        assert_writable(self._admission_path)
         self.started_at = datetime.utcnow().isoformat() + "Z"
         self._emit_task = asyncio.create_task(self._emit_loop())
 
@@ -94,7 +101,9 @@ class ProgressTracker:
         Args:
             stage: One of "initialization", "scraping", "completed", "failed"
         """
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stage = stage
 
             if stage in ["completed", "failed"]:
@@ -105,13 +114,17 @@ class ProgressTracker:
 
     async def set_total_urls(self, total: int):
         """Set total number of URLs to process."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.total_urls = total
             self._should_emit = True
 
     async def set_current_url(self, url: str):
         """Set the URL currently being processed."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.current_url = url
             self._should_emit = True
 
@@ -120,7 +133,9 @@ class ProgressTracker:
         """
         Record details of the most recently completed URL.
         """
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.last_url_completion = {
                 "url": url,
                 "url_hash": url_hash,
@@ -133,56 +148,74 @@ class ProgressTracker:
 
     async def increment_completed(self):
         """Increment completed URL count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.completed_urls += 1
             self._should_emit = True
 
     async def increment_failed(self):
         """Increment failed URL count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.failed_urls += 1
             self._should_emit = True
 
     async def decrement_failed(self):
         """Decrement failed URL count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             if self.failed_urls > 0:
                 self.failed_urls -= 1
                 self._should_emit = True
 
     async def increment_requests(self):
         """Increment request count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["requests"] += 1
             self._should_emit = True
 
     async def increment_errors(self):
         """Increment error count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["errors"] += 1
             self._should_emit = True
 
     async def increment_warnings(self):
         """Increment warning count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["warnings"] += 1
             self._should_emit = True
 
     async def increment_pdfs(self, count: int = 1):
         """Increment PDF download count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["pdfs_downloaded"] += count
             self._should_emit = True
 
     async def increment_images(self, count: int = 1):
         """Increment image download count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["images_downloaded"] += count
             self._should_emit = True
 
     async def increment_sessions(self):
         """Increment session count."""
+        assert_writable(self._admission_path)
         async with self.lock:
+            assert_writable(self._admission_path)
             self.stats["sessions"] += 1
             self._should_emit = True
 
@@ -286,6 +319,7 @@ class ProgressTracker:
         Args:
             force: If True, emit regardless of time interval
         """
+        assert_writable(self._admission_path)
         current_time = time.time()
 
         # Check if enough time has passed (unless forced)

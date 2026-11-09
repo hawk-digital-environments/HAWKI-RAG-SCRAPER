@@ -30,6 +30,8 @@ ENV/
 env.bak/
 venv.bak/
 crawl4ai-env/
+!docker/custom/env/
+!docker/custom/env/10-service.env
 
 # IDE
 .idea/
@@ -42,6 +44,7 @@ output/
 *.log
 *.txt
 *.json
+!docker/browser-seccomp.json
 # !ui/package-lock.json
 # Environment variables
 .env

@@ -1,12 +1,13 @@
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from hawki_crawler.crawler.policies.resource_policy import ResourcePolicyClientMixin
 from hawki_crawler.crawler.sitemap.parser import SitemapParser
 from hawki_crawler.crawler.sitemap.scraper import SitemapScraper
 from hawki_crawler.crawler.sitemap.service import SitemapService
-from hawki_crawler.crawler.policies.resource_policy import ResourcePolicyClientMixin
+from hawki_crawler.runtime.browser import BrowserTransportUnavailable
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceSitemapMixinProtocol
@@ -67,7 +68,7 @@ class ServiceSitemapMixin(ResourcePolicyClientMixin):
         sitemap_profile = (getattr(self, "site_profile", {}) or {}).get("sitemap", {})
         base_url = self.sitemap_base or sitemap_profile.get("base_url")
         if not base_url:
-            return
+            raise ValueError("Sitemap scraping requires a sitemap source URL")
         output_path = Path(self.sitemap_path)
         start_page = self.config.sitemap_start_page or int(os.getenv("SITEMAP_START", str(sitemap_profile.get("start_page", "1"))))
         max_pages = self.config.sitemap_pages or int(os.getenv("SITEMAP_PAGES", str(sitemap_profile.get("pages", "6"))))
@@ -83,6 +84,8 @@ class ServiceSitemapMixin(ResourcePolicyClientMixin):
             await scraper.scrape()
             self.sitemap_map = self.load_sitemap_map(str(output_path))
             self.sitemap_urls = self.load_sitemap_urls(str(output_path))
+        except BrowserTransportUnavailable:
+            raise
         except Exception as e:
             LOGGER.error("Error scraping sitemap: %s", e, extra={"job_id": getattr(self, "job_id", None)})
 

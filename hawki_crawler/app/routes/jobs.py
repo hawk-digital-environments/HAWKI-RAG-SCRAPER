@@ -1,17 +1,25 @@
-import os
+from pathlib import Path as FilePath
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 from fastapi.responses import FileResponse
 
 from hawki_crawler.app import job_lifecycle
-from hawki_crawler.crawler.models import CrawlStatus
 from hawki_crawler.crawler.storage.storage_manager import StorageManager
 
 router = APIRouter()
+JobId = Annotated[str, Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,190}$")]
 
 
-@router.get("/status/{job_id}", response_model=CrawlStatus)
-async def get_status(job_id: str):
+def job_storage(job_id):
+    record = job_lifecycle.get_job_status(job_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return StorageManager(job_id, base_path=str(FilePath(record["output_directory"]).parent))
+
+
+@router.get("/status/{job_id}")
+async def get_status(job_id: JobId):
     """
     Get the status of a crawl job.
     """
@@ -31,22 +39,25 @@ async def list_jobs():
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job(job_id: JobId):
     """
     Delete a job from the jobs list.
     """
-    if not job_lifecycle.delete_job(job_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"message": f"Job {job_id} deleted successfully"}
+    try:
+        if not job_lifecycle.delete_job(job_id):
+            raise HTTPException(status_code=404, detail="Job not found")
+    except job_lifecycle.JobNotRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"message": f"Job {job_id} retired from listing; artifacts and sealed receipt retained"}
 
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
+async def cancel_job(job_id: JobId):
     """
     Cancel a running crawl job.
     """
     try:
-        return job_lifecycle.cancel_job(job_id)
+        return await job_lifecycle.cancel_job(job_id)
     except job_lifecycle.JobNotFoundError:
         raise HTTPException(status_code=404, detail="Job not found")
     except job_lifecycle.JobNotRunningError:
@@ -54,7 +65,7 @@ async def cancel_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str):
+async def pause_job(job_id: JobId):
     """
     Pause a running crawl job after the current URL/batch finishes.
     """
@@ -67,7 +78,7 @@ async def pause_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str):
+async def resume_job(job_id: JobId):
     """
     Resume a paused crawl job from its current in-memory URL queue.
     """
@@ -80,12 +91,11 @@ async def resume_job(job_id: str):
 
 
 @router.get("/jobs/{job_id}/files")
-async def list_job_files(job_id: str):
+async def list_job_files(job_id: JobId):
     """
     List all files for a specific job.
     """
-    base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
-    storage_manager = StorageManager(job_id, base_path=base_path)
+    storage_manager = job_storage(job_id)
 
     if not storage_manager.get_job_directory().exists():
         raise HTTPException(status_code=404, detail="Job not found or no data available")
@@ -106,12 +116,11 @@ async def list_job_files(job_id: str):
 
 
 @router.get("/jobs/{job_id}/files/{file_path:path}")
-async def download_job_file(job_id: str, file_path: str):
+async def download_job_file(job_id: JobId, file_path: str):
     """
     Download a specific file from a job's directory.
     """
-    base_path = os.getenv("DATA_PATH", "/var/www/html/shared")
-    storage_manager = StorageManager(job_id, base_path=base_path)
+    storage_manager = job_storage(job_id)
 
     absolute_path = storage_manager.get_file_path(file_path)
 

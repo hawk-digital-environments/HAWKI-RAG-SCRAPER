@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hawki_crawler.runtime.writes import AdmissionClosed, open_sync
+
 _KNOWN_CONTEXT_KEYS = {
     "job_id",
     "trace_id",
@@ -90,6 +92,22 @@ class JobContextFilter(logging.Filter):
         return True
 
 
+class FencedJobHandler(logging.Handler):
+    """Open only for an admitted emit; no buffered log stream survives sealing."""
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+
+    def emit(self, record):
+        try:
+            with open_sync(self.path, "a", encoding="utf-8") as stream:
+                stream.write(self.format(record) + "\n")
+        except AdmissionClosed:
+            # Late log records may go to stdout but cannot reopen sealed artifacts.
+            return
+
+
 def configure_job_file_logger(job_id: str, log_path: Path) -> logging.LoggerAdapter:
     """Attach the per-job crawler log file handler once and return its adapter."""
     logger = logging.getLogger(f"crawler.{job_id}")
@@ -98,7 +116,10 @@ def configure_job_file_logger(job_id: str, log_path: Path) -> logging.LoggerAdap
         if getattr(handler, "name", "") == handler_name:
             return logging.LoggerAdapter(logger, {"job_id": job_id})
 
-    handler = logging.FileHandler(log_path)
+    # Create the empty log eagerly for existing artifact consumers.
+    with open_sync(log_path, "a", encoding="utf-8"):
+        pass
+    handler = FencedJobHandler(log_path)
     handler.name = handler_name
     handler.setLevel(parse_log_level(os.getenv("JOB_LOG_FILE_LEVEL", "INFO"), logging.INFO))
     handler.setFormatter(

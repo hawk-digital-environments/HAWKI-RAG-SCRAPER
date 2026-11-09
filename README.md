@@ -73,6 +73,7 @@ Comprehensive documentation is available in the [_documentation](_documentation)
 folder:
 
 - [API Reference](_documentation/API_REFERENCE.md)
+- [External Runtime Contract and Browser Safety Gate](_documentation/EXTERNAL_RUNTIME.md)
 - [Architecture](_documentation/ARCHITECTURE.md)
 - [Deployment Guide](_documentation/DEPLOYMENT.md)
 - [Configuration Guide](_documentation/CONFIGURATION.md)

@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-import aiofiles
 import aiohttp
+
+from hawki_crawler.runtime.writes import AsyncFile
 
 
 class ImageDownloader:
@@ -62,7 +63,7 @@ class ImageDownloader:
                 image_data = await response.read()
 
                 image_path = images_dir / filename
-                async with aiofiles.open(image_path, "wb") as f:
+                async with AsyncFile(image_path, "wb") as f:
                     await f.write(image_data)
 
                 return filename

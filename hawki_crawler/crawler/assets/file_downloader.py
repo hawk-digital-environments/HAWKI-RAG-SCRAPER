@@ -12,6 +12,7 @@ from aiohttp.http_exceptions import ContentLengthError
 from hawki_crawler.crawler.assets.asset_saver import AssetSaver
 from hawki_crawler.crawler.parsing.resource_parser import ResourceParser
 from hawki_crawler.crawler.policies.resource_policy import ResourcePolicy
+from hawki_crawler.runtime.network import SafeSession
 
 
 class FileDownloader:
@@ -48,7 +49,7 @@ class FileDownloader:
 
         cleanup_session = False
         if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
+            session = SafeSession(headers=self.headers)
             cleanup_session = True
 
         last_error = None
@@ -124,7 +125,7 @@ class FileDownloader:
 
         cleanup_session = False
         if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
+            session = SafeSession(headers=self.headers)
             cleanup_session = True
 
         last_error = None

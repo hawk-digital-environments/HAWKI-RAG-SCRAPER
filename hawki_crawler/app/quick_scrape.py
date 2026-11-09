@@ -4,8 +4,9 @@ from urllib.parse import urljoin
 
 import html2text
 from bs4 import BeautifulSoup
-from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CacheMode, CrawlerRunConfig
+
+from hawki_crawler.runtime.browser import SafeBrowser as AsyncWebCrawler
 
 
 async def extract_page_content(url: str, skip_images: bool = False, date_selector: str = None) -> Dict:

@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-import aiofiles
+from hawki_crawler.runtime.writes import AsyncFile
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 
 class AssetSaver:
@@ -47,9 +48,9 @@ class AssetSaver:
         else:
             page_dir = await self.create_page_directory(page_number, create_files_dir=True)
             files_dir = page_dir / "files"
-            files_dir.mkdir(exist_ok=True)
+            guarded_mkdir(files_dir, exist_ok=True)
             filepath = files_dir / filename
-            async with aiofiles.open(filepath, "wb") as f:
+            async with AsyncFile(filepath, "wb") as f:
                 await f.write(file_bytes)
 
         result = {

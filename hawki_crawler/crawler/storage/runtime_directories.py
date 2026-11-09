@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
+
 
 async def setup_output_directory(
     *,
@@ -15,7 +17,7 @@ async def setup_output_directory(
     if storage_manager:
         storage_manager.ensure_job_directory()
     else:
-        output_dir.mkdir(parents=True, exist_ok=True)
+        guarded_mkdir(output_dir, parents=True, exist_ok=True)
 
 
 async def create_runtime_page_directory(
@@ -35,14 +37,14 @@ async def create_runtime_page_directory(
         )
 
     page_dir = output_dir / f"page_{page_number:05d}"
-    page_dir.mkdir(exist_ok=True)
+    guarded_mkdir(page_dir, exist_ok=True)
 
     if not skip_images:
         images_dir = page_dir / "images"
-        images_dir.mkdir(exist_ok=True)
+        guarded_mkdir(images_dir, exist_ok=True)
 
     if create_files_dir:
         files_dir = page_dir / "files"
-        files_dir.mkdir(exist_ok=True)
+        guarded_mkdir(files_dir, exist_ok=True)
 
     return page_dir

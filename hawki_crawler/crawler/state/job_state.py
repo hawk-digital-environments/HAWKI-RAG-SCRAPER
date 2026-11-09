@@ -11,14 +11,16 @@ This replaces the old JobStateManager with a more object-oriented approach
 where the state itself is the primary object, not just a manager.
 """
 
-import json
 import asyncio
+import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime
-import aiofiles
-from dataclasses import dataclass, asdict, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+
+from hawki_crawler.runtime.writes import AsyncFile, assert_writable
+from hawki_crawler.runtime.writes import mkdir as guarded_mkdir
 
 LOGGER = logging.getLogger("crawler.job_state")
 
@@ -120,10 +122,13 @@ class JobState:
         Initialize the job directory and create initial state file.
         Must be called before using the job state.
         """
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             if self.state_file.exists():
                 try:
-                    async with aiofiles.open(self.state_file, 'r', encoding='utf-8') as f:
+                    async with AsyncFile(self.state_file, 'r', encoding='utf-8') as f:
+                        assert_writable(self.state_file)
                         content = await f.read()
                         data = json.loads(content)
                         self._data = JobStateData(**data)
@@ -139,7 +144,7 @@ class JobState:
                     )
 
             # Create job directory
-            self.job_dir.mkdir(parents=True, exist_ok=True)
+            guarded_mkdir(self.job_dir, parents=True, exist_ok=True)
 
             # Set initial timestamps
             now = datetime.utcnow().isoformat() + "Z"
@@ -151,8 +156,9 @@ class JobState:
 
     async def _write_state(self):
         """Write current state to disk."""
+        assert_writable(self.state_file)
         try:
-            async with aiofiles.open(self.state_file, 'w', encoding='utf-8') as f:
+            async with AsyncFile(self.state_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(self._data.to_dict(), indent=2, ensure_ascii=False))
         except Exception as e:
             LOGGER.warning(
@@ -212,7 +218,9 @@ class JobState:
         Args:
             status: One of "pending", "running", "completed", "failed"
         """
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.status = status
 
             if status in ["completed", "failed", "cancelled"]:
@@ -222,19 +230,25 @@ class JobState:
 
     async def set_total_urls(self, total: int):
         """Set the total number of URLs to crawl."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.total_urls = total
             await self._update_timestamp_and_persist()
 
     async def set_current_url(self, url: str):
         """Set the URL currently being processed."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.current_url = url
             await self._update_timestamp_and_persist()
 
     async def increment_completed(self):
         """Increment the count of completed URLs."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.completed_urls += 1
             processed = self._data.completed_urls + self._data.failed_urls
             if processed > self._data.total_urls:
@@ -243,7 +257,9 @@ class JobState:
 
     async def increment_failed(self):
         """Increment the count of failed URLs."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.failed_urls += 1
             processed = self._data.completed_urls + self._data.failed_urls
             if processed > self._data.total_urls:
@@ -252,14 +268,18 @@ class JobState:
 
     async def decrement_failed(self):
         """Decrement the count of failed URLs."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             if self._data.failed_urls > 0:
                 self._data.failed_urls -= 1
                 await self._update_timestamp_and_persist()
 
     async def set_error(self, error: str):
         """Set error message and mark job as failed."""
+        assert_writable(self.state_file)
         async with self._lock:
+            assert_writable(self.state_file)
             self._data.error = error
             self._data.status = "failed"
             self._data.completed_at = datetime.utcnow().isoformat() + "Z"
@@ -285,7 +305,7 @@ class JobState:
         """
         try:
             if self.state_file.exists():
-                async with aiofiles.open(self.state_file, 'r', encoding='utf-8') as f:
+                async with AsyncFile(self.state_file, 'r', encoding='utf-8') as f:
                     content = await f.read()
                     return json.loads(content)
         except Exception as e:

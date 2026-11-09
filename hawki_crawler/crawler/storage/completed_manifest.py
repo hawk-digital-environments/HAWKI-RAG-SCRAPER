@@ -4,9 +4,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import aiofiles
-
-from hawki_crawler.crawler.storage.page_output import CONTENT_FILENAME, METADATA_FILENAME
+from hawki_crawler.crawler.storage.page_output import (
+    CONTENT_FILENAME,
+    METADATA_FILENAME,
+)
+from hawki_crawler.runtime.writes import AsyncFile
 
 
 class CompletedUrlManifestStore:
@@ -78,7 +80,7 @@ class CompletedUrlManifestStore:
             manifest["total_completed"] = len(records)
             manifest["records"] = records
 
-            async with aiofiles.open(self.get_path(), "w", encoding="utf-8") as f:
+            async with AsyncFile(self.get_path(), "w", encoding="utf-8") as f:
                 await f.write(json.dumps(manifest, indent=2, ensure_ascii=False, allow_nan=False))
 
     def _resolve_page_directory(
@@ -169,7 +171,7 @@ class CompletedUrlManifestStore:
             return manifest
 
         try:
-            async with aiofiles.open(manifest_path, "r", encoding="utf-8") as f:
+            async with AsyncFile(manifest_path, "r", encoding="utf-8") as f:
                 existing = json.loads(await f.read())
             if isinstance(existing, dict):
                 manifest.update(existing)

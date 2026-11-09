@@ -1,18 +1,21 @@
 import asyncio
 import time
+from contextlib import nullcontext
 from datetime import datetime
-from typing import Dict, Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
 from urllib.parse import urlparse
 
 import aiohttp
-from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig
 
 from hawki_crawler.crawler.core.execution.summary import finalize_crawl_summary
 from hawki_crawler.crawler.policies.resource_policy import ResourcePolicyClientMixin
 from hawki_crawler.crawler.state.stage import Stage
-from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
 from hawki_crawler.crawler.storage.page_output import build_page_metadata
+from hawki_crawler.crawler.storage.url_tracking_manager import generate_url_hash
+from hawki_crawler.runtime.browser import SafeBrowser as AsyncWebCrawler
+from hawki_crawler.runtime.network import SafeSession
+from hawki_crawler.runtime.writes import assert_writable
 
 if TYPE_CHECKING:
     from hawki_crawler.crawler.core.protocols import ServiceCrawlExecutionMixinProtocol
@@ -295,7 +298,7 @@ class ServiceCrawlExecutionMixin(ResourcePolicyClientMixin):
                         url,
                     )
                     if pdf_links:
-                        async with aiohttp.ClientSession(headers=self.headers) as pdf_session:
+                        async with SafeSession(headers=self.headers) as pdf_session:
                             for pdf_url in pdf_links:
                                 pdf_entry = await self.fetch_and_save_pdf(
                                     pdf_url,
@@ -312,7 +315,7 @@ class ServiceCrawlExecutionMixin(ResourcePolicyClientMixin):
                         url,
                     )
                     if file_links:
-                        async with aiohttp.ClientSession(headers=self.headers) as file_session:
+                        async with SafeSession(headers=self.headers) as file_session:
                             for file_url in file_links:
                                 file_entry = await self.fetch_and_save_file(
                                     file_url,
@@ -471,15 +474,12 @@ class ServiceCrawlExecutionMixin(ResourcePolicyClientMixin):
 
     async def crawl(self: "ServiceCrawlExecutionMixinProtocol") -> Dict:
         """Run the complete crawl job from initialization through final summary."""
+        assert_writable(self.output_dir)
         try:
             if self.http_session is None or self.http_session.closed:
-                connector = aiohttp.TCPConnector(
-                    limit=self.config.max_concurrency,
-                    limit_per_host=self.config.max_concurrency
-                )
-                self.http_session = aiohttp.ClientSession(
+                self.http_session = SafeSession(
                     headers=self.headers,
-                    connector=connector,
+                    limit=self.config.max_concurrency,
                     timeout=aiohttp.ClientTimeout(total=120)
                 )
 
@@ -650,7 +650,12 @@ class ServiceCrawlExecutionMixin(ResourcePolicyClientMixin):
 
             while True:
                 # The browser can be restarted between batches if memory or browser health requires it.
-                async with AsyncWebCrawler(config=browser_config) as crawler:
+                browser_context = (
+                    AsyncWebCrawler(config=browser_config)
+                    if any(not self.resource_policy.looks_like_file_url(url) for url in self.to_visit)
+                    else nullcontext(None)
+                )
+                async with browser_context as crawler:
                     self.browser_last_restart = time.monotonic()
                     await self._run_crawl_batches(crawler)
                     if self.abort_crawl:

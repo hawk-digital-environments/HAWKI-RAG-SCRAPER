@@ -7,12 +7,13 @@ from crawl4ai.async_configs import CacheMode, CrawlerRunConfig
 
 from hawki_crawler.crawler.core.runtime.defaults import default_http_headers
 from hawki_crawler.crawler.models import CrawlConfig
+from hawki_crawler.runtime.network import SafeSession
 
 
 async def fallback_fetch_html(url: str) -> str:
     """Fetch static HTML when the browser result is blocked or unusable."""
     timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(headers=default_http_headers(), timeout=timeout) as session:
+    async with SafeSession(headers=default_http_headers(), timeout=timeout) as session:
         async with session.get(url) as response:
             response.raise_for_status()
             return await response.text()
