@@ -24,7 +24,6 @@ wheels/
 
 # Virtual environments
 .venv/
-env/
 venv/
 ENV/
 env.bak/
@@ -68,3 +67,7 @@ data/jobs
 # The production deployment example ships the forbidden-urls sample file,
 # even though "*.txt" is ignored for the runtime data it collects.
 !_docker_production/forbidden_urls.txt
+
+# Ensure the docker environment variables are committed to the repository
+!docker/custom/env
+!docker/custom/**/.env
